@@ -71,7 +71,7 @@
 
 | # | 里程碑 | 内容 | 出口条件（全部满足） |
 |---|---|---|---|
-| **M1** | 骨架与门禁 | package.json（exports 三项、`dsh.bundle.patch`、`dsh.client.inject/platform`）、tsconfig×2、tsdown.config.ts、tsdown.client.ts、vitest.config.ts、cordis.patch.yml、.gitignore、LICENSE、README 骨架；`src/index.ts`（`export const name`+Config）、`src/client/index.ts`（空 apply）；首个实现 commit（基线 commit = `8d85c4b` 的 PLAN.md） | `pnpm install` exit 0；`pnpm typecheck` exit 0；`pnpm test` exit 0 且 Tests ≥ 1；`pnpm build` 后 `lib/index.js` 与 `lib/client.js` 存在；`node -e "const p=require('./package.json');…"` 打印 exports/dsh 四项均非空 |
+| **M1** | 骨架与门禁 | package.json（exports 三项、`dsh.bundle.patch`、`dsh.client.inject/platform`）、tsconfig×2、tsdown.config.ts、tsdown.client.ts、vitest.config.ts、cordis.patch.yml、.gitignore、LICENSE、README 骨架；`src/index.ts`（`export const name` + 空 `apply`；`Config` 顺延到 M5）、`src/client/index.ts`（空 apply）；首个实现 commit（基线 commit = `8d85c4b` 的 PLAN.md） | `pnpm install` exit 0；`pnpm typecheck` exit 0；`pnpm test` exit 0 且 Tests ≥ 1；`pnpm build` 后 `lib/index.js` 与 `lib/client.js` 存在；`node -e "const p=require('./package.json');…"` 打印 exports/dsh 四项均非空 |
 | **M2** | token 取证 | `scripts/extract-dsw-tokens.mjs`：从 `app.asar` 按 asar 头解析并解出 `design-platform.css`（两条候选路径），切出 light（`body`）与 dark（`[data-ds-dark-theme]`）两块；产出 `themes/dsw-tokens.json` + `meta{dshVersion,sha256,counts}`；`scripts/verify-tokens.mjs` 对差参考 190 名单 | `node scripts/extract-dsw-tokens.mjs` exit 0；`node scripts/verify-tokens.mjs` 打印 `missing=0`；`themes/dsw-tokens.json` 中 light 与 dark 各 ≥190 键；`pnpm test -- tests/tokens.spec.ts` 全绿 |
 | **M3** | 调色板生成 | `themes/moonset-palette.json`（附录 A 的 16 色 × 2 模式，人工可编辑的唯一源）；`scripts/generate-palettes.mjs` 按家族 mix 阶梯产出 `src/client/palettes.ts`（`MOONSET_LIGHT`/`MOONSET_DARK`，各 190 键）；≥10 条对比度契约写进测试 | 连跑两次 `node scripts/generate-palettes.mjs` 后 `certutil -hashfile src/client/palettes.ts SHA256` 两次输出相同；`pnpm test -- tests/palettes.spec.ts` 全绿且该文件断言数 ≥10 |
 | **M4** | 双主题注册 + 跟随系统 | client 半区：`tolerantRegistration` 包住 `theme.register({id:'moonset-light'…})` 与 `moonset-dark`；跟随系统走 `theme.overrideTokens('moonset-follow',{token:{light,dark}})`，偏好留 `system` | `pnpm test -- tests/theme.spec.ts` 全绿（含 4 条：注册两个 id、重复注册不抛、dispose 后可重注册、跟随层 light/dark 各自取值） |
@@ -86,7 +86,7 @@
 
 | 里程碑 | 状态 | 证据 |
 |---|---|---|
-| **M1** | ⬜ | — |
+| **M1** | ✅ | commit `67d7ece`；审计自跑：`pnpm install`/`typecheck`/`typecheck:tests`/`test`(3 passed)/`build` 全 exit 0，`lib/index.js`+`lib/client.js` 存在且 `node --check` 通过，manifest 四项非空；`git diff --stat b1ec8cc..HEAD` = 15 files，`PLAN.md` 改动 0 行，参考仓库 `git status` 0 行、HEAD 仍 `d8e314d` |
 | **M2** | ⬜ | — |
 | **M3** | ⬜ | — |
 | **M4** | ⬜ | — |
@@ -142,6 +142,9 @@
 3. **主题 id 一律 `moonset-` 前缀**，设置命名空间、locale 命名空间同理，不与 catppuccin 争位（D3）。
 4. **不移植玻璃层**：材质是 catppuccin 的独立子系统（`glass.module.css` 131KB + 一身 `[data-dsh-glass]` 钩子），
    移植它会把"配色插件"变成"皮肤插件"，且与新配色无语义关系。
+5. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
+   设置 schema 的字段只有 M5 的持久化需求能定义，提前写只会是空壳；此处以"契约服从最小可验收"修订，
+   派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
 **已知债**
 - 桌面壳（Electron，`profiles/desktop`）未验；本计划只覆盖 web profile。
@@ -149,6 +152,11 @@
 - TUI 主题（`~/.dsh-tui/themes/`）不做：`dsh-tui` 只读目录、无注册 API，属于另一条发布面。
 - npm 发布不在本次范围，任何 `npm publish` / `git push --tags` 须人类口令。
 - 与 catppuccin 的 CSS 同时生效时"谁的 `--dsw-*` 赢"由内联样式顺序决定，M7 只做功能够用的验证，不做像素级 A/B。
+- **M1 带出的四条债**（不影响 M1 判定，但后续里程碑必须处理）：
+  1. `dsh.client.inject` 目前 4 条（缺 `dsh-client-connection` / `dsh-api-remotes`）——M5 若用到远端设置失效通知需补回，否则 M7 可能出现 `entry(s) did not activate`。
+  2. `tsdown.client.ts` 已删掉参考仓库的 CSS Modules 内联管线（`lightningcss`）——M5 的设置行要么用内联样式，要么把管线与依赖加回来，二选一要在 M5 派单里写死。
+  3. 没有 `prepare` 脚本：M7 用 `link:` 装进 web profile 之前必须先跑 `pnpm build`，否则装进去的包没有 `lib/`。
+  4. 仓库无 `.gitattributes`（本机 `core.autocrlf=true`）：行尾会在检出时漂成 CRLF，需要时单独加 `* text=auto eol=lf`。
 
 ## 附录 A：moonset 源色板（本计划的输入）
 
