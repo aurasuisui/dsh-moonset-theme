@@ -12,11 +12,28 @@
  *   `ctx.configForms.get('dsh-moonset')`  →  `{ choice }`  →  `form.set('choice', …)`
  *
  * Scope of this module (deliberately small, and deliberately DOM-free):
- * read, write, notify, dispose. It never touches styles, never calls
+ * read, write, flush, notify, dispose. It never touches styles, never calls
  * `setTheme`, and never applies a policy — `choice.ts` owns the policy and
- * `index.ts` owns the wiring. The echo race (a late document echo reverting a
- * newer local pick) is M5.1's job; {@link DurableChoice.writes} already counts
- * what would let that milestone assert on it.
+ * `index.ts` owns the wiring.
+ *
+ * **M5.1 — the echo race and the fast-switch guard.** Two mechanisms live down
+ * here, below the policy, so `choice.ts` stays a pure function:
+ *
+ *  - **A write QUEUE (`WRITE_DEBOUNCE_MS`, last value wins).** A pick becomes
+ *    an INTENT rather than an immediate write: three clicks inside one burst
+ *    land as ONE settings write carrying the last value. {@link
+ *    DurableChoice.flush} lands it early, and {@link DurableChoice.dispose}
+ *    flushes before the form is released, so an unload can never swallow a
+ *    click that has not reached the document yet.
+ *  - **An INTENT WATERMARK.** While an intent is unlanded, {@link
+ *    DurableChoice.read} answers with the INTENT — a document echo cannot
+ *    become the local answer, hence cannot be re-applied over a newer pick.
+ *    Once a snapshot has been accepted, any echo carrying a revision BELOW the
+ *    accepted high-water mark is dropped as out of order.
+ *
+ * The invariant that keeps both honest: `write()` is called by user actions
+ * and by the mirror rule in `index.ts` only; the echo path NEVER writes back,
+ * so a late snapshot can only ever be ignored, never re-persisted.
  *
  * Degradation is the pre-M5 status quo, never a crash: a host that serves no
  * `configForms` service (or no form for this entry) reports `off` and warns on
@@ -38,6 +55,16 @@ import { resolveChoice, type MoonsetChoice } from './choice.ts'
  */
 export const MOONSET_ENTRY_ID = 'dsh-moonset'
 
+/**
+ * How long one pick waits for the burst to end before it is persisted (M5.1).
+ *
+ * Long enough that a double click — or a click that corrects a misread row —
+ * lands as a single write; short enough that a deliberate single pick is
+ * durable inside the same interaction. Exported so the tests advance exactly
+ * this window instead of restating a magic number.
+ */
+export const WRITE_DEBOUNCE_MS = 300
+
 /** The section the Host's volatile `Config` projects (client view: plain values). */
 export interface MoonsetSettingsSection {
   /** One of `MoonsetChoice`'s values; unknown while the form is still loading. */
@@ -46,16 +73,28 @@ export interface MoonsetSettingsSection {
 
 /** The small durable surface the settings section and the boot path consume. */
 export interface DurableChoice {
-  /** Last accepted choice, or `off` while no form is bound / nothing is stored. */
+  /**
+   * The user's CURRENT choice: a queued intent when one exists, otherwise the
+   * last value the form told us. Never a value older than the local pick.
+   */
   read(): MoonsetChoice
-  /** Persist one choice (fire-and-forget; a missing form warns and keeps going). */
+  /**
+   * Record an intent and queue it for persistence (debounced, last value
+   * wins). Never called by the echo path.
+   */
   write(choice: MoonsetChoice): void
-  /** Observe snapshot changes and late bindings; returns the unsubscribe. */
+  /** Land a queued intent now instead of waiting for the window. Idempotent. */
+  flush(): void
+  /** Observe accepted snapshot changes and late bindings; returns the unsubscribe. */
   subscribe(listener: () => void): () => void
-  /** Release the form listener and the injection fiber. Safe to call twice. */
+  /** Flush, then release the form listener and the injection fiber. Safe twice. */
   dispose(): void
-  /** Writes that reached the form (diagnostics for M5.1's echo assertions). */
+  /** Writes that actually reached the form (diagnostics for the echo tests). */
   readonly writes: number
+  /** The queued-but-unlanded intent, if any (the boot restore consults it). */
+  readonly pendingLocal: MoonsetChoice | undefined
+  /** Highest snapshot revision accepted as the document's answer (-1 = none). */
+  readonly revision: number
 }
 
 /**
@@ -71,7 +110,7 @@ function warn(what: string, error: unknown): void {
 
 /**
  * Bind the Host-projected settings form for this plugin and expose it as a
- * read/write/subscribe facade.
+ * read/write/flush/subscribe facade.
  *
  * The binding is late and optional: `ctx.inject(['configForms'], …)` fires once
  * the settings service is available (immediately on a composed host), and the
@@ -88,6 +127,20 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
   let fiber: ReturnType<ClientContext['inject']> | undefined
   let disposed = false
   let writes = 0
+
+  /** Last value the FORM told us and we accepted — the document's own answer. */
+  let confirmed: MoonsetChoice = 'off'
+  /** Whether {@link confirmed} was seeded from a live snapshot. */
+  let seeded = false
+  /** An intent the user (or the mirror rule) expressed that has not landed. */
+  let pendingLocal: MoonsetChoice | undefined
+  /** The intent already handed to the form and not echoed yet (one write each). */
+  let sent: MoonsetChoice | undefined
+  /** Highest accepted namespace revision; echoes below it are out of order. */
+  let watermark = -1
+  /** The pending debounce handle (cleared by flush/dispose). */
+  let timer: ReturnType<typeof setTimeout> | undefined
+
   const listeners = new Set<() => void>()
 
   const notify = (): void => {
@@ -95,10 +148,157 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
     for (const listener of [...listeners]) listener()
   }
 
+  /** Read one snapshot, narrowed to the two facts the guard needs. */
+  const snapshotOf = (
+    current: ConfigForm<MoonsetSettingsSection>,
+  ): { value: MoonsetChoice; revision: number } | undefined => {
+    try {
+      const snapshot: ConfigFormSnapshot<MoonsetSettingsSection> = current.getSnapshot()
+      return {
+        value: resolveChoice(snapshot.value?.choice),
+        revision: typeof snapshot.revision === 'number' ? snapshot.revision : watermark,
+      }
+    } catch (error) {
+      warn('could not read the settings form', error)
+      return undefined
+    }
+  }
+
+  /** Adopt the document's answer once, without ever overriding an intent. */
+  const seed = (): void => {
+    if (seeded || pendingLocal !== undefined) return
+    const current = form
+    if (current === undefined) return
+    const snapshot = snapshotOf(current)
+    if (snapshot === undefined) return
+    confirmed = snapshot.value
+    seeded = true
+    if (snapshot.revision > watermark) watermark = snapshot.revision
+  }
+
+  /**
+   * Decide what one snapshot echo may change.
+   *
+   * Three rules, in priority order:
+   *  1. an unlanded intent outranks every echo — the only echo it accepts is
+   *     the one carrying its own value (that is the intent landing);
+   *  2. a revision below the accepted high-water mark is an out-of-order echo
+   *     and is dropped;
+   *  3. an echo equal to the accepted answer changes nothing (no write, no
+   *     re-apply).
+   * @param value - the echo's narrowed choice.
+   * @param revision - the echo's namespace revision.
+   * @returns whether the accepted answer changed (and listeners must re-read).
+   */
+  const adopt = (value: MoonsetChoice, revision: number): boolean => {
+    if (pendingLocal !== undefined) {
+      if (value !== pendingLocal) return false
+      pendingLocal = undefined
+      sent = undefined
+      confirmed = value
+      seeded = true
+      if (revision > watermark) watermark = revision
+      return true
+    }
+    if (seeded && revision < watermark) return false
+    if (seeded && value === confirmed) {
+      if (revision > watermark) watermark = revision
+      return false
+    }
+    confirmed = value
+    seeded = true
+    if (revision > watermark) watermark = revision
+    return true
+  }
+
+  const onFormChange = (): void => {
+    if (disposed) return
+    const current = form
+    if (current === undefined) return
+    const snapshot = snapshotOf(current)
+    if (snapshot === undefined) return
+    // A discarded echo is not a state change: notifying here would let the
+    // boot restore re-read (and potentially re-apply) a value we just refused.
+    if (adopt(snapshot.value, snapshot.revision)) notify()
+  }
+
+  /**
+   * Land the queued intent now.
+   *
+   * Safe to call with nothing queued (a no-op) and safe to call after a form
+   * write already started: the intent stays set until an echo — or the write's
+   * own settlement — confirms it, so a second flush cannot double-write it.
+   */
+  const flush = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    const value = pendingLocal
+    if (value === undefined) return
+    // One intent, one write: a second flush (an unload that lands after the
+    // window closed but before the document echoed) must not re-send it. The
+    // marker clears on the echo or on the write's own settlement.
+    if (value === sent) return
+    const current = form
+    if (current === undefined) {
+      // Only reachable when the form unbinds between the queue and the flush.
+      pendingLocal = undefined
+      sent = undefined
+      warn('could not persist the pending choice', new Error(`no settings form for "${MOONSET_ENTRY_ID}"`))
+      return
+    }
+    writes += 1
+    sent = value
+    let result: Promise<boolean>
+    try {
+      result = current.set('choice', value)
+    } catch (error) {
+      pendingLocal = undefined
+      sent = undefined
+      warn('settings write failed', error)
+      return
+    }
+    try {
+      // Fire-and-forget by contract. A rejected transport write must not
+      // surface as an unhandled rejection.
+      void Promise.resolve(result).then(
+        () => {
+          // A form whose commit does not notify still has to settle the
+          // intent, otherwise every later echo would look stale forever.
+          if (pendingLocal !== value) return
+          pendingLocal = undefined
+          sent = undefined
+          confirmed = value
+          seeded = true
+          const snapshot = current === form ? snapshotOf(current) : undefined
+          if (snapshot !== undefined && snapshot.revision > watermark) watermark = snapshot.revision
+        },
+        (error: unknown) => {
+          // The document refused it: drop the phantom intent so the next echo
+          // is authoritative again. The theme stays applied for this session —
+          // only the memory of it is lost.
+          if (pendingLocal === value) pendingLocal = undefined
+          // A refused write is no longer "in flight": a later form can retry it.
+          if (sent === value) sent = undefined
+          warn('settings write failed', error)
+        },
+      )
+    } catch (error) {
+      warn('settings write failed', error)
+    }
+  }
+
   const unbind = (): void => {
     const release = releaseForm
     releaseForm = undefined
     form = undefined
+    // A rebind re-seeds from the new form; the high-water mark belongs to the
+    // form that reported it.
+    seeded = false
+    confirmed = 'off'
+    watermark = -1
+    sent = undefined
     if (release === undefined) return
     try {
       release()
@@ -111,11 +311,12 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
     unbind()
     form = next
     try {
-      releaseForm = next.subscribe(notify)
+      releaseForm = next.subscribe(onFormChange)
     } catch (error) {
       // A form whose subscribe is unavailable still reads and writes.
       warn('could not subscribe to the settings form', error)
     }
+    seed()
     // A late binding IS a state change: readers that already rendered must
     // re-read (that is also what the boot restore listens for).
     notify()
@@ -138,17 +339,14 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
 
   return {
     read(): MoonsetChoice {
-      const current = form
-      if (current === undefined) return 'off'
-      try {
-        const snapshot: ConfigFormSnapshot<MoonsetSettingsSection> = current.getSnapshot()
-        return resolveChoice(snapshot.value?.choice)
-      } catch (error) {
-        warn('could not read the settings form', error)
-        return 'off'
-      }
+      // The intent is the newest thing we know: a document echo that has not
+      // confirmed it yet must not become the local answer (M5.1).
+      if (pendingLocal !== undefined) return pendingLocal
+      seed()
+      return seeded ? confirmed : 'off'
     },
     write(choice: MoonsetChoice): void {
+      if (disposed) return
       const current = form
       if (current === undefined) {
         // Not a fault to recover from: the host serves no form for this entry,
@@ -159,23 +357,36 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
         )
         return
       }
-      writes += 1
-      try {
-        // Fire-and-forget by contract; the echo guard is M5.1. A rejected
-        // transport write must not surface as an unhandled rejection.
-        void Promise.resolve(current.set('choice', choice)).catch((error: unknown) => {
-          warn('settings write failed', error)
-        })
-      } catch (error) {
-        warn('settings write failed', error)
+      // Already queued, or already what the document says: no write, and no
+      // window to open.
+      if (choice === pendingLocal) return
+      if (pendingLocal === undefined) {
+        seed()
+        if (seeded && choice === confirmed) return
       }
+      pendingLocal = choice
+      if (timer !== undefined) clearTimeout(timer)
+      const handle = setTimeout(() => {
+        timer = undefined
+        flush()
+      }, WRITE_DEBOUNCE_MS) as ReturnType<typeof setTimeout> & { unref?: () => void }
+      // A Node test runner would otherwise stay alive for a queued intent; the
+      // browser's numeric handle has no unref, and this guard is what keeps one
+      // bundle side from assuming the other's timer shape.
+      if (typeof handle.unref === 'function') handle.unref()
+      timer = handle
     },
+    flush,
     subscribe(listener: () => void): () => void {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
     },
     dispose(): void {
       if (disposed) return
+      // BEFORE the form is released: an intent the user already expressed must
+      // still land, or unloading the plugin would lose the click that caused
+      // it (M5.1 "卸载时必须 flush").
+      flush()
       disposed = true
       unbind()
       listeners.clear()
@@ -190,6 +401,12 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
     },
     get writes(): number {
       return writes
+    },
+    get pendingLocal(): MoonsetChoice | undefined {
+      return pendingLocal
+    },
+    get revision(): number {
+      return watermark
     },
   }
 }

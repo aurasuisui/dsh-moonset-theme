@@ -7,7 +7,12 @@ import {
   resolveChoice,
   type ChoiceDeps,
 } from '../src/client/choice'
-import { MOONSET_ENTRY_ID, createDurableChoice, type MoonsetSettingsSection } from '../src/client/durable'
+import {
+  MOONSET_ENTRY_ID,
+  WRITE_DEBOUNCE_MS,
+  createDurableChoice,
+  type MoonsetSettingsSection,
+} from '../src/client/durable'
 import { apply } from '../src/client/index'
 import { MOONSET_LOCALE_NS, en, zh } from '../src/client/locales'
 import { Config, MOONSET_ENTRY_ID as HOST_ENTRY_ID } from '../src/index'
@@ -423,27 +428,36 @@ describe('apply — the settings section (M5)', () => {
   })
 
   it('persists a pick and applies it once, through the injected face', async () => {
-    const form = new FakeForm({})
-    const harness = makeContext({ forms: form })
-    apply(harness.ctx)
+    vi.useFakeTimers()
+    try {
+      const form = new FakeForm({})
+      const harness = makeContext({ forms: form })
+      apply(harness.ctx)
 
-    expect(harness.requestedEntries).toEqual([MOONSET_ENTRY_ID])
-    expect(MOONSET_ENTRY_ID).toBe('dsh-moonset')
+      expect(harness.requestedEntries).toEqual([MOONSET_ENTRY_ID])
+      expect(MOONSET_ENTRY_ID).toBe('dsh-moonset')
 
-    const face = sectionFace(harness)
-    face.onPick('dark')
-    expect(form.sets).toEqual([{ field: 'choice', value: 'dark' }])
-    expect(harness.theme.setThemeCalls).toEqual(['moonset-dark'])
+      const face = sectionFace(harness)
+      face.onPick('dark')
+      // The pick is an intent: applied now, persisted when the window closes.
+      expect(form.sets).toEqual([])
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
+      expect(form.sets).toEqual([{ field: 'choice', value: 'dark' }])
+      expect(harness.theme.setThemeCalls).toEqual(['moonset-dark'])
 
-    await Promise.resolve()
-    expect(sectionFace(harness).choice).toBe('dark')
+      await Promise.resolve()
+      expect(sectionFace(harness).choice).toBe('dark')
 
-    // The follow pick drives the layer and leaves the preference on system.
-    sectionFace(harness).onPick('follow')
-    expect(form.sets).toHaveLength(2)
-    expect(form.sets[1]).toEqual({ field: 'choice', value: 'follow' })
-    expect(harness.theme.setThemeCalls).toEqual(['moonset-dark', 'system'])
-    expect(harness.theme.layers).toEqual(['dsh-moonset'])
+      // The follow pick drives the layer and leaves the preference on system.
+      sectionFace(harness).onPick('follow')
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
+      expect(form.sets).toHaveLength(2)
+      expect(form.sets[1]).toEqual({ field: 'choice', value: 'follow' })
+      expect(harness.theme.setThemeCalls).toEqual(['moonset-dark', 'system'])
+      expect(harness.theme.layers).toEqual(['dsh-moonset'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('skips a peer-owned section id instead of failing the boot (D3)', () => {
@@ -485,6 +499,9 @@ describe('apply — the settings section (M5)', () => {
 
 describe('createDurableChoice — the plugin durable store (M5)', () => {
   it('writes the choice once, counts it, and reads the same value back', async () => {
+    // M5.1 changes WHEN the write happens (300 ms queue), not what it is: the
+    // assertions below are the M5 ones, observed after the window closes.
+    vi.useFakeTimers()
     const form = new FakeForm({ choice: 'off' })
     const harness = makeContext({ forms: form })
     const durable = createDurableChoice(harness.ctx)
@@ -497,16 +514,22 @@ describe('createDurableChoice — the plugin durable store (M5)', () => {
       expect(harness.requestedEntries).toEqual([MOONSET_ENTRY_ID])
 
       durable.write('dark')
+      // Queued, not written: no leading write, and the counter agrees.
+      expect(durable.writes).toBe(0)
+      expect(form.sets).toEqual([])
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
       expect(durable.writes).toBe(1)
       expect(form.sets).toEqual([{ field: 'choice', value: 'dark' }])
       await Promise.resolve()
       expect(durable.read()).toBe('dark')
       expect(seen).toEqual(['dark'])
-      // The echo is the form's own change notification; M5.1 owns the race.
+      // The echo is the form's own change notification; M5.1's guard is what
+      // keeps it from counting as another write.
       expect(durable.writes).toBe(1)
     } finally {
       unsubscribe()
       durable.dispose()
+      vi.useRealTimers()
     }
   })
 
@@ -529,6 +552,7 @@ describe('createDurableChoice — the plugin durable store (M5)', () => {
   })
 
   it('swallows a rejected transport write instead of leaking an unhandled rejection', async () => {
+    vi.useFakeTimers()
     const form = new FakeForm({ choice: 'off' })
     form.failWith = new Error('settings transport is gone')
     const harness = makeContext({ forms: form })
@@ -536,16 +560,22 @@ describe('createDurableChoice — the plugin durable store (M5)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       durable.write('light')
+      // Queued: the failure can only surface when the write actually goes out.
+      expect(durable.writes).toBe(0)
+      expect(warn).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
       expect(durable.writes).toBe(1)
       await Promise.resolve()
       await Promise.resolve()
-      expect(warn).toHaveBeenCalled()
+      // One failure, one warning — the queue must not amplify it either.
+      expect(warn).toHaveBeenCalledTimes(1)
       expect(String(warn.mock.calls[0][0])).toContain('settings write failed')
       // The store keeps the last accepted value; nothing was reverted locally.
       expect(durable.read()).toBe('off')
     } finally {
       warn.mockRestore()
       durable.dispose()
+      vi.useRealTimers()
     }
   })
 })

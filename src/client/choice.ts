@@ -17,6 +17,13 @@
  * profile that never picked anything is in, which is why the boot path
  * deliberately does NOT re-apply it (that would overwrite the user's official
  * preference with `system` on every start).
+ *
+ * M5.1 adds one more pure decision — {@link shouldMirrorOfficialPick} — because
+ * the official Appearance row can move the runtime's preference while our
+ * section still stores a Moonset choice, and the next boot would then undo the
+ * user's own pick. It is a pure function of (preference, choice) with no
+ * context, no `setTheme`, and no `ctx` access, so the table below is the whole
+ * contract and the tests pin it without a host.
  */
 import type { MoonsetLocaleKey } from './locales.ts'
 import { MOONSET_THEME_IDS, type FollowSystemLayer, type MoonsetThemeId } from './themes.ts'
@@ -63,6 +70,58 @@ export function resolveChoice(raw: unknown): MoonsetChoice {
   return typeof raw === 'string' && (MOONSET_CHOICES as readonly string[]).includes(raw)
     ? raw as MoonsetChoice
     : 'off'
+}
+
+/**
+ * The built-in preferences the official Appearance row can move the runtime to.
+ *
+ * `system` is handled separately below, because it is BOTH an official
+ * preference and our own follow mode's end state.
+ */
+export const OFFICIAL_THEME_PICKS = ['light', 'dark'] as const
+
+/**
+ * Whether a `theme/change` preference means "the user just picked an OFFICIAL
+ * theme", so the stored Moonset choice must be mirrored to `off`.
+ *
+ * Why mirror at all (M5 debt #1): a third-party id only lives in the runtime's
+ * MEMORY preference, so our section is what remembers it — and a stored
+ * `light` / `dark` / `follow` is re-applied at every boot. Left alone, the
+ * official row would take effect for one session and then be overridden on the
+ * next start. Seeing the preference become official while our section is live
+ * therefore means "hand the UI back": store `off` (and let the caller release
+ * the follow layer).
+ *
+ * Three cases, and the third is the subtle one:
+ *
+ *  - `light` / `dark` — the official row's explicit picks. Always mirror.
+ *  - `system` while our choice is a CONCRETE Moonset theme — the official row's
+ *    "follow the OS" pick. Mirror too: otherwise the next boot re-applies
+ *    `moonset-light` over it, which is the same bug one row further left.
+ *  - `system` while our choice IS `follow` — that value is what `applyChoice`
+ *    itself writes (`setTheme('system')`), and the runtime publishes
+ *    synchronously, so the listener sees it inside the same call. Mirroring
+ *    here would make the follow switch delete itself the moment it is turned
+ *    on, so this case is excluded BY CHOICE, not by a suppression window.
+ *
+ * Our own `setTheme('moonset-*')` calls never match: a third-party id is not
+ * one of the built-in picks, which is why the id check is the guard that makes
+ * self-published changes invisible to this rule.
+ * @param preference - the `theme/change` snapshot's preference (raw, so a
+ * third-party id, a missing field, or a dirty document value is simply "not
+ * official").
+ * @param choice - the choice the durable section currently holds.
+ * @returns true when the caller must mirror the stored choice to `off`.
+ */
+export function shouldMirrorOfficialPick(preference: unknown, choice: MoonsetChoice): boolean {
+  // `off` already means "no choice": there is nothing to mirror away.
+  if (choice === 'off') return false
+  // The official row's explicit light/dark pick.
+  if ((OFFICIAL_THEME_PICKS as readonly unknown[]).includes(preference)) return true
+  // `system` means different things depending on which side wrote it.
+  if (preference === 'system') return choice !== 'follow'
+  // A third-party id — including our own `moonset-*` — is never official.
+  return false
 }
 
 /** The services one apply drives, all injected so the function stays pure. */

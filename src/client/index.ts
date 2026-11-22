@@ -21,10 +21,19 @@
  * restore only re-applies a choice the user already MADE (a stored `off` is
  * left alone), and a pick applies because the user clicked (D4).
  *
- * First-paint injection is host-side (M6), and the echo race between a
- * document echo and a fast re-pick is M5.1 — this milestone deliberately does
- * not handle it (the durable facade already counts writes for that milestone's
- * assertions).
+ * The echo guards themselves live in `durable.ts` (M5.1): a pick becomes a
+ * queued INTENT, `read()` answers with the intent until the document confirms
+ * it, and a snapshot below the accepted revision watermark is dropped. This
+ * file adds the two things that need a context:
+ *
+ *  - the boot restore is `pendingLocal`-aware, so a late echo cannot drive (or
+ *    undo) the apply;
+ *  - `theme/change` is mirrored through {@link shouldMirrorOfficialPick}: an
+ *    OFFICIAL light/dark/system pick while our section is live stores `off` and
+ *    releases the follow layer, which is what stops the next boot from undoing
+ *    the user's own choice.
+ *
+ * First-paint injection is host-side (M6).
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -33,7 +42,13 @@ import type { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
-import { MOONSET_SECTION_OPTIONS, applyChoice, type ChoiceDeps, type MoonsetChoice } from './choice.ts'
+import {
+  MOONSET_SECTION_OPTIONS,
+  applyChoice,
+  shouldMirrorOfficialPick,
+  type ChoiceDeps,
+  type MoonsetChoice,
+} from './choice.ts'
 import { MOONSET_ENTRY_ID, createDurableChoice } from './durable.ts'
 import { MOONSET_LOCALE_NS, en, zh, type MoonsetLocaleKey } from './locales.ts'
 import { MoonsetSection, type MoonsetSectionLabels } from './settings-section.tsx'
@@ -59,7 +74,14 @@ export type {
 } from './themes.ts'
 export { tolerantDisposer, tolerantRegistration } from './registration-tolerance.ts'
 export type { TolerantDisposer } from './registration-tolerance.ts'
-export { MOONSET_CHOICES, MOONSET_SECTION_OPTIONS, applyChoice, resolveChoice } from './choice.ts'
+export {
+  MOONSET_CHOICES,
+  MOONSET_SECTION_OPTIONS,
+  OFFICIAL_THEME_PICKS,
+  applyChoice,
+  resolveChoice,
+  shouldMirrorOfficialPick,
+} from './choice.ts'
 export type { ChoiceDeps, MoonsetChoice, MoonsetSectionOption } from './choice.ts'
 export { MOONSET_ENTRY_ID, createDurableChoice } from './durable.ts'
 export type { DurableChoice, MoonsetSettingsSection } from './durable.ts'
@@ -162,6 +184,11 @@ function wireSettings(ctx: ClientContext): void {
   let restored = false
   const restore = (): void => {
     if (restored) return
+    // M5.1: an intent the user expressed outranks every snapshot. An echo that
+    // arrives while the pick is still queued must not drive this apply — the
+    // pick already applied locally, and re-applying the document's older value
+    // is exactly the rollback this milestone exists to prevent.
+    if (durable.pendingLocal !== undefined) return
     const choice = durable.read()
     if (choice === 'off') return
     restored = true
@@ -170,10 +197,36 @@ function wireSettings(ctx: ClientContext): void {
 
   const pick = (choice: MoonsetChoice): void => {
     // Persist first (best effort), then apply: a host without a settings form
-    // still switches themes for this session, it just forgets on restart.
+    // still switches themes for this session, it just forgets on restart. The
+    // write is an INTENT (M5.1): it lands 300 ms later, or on unload, and until
+    // then `read()` keeps answering with it.
     restored = true
     durable.write(choice)
     applyChoice(choice, deps)
+  }
+
+  /**
+   * Mirror an OFFICIAL pick back into `off` (M5.1, closes M5 debt #1).
+   *
+   * The official Appearance row moves the runtime's preference to a built-in
+   * value; our section still stores a Moonset choice, and the boot restore
+   * would re-apply it on the next start — undoing the user's own pick. Seeing
+   * that transition while our choice is live therefore means "hand the UI
+   * back": persist `off` and release the follow layer.
+   *
+   * Deliberately NOT `applyChoice('off', deps)`: that ends in
+   * `setTheme('system')` and would overwrite the very preference the user just
+   * chose (an official `dark` would flip back to `system`).
+   *
+   * {@link shouldMirrorOfficialPick} owns the whole decision, including the two
+   * cases that must NOT mirror: our own `setTheme('moonset-*')` (a third-party
+   * id is never built-in) and the `system` value follow mode writes itself.
+   * @param snapshot - the `theme/change` payload (only its preference is read).
+   */
+  const mirrorOfficialPick = (snapshot: { preference: string }): void => {
+    if (!shouldMirrorOfficialPick(snapshot.preference, durable.read())) return
+    durable.write('off')
+    follow.disable()
   }
 
   // The locale service already types this binding to the merged dictionary
@@ -197,9 +250,19 @@ function wireSettings(ctx: ClientContext): void {
   // hands the lifecycle to the caller).
   ctx.effect(() => {
     const unsubscribe = durable.subscribe(restore)
+    // `theme/change` is the ONLY continuous view of the official preference
+    // (the host publishes it synchronously from `setTheme` / `adopt`), so the
+    // mirror rule rides it. Rides this effect rather than a new one: the
+    // listener and the choice it guards have exactly one lifetime. Guarded for
+    // a context that carries no event bus (a bare unit-test stub), where the
+    // boot path must still not throw (M5 "硬约束" 2).
+    const releaseTheme = typeof ctx.on === 'function'
+      ? ctx.on('theme/change', (snapshot: { preference: string }) => { mirrorOfficialPick(snapshot) })
+      : undefined
     restore()
     return () => {
       unsubscribe()
+      releaseTheme?.()
       follow.disable()
       durable.dispose()
     }
