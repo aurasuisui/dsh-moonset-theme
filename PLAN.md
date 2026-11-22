@@ -87,7 +87,8 @@
 | **M5** | 设置区 + 自带持久化 | 插件自己的 `settings.section`（浅色 / 深色 / 跟随系统 三个按钮）；host 侧 `Config` 的 volatile 字段存**插件自己的选择**（官方主题文档只认 `system/light/dark`，第三方 id 根本写不进去）；启动时读 section 并重新 apply（`setTheme(id)` 或 follower 层） | `pnpm test -- tests/settings.spec.ts` 全绿（≥6 条：注册元数据含 3 个选项且 id/locale/order 正确、点击分别调 `setTheme`/`enable`、section 写入、启动 re-apply、section 缺失回落 `off`、卸载后零写入）；`Select-String src/client -Pattern 'html.style|body.style'` 命中 0（token 由 Presenter 内联写，插件不碰 DOM 样式） |
 | **M5.1** | 回声与快速切换守卫 | `adopt()` 会用官方文档值覆盖内存偏好 ⇒ 插件需 pendingLocal + revision 高水位：迟到的回声不得回滚更新的本地选择；连续点击按 300ms 防抖合成一次写入 | `pnpm test -- tests/settings.spec.ts` 含「迟到的文档回声」「连续快速切换 3 次」两条用例；**变异自检**：删掉 pendingLocal 判断或以文档值无条件覆盖，必须变红并贴证据 |
 | **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`：head 注入一条 `html` 行（228 条 token **+ `background-color:var(--dsw-alias-bg-base)`**），固定风味选择器 = `html body,html body[data-ds-dark-theme]` 并发一条 body script 对齐 `data-ds-dark-theme`；`follow` = 亮 `html body,html body:not([data-ds-dark-theme])` + 媒体查询暗半 `html body,html body[data-ds-dark-theme]` + 对齐脚本 | `pnpm test -- tests/boot.spec.ts` 全绿（≥8 条：228 条声明 + background-color、双选择器、volatile 门禁、`off` 空、follow 两半、CSS 安全丢弃、撤表幂等、script 行）；`lib/index.js` grep 到 `webserver/index-inject`；真实渲染器交叉验证里 head 行确含 `background-color` |
-| **M7** | 共存验收（真机） | 把 moonset 以 `link:` 装进 `web` profile（与已装 catppuccin 0.7.5 并存），启动、切主题、截图；跑完卸载 link | 启动日志 `entry(s) did not activate` 命中 0；Appearance 列出 moonset 2 项 + catppuccin 4 项；切换脚本 6 次后 `theme.revision` 单调递增且 console error 数 0；`assets/previews/` 下 2 张 PNG 均 > 100KB |
+| **M7** | 共存验收（假宿主） | `scripts/coexist-check.mjs`：把**两个真实构建产物**（本仓库 `lib/client.js` 与 catppuccin 仓库的 `lib/client.js`，后者用 `--catppuccin <path>` 传入、缺省找同级目录）装进**同一个**假宿主（共享 theme 注册表 / slots / locale / configForms / effect，含「重复 id 抛错」的真实语义），跑注册、切换、卸载 | 脚本 exit 0，且报告含：注册表 **6 个 id**（4 catppuccin + 2 moonset）、两边各 apply 两次不抛、6 个主题逐个切换后 `preference` 跟随、我们的跟随层与 catppuccin 的层**互不误删**、只卸载 moonset 后 catppuccin 4 个仍在、两边 `setTheme` 之外零 DOM 写 |
+| **M7.1** | 共存验收（真机，**需人类口令**） | 把 moonset 以 `link:` 装进 `web` profile（与已装 catppuccin 并存），启动、切主题、截图；跑完卸载 link | 启动日志 `entry(s) did not activate` 命中 0；Appearance 列出 moonset 2 项 + catppuccin 4 项；切换脚本 6 次后 `theme.revision` 单调递增且 console error 数 0；`assets/previews/` 下 2 张 PNG 均 > 100KB |
 | **M8** | 文档与结账 | README（安装/切换/兼容矩阵/截图）、CHANGELOG `0.1.0`、`docs/palette.md`（色卡 + 与官方 token 的对照）、看板置 ✅ | `pnpm typecheck` 与 `pnpm test` 与 `pnpm build` 三条 exit 0；README 命中"安装""切换""兼容"三节；CHANGELOG 命中 `## 0.1.0` 一行 |
 
 > 判定点：每个里程碑做完，执行者停下报「待审核」并交四件真实输出；审核者独立复跑出口条件后才置 ✅。
@@ -104,6 +105,7 @@
 | **M5.1** | ✅ | commit `ef41df7`；审计自跑：`pnpm test` **88 passed/6 files**、两条 typecheck 0、`build` 0；测试改动核过：`settings.spec.ts` 断言数 **100→105**、15 个 `it` 标题逐条相同、被删的 10 行断言全部在改后重现；唯一改动是把 `toHaveBeenCalled()` 收紧成 `toHaveBeenCalledTimes(1)`；**审计者自己做变异**：水位守卫改成恒假 → `tests/echo.spec.ts` 1 failed 且 exit 1，还原后 sha256 `d565b887…` 一致、exit 0、`git status` 空；镜像规则源码逐行核过，与裁定口径一致 |
 | **M6** | ✅ | commit `c6cc395`（复审修 `9a60d11`）；审计自跑：`pnpm test` **97 passed/7 files**、两条 typecheck 0、`build` 0；**审计者直接 import host 源码驱动**（node 类型剥离）：`light`/`dark` = 1 块 **229 条**（228 token + canvas 收尾）、`follow` = **2 块**各自 229 且暗块在 `@media (prefers-color-scheme: dark)` 内、`off`/无值/**非 ref 的静态值** 全部 0 行、`BOOT_SHEET_ATTR` 正确；产物 grep 到 `background-color:var(--dsw-alias-bg-base)`、两种双选择器、两条 `toggleAttribute`；客户端 `html.style|body.style` 仍 0；`f8edd19..HEAD` 3 files，受保护文件 0 行 |
 | **M7** | ⬜ | — |
+| **M7.1** | ⬜ | — |
 | **M8** | ⬜ | — |
 
 ## 五、执行与审核规则
@@ -115,7 +117,7 @@
 
 ## 六、砍尾顺序
 
-**不可砍**：M1、M2、M3、M4、M7（A3 的兼容口径就是 M7）。
+**不可砍**：M1、M2、M3、M4、M7（A3 的兼容口径就是 M7；M7.1 需人类口令，未获批准时以 M7 的假宿主报告为准）。
 **可砍**（按序，砍了要在看板留痕）：
 1. M6 首帧预注入（最坏是首屏闪一次官方色，用户可接受度另议）
 2. M5 降级为只读展示（设置行只显示当前主题，不做切换）
