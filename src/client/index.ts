@@ -36,7 +36,8 @@
  * First-paint injection is host-side (M6, `../boot-palette.ts`); what THIS half
  * owns is the handover: the injected sheet is removed the moment the choice
  * actually takes over (`boot-cleanup.ts`), because a sheet left behind outranks
- * the official `body` block and would pin every token against later switches.
+ * the official token blocks and would pin every token (and the canvas colour)
+ * against later switches.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -202,8 +203,8 @@ function wireSettings(ctx: ClientContext): void {
     restored = true
     applyChoice(choice, deps)
     // M6 handover: the theme now owns the tokens. Leaving the pre-paint sheet in
-    // the document would keep its `html body` block ahead of the official `body`
-    // one and pin every token against later theme switches.
+    // the document would keep its double-selector block ahead of the official
+    // token tables and pin every token (canvas included) against later switches.
     removeBootSheet()
   }
 

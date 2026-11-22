@@ -4,16 +4,32 @@
  *
  * Why this exists. The official `dsh-client-ui-theme` Host half contributes two
  * boot rows through `webserver/index-inject`: a head `<style>` painting
- * `body{background-color:#151517}` (or `#fff`) plus `color-scheme`, and a body
- * script that installs `data-ds-theme-source` / `data-ds-dark-theme` from the
- * DURABLE built-in preference. Those two decide the colour of everything BEFORE
- * any script runs. Our two flavours can only be `theme.register()`ed and
- * `setTheme()`d by the Client bundle, i.e. strictly after first paint — so a
- * Moonset user sees the official canvas flash first. This module paints the same
- * document canvas with the flavour's own table, and the Client removes the sheet
- * the moment the choice actually takes over (`src/client/boot-cleanup.ts`): it
- * must not outlive that point, because a leftover sheet outranks the official
- * `body` block and would pin every token against later theme switches.
+ * `:root{color-scheme:…}body{background-color:#151517}` (or `#fff`) plus
+ * `--dsh-boot-bg`, and a body script that installs `data-ds-theme-source` /
+ * `data-ds-dark-theme` from the DURABLE built-in preference. Those two decide
+ * the colour of everything BEFORE any script runs. Our two flavours can only be
+ * `theme.register()`ed and `setTheme()`d by the Client bundle, i.e. strictly
+ * after first paint — so a Moonset user sees the official canvas flash first.
+ * This module paints the same document canvas with the flavour's own table, and
+ * the Client removes the sheet the moment the choice actually takes over
+ * (`src/client/boot-cleanup.ts`): it must not outlive that point, because a
+ * leftover sheet would pin every token against later theme switches.
+ *
+ * Two details carry the ACTUAL first frame, and both were missing in M6's first
+ * round (PLAN 九、已决 #11):
+ *  - the blocks end with `background-color:var(--dsw-alias-bg-base)`. The served
+ *    index has an EMPTY `<div id="root">` at first paint, so the only visible
+ *    pixel is the document canvas — and the canvas is `body`'s background, which
+ *    the official pre-paint row colours `#151517` (dark). Tokens alone change
+ *    nothing before an element reads them; this declaration is what turns the
+ *    reference's measured `#151517` into the flavour's own canvas.
+ *  - the blocks are painted on TWO selectors. `html body` (0,0,2) beats the
+ *    official `body` (0,0,1) token block, but the official DARK table is
+ *    `body[data-ds-dark-theme]` (0,1,1), which beats (0,0,2) — the official body
+ *    script sets that attribute during parse whenever the built-in preference is
+ *    dark (or `system` on a dark OS). `html body[data-ds-dark-theme]` (0,1,2)
+ *    beats it, and both selectors carry the SAME block: the sheet paints exactly
+ *    one scheme, whatever the attribute currently says.
  *
  * Contract notes (re-verified against the sources shipped in the installed
  * 0.2.2-rc.5 desktop archive, not just against the reference repo):
@@ -27,9 +43,7 @@
  *    `<head>` tag and body rows immediately after the opening `<body>` tag,
  *    each group in TABLE order. Our rows therefore land BEFORE the official
  *    `<link rel="stylesheet">` elements, so document order does NOT favour us;
- *    the sheet selector is `html body` (0,0,2), which beats the official
- *    `body` (0,0,1) token block that the Client bundle installs later. Do not
- *    rely on row order.
+ *    the selector list above is what keeps us ahead. Do not rely on row order.
  *  - The official theme registers its own listener with
  *    `ctx.on('webserver/index-inject', …, { prepend: true })` (cordis
  *    `EventOptions.prepend`), so its two rows are pushed before ours. That is
@@ -44,10 +58,10 @@
  *    not the settings document, so injecting from it would paint the wrong
  *    palette — such hosts get no rows at all.
  *
- * What this module deliberately does NOT emit (the milestone pins the row shape
- * to the 228-token table alone; see M6's report for the consequences):
- * `color-scheme`, the canvas `background-color` the reference sheet carries, and
- * a fixed-scheme body script for the non-follow choices.
+ * What this module deliberately does NOT emit: `:root{color-scheme:…}`. The
+ * reference implementation sets it (its `bootPaletteStyle`), but the corrected
+ * M6 row shape does not, so `color-scheme` stays the official boot row's
+ * business — see the milestone report for the consequence.
  */
 import type {} from '@deepseek-ai/cordis'
 import { MOONSET_DARK, MOONSET_LIGHT, type MoonsetTokenTable } from './client/palettes.ts'
@@ -121,6 +135,38 @@ function readVolatile(value: unknown): unknown {
 }
 
 /**
+ * The canvas declaration every block ends with.
+ *
+ * `--dsw-alias-bg-base` is what the boot splash reads
+ * (`background:var(--dsw-alias-bg-base, var(--dsh-boot-bg, Canvas))`), and the
+ * declaration itself is what makes the first paint's `body` background the
+ * flavour's colour instead of the official `#151517` / `#fff`.
+ */
+const BOOT_CANVAS = 'background-color:var(--dsw-alias-bg-base)'
+
+/**
+ * The selector list of a fixed-scheme block. Both selectors carry the same
+ * declarations: the sheet paints ONE scheme no matter what `data-ds-dark-theme`
+ * says, so the attribute cannot flip it to the official table.
+ */
+const FIXED_SELECTORS = 'html body,html body[data-ds-dark-theme]'
+
+/**
+ * The selector list of FOLLOW mode's light half. `:not([data-ds-dark-theme])`
+ * (0,1,2) is what beats the official dark attribute block while the OS is light
+ * at pre-paint time; the plain `html body` covers the moment the official boot
+ * script has already removed the attribute.
+ */
+const FOLLOW_LIGHT_SELECTORS = 'html body,html body:not([data-ds-dark-theme])'
+
+/**
+ * The selector list of FOLLOW mode's dark half (inside the media query), the
+ * same pair as a fixed block: the media query decides WHEN it applies, the
+ * attribute variant decides that it still wins once the attribute is set.
+ */
+const FOLLOW_DARK_SELECTORS = 'html body,html body[data-ds-dark-theme]'
+
+/**
  * Characters that can end the declaration, the declaration block or the
  * `<style>` element itself.
  *
@@ -147,12 +193,13 @@ function warnDropped(name: string, reason: string): void {
 }
 
 /**
- * Render one token table as a CSS declaration list (`name:value;…`, no trailing
- * semicolon). Order follows the table, so the output is byte-stable.
+ * Render one token table as the body of a declaration block: every token in
+ * table order, then {@link BOOT_CANVAS} last (so it wins inside the block, after
+ * any token that might have set the same property).
  * @param tokens - the `--dsw-*` table to embed.
- * @returns the declarations safe to concatenate into a `{…}` block.
+ * @returns the declarations, joined by `;`, without a trailing semicolon.
  */
-export function declarationText(tokens: MoonsetTokenTable): string {
+function declarationBlock(tokens: MoonsetTokenTable): string {
   const declarations: string[] = []
   for (const [name, value] of Object.entries(tokens)) {
     if (!TOKEN_NAME.test(name)) {
@@ -169,20 +216,17 @@ export function declarationText(tokens: MoonsetTokenTable): string {
     }
     declarations.push(`${name}:${value}`)
   }
+  declarations.push(BOOT_CANVAS)
   return declarations.join(';')
 }
 
 /**
  * The pre-paint sheet for one fixed choice (carries {@link BOOT_SHEET_ATTR}).
- *
- * `html body` (0,0,2) is load-bearing: the official token table is a `body`
- * block (0,0,1) installed by the Client bundle AFTER this sheet, so a plain
- * `body` selector here would lose on order alone.
  * @param tokens - the table of the persisted choice.
  * @returns a complete `<style>…</style>` fragment for a `kind: 'html'` row.
  */
 export function bootSheet(tokens: MoonsetTokenTable): string {
-  return `<style ${BOOT_SHEET_ATTR}>html body{${declarationText(tokens)}}</style>`
+  return `<style ${BOOT_SHEET_ATTR}>${FIXED_SELECTORS}{${declarationBlock(tokens)}}</style>`
 }
 
 /**
@@ -200,17 +244,32 @@ export function bootSheet(tokens: MoonsetTokenTable): string {
  */
 export function followSheet(light: MoonsetTokenTable, dark: MoonsetTokenTable): string {
   return `<style ${BOOT_SHEET_ATTR}>`
-    + `html body{${declarationText(light)}}`
-    + `@media (prefers-color-scheme: dark){html body{${declarationText(dark)}}}`
+    + `${FOLLOW_LIGHT_SELECTORS}{${declarationBlock(light)}}`
+    + `@media (prefers-color-scheme: dark){${FOLLOW_DARK_SELECTORS}{${declarationBlock(dark)}}}`
     + '</style>'
+}
+
+/**
+ * The body script for a FIXED choice: make `data-ds-dark-theme` agree with the
+ * scheme the sheet just painted.
+ *
+ * The official boot script sets that attribute from the official built-in
+ * preference, which can be the opposite of the user's Moonset choice; without
+ * this line the attribute-keyed blocks (official ones included) would contradict
+ * the sheet for as long as it lives. Same text as the reference implementation:
+ * it touches NOTHING else — `data-ds-theme-source` and the font variables stay
+ * the official script's business.
+ * @param scheme - the scheme of the persisted choice.
+ * @returns the script text for a `kind: 'script'` row.
+ */
+export function bootPaletteScript(scheme: 'light' | 'dark'): string {
+  return `(()=>{document.body.toggleAttribute('data-ds-dark-theme',${scheme === 'dark'})})()`
 }
 
 /**
  * The body script for follow mode: align `data-ds-dark-theme` with the OS
  * instead of a fixed scheme, so the attribute-keyed rules (ours and the host's)
- * are right on the first frame. Same text as the reference implementation: it
- * touches NOTHING else — `data-ds-theme-source` and the font variables stay the
- * official script's business.
+ * are right on the first frame. Same text as the reference implementation.
  * @returns the script text for a `kind: 'script'` row.
  */
 export function followPaletteScript(): string {
@@ -219,6 +278,9 @@ export function followPaletteScript(): string {
 
 /**
  * The boot rows for the current Host state.
+ *
+ * Every painted choice is a head `html` row plus a body `script` row that makes
+ * `data-ds-dark-theme` agree with the scheme that row painted.
  *
  * Empty — deliberately — in every case where the Host cannot prove what the user
  * chose: no config at all, no volatile ref (legacy seam, see the module header),
@@ -231,8 +293,13 @@ export function followPaletteScript(): string {
 export function bootPaletteRows(config: BootPaletteConfig | undefined): BootPaletteRow[] {
   const choice = readVolatile(config?.choice)
   if (typeof choice !== 'string') return []
-  if (choice === 'light') return [{ kind: 'html', placement: 'head', html: bootSheet(MOONSET_LIGHT) }]
-  if (choice === 'dark') return [{ kind: 'html', placement: 'head', html: bootSheet(MOONSET_DARK) }]
+  if (choice === 'light' || choice === 'dark') {
+    const tokens = choice === 'light' ? MOONSET_LIGHT : MOONSET_DARK
+    return [
+      { kind: 'html', placement: 'head', html: bootSheet(tokens) },
+      { kind: 'script', placement: 'body', text: bootPaletteScript(choice) },
+    ]
+  }
   if (choice === 'follow') {
     return [
       { kind: 'html', placement: 'head', html: followSheet(MOONSET_LIGHT, MOONSET_DARK) },

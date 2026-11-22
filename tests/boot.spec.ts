@@ -6,8 +6,9 @@
  * file:
  *
  *  - the HOST rows (`src/boot-palette.ts`) — which choices paint, with which
- *    table, and why a value can never escape the `<style>` element it is
- *    concatenated into;
+ *    table, which SELECTORS (both are load-bearing against the official blocks)
+ *    and why a value can never escape the `<style>` element it is concatenated
+ *    into;
  *  - the CLIENT removal (`src/client/boot-cleanup.ts`) — the sheet must go the
  *    moment the theme owns the tokens, and its absence must never throw;
  *  - the WIRING (`src/index.ts`) — the `webServer` dependency and the one
@@ -23,6 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   BOOT_SHEET_ATTR,
   bootPaletteRows,
+  bootPaletteScript,
   bootSheet,
   followPaletteScript,
   type BootPaletteRow,
@@ -38,28 +40,53 @@ import { apply, inject } from '../src/index'
 /** A volatile config ref: the shape DSH >= 0.1.7 hands `apply`. */
 const ref = (value: unknown) => ({ get: () => value })
 
+/**
+ * The canvas declaration every block must end with.
+ *
+ * Restated as a literal on purpose: this is the declaration that turns the first
+ * VISIBLE pixel from the official `#151517` into the flavour's colour, so the
+ * test should fail if the production constant is ever reworded.
+ */
+const CANVAS = 'background-color:var(--dsw-alias-bg-base)'
+
+/**
+ * The selector lists the sheet is painted on. `html body` (0,0,2) wins against
+ * the official `body` block; `html body[data-ds-dark-theme]` (0,1,2) is what
+ * wins against the official DARK block, which sits at (0,1,1) and would
+ * otherwise beat a bare `html body`.
+ */
+const FIXED_SELECTOR = 'html body,html body[data-ds-dark-theme]{'
+const FOLLOW_LIGHT_SELECTOR = 'html body,html body:not([data-ds-dark-theme]){'
+const FOLLOW_DARK_SELECTOR = 'html body,html body[data-ds-dark-theme]{'
+const FOLLOW_MEDIA = '@media (prefers-color-scheme: dark)'
+
 /** The declaration list one table must render to, in table order. */
 function tableDeclarations(tokens: Record<string, string>): string[] {
   return Object.entries(tokens).map(([name, value]) => `${name}:${value}`)
 }
 
+/** What one full block must contain: the table's tokens, then the canvas. */
+function expectedBlock(tokens: Record<string, string>): string[] {
+  return [...tableDeclarations(tokens), CANVAS]
+}
+
 /**
- * The declarations inside the first `html body{…}` block at or after `from`.
+ * The declarations inside the first block opened by `selector` at/after `from`.
  *
  * Parsing the block back out (instead of substring-matching values) is what
  * makes the assertions count TOKENS: a value that swallowed the block boundary
  * would change the split, not just a string.
  * @param html - the injected row's markup.
- * @param from - offset to start looking at (0 = the first block).
+ * @param selector - the exact selector list plus its opening brace.
+ * @param from - offset to start looking at.
  * @returns each `name:value` pair, in emitted order.
  */
-function declarationsAt(html: string, from: number): string[] {
-  const marker = 'html body{'
-  const open = html.indexOf(marker, from)
-  if (open < 0) throw new Error(`no "${marker}" block at/after offset ${from}`)
-  const start = open + marker.length
+function declarationsAt(html: string, selector: string, from = 0): string[] {
+  const open = html.indexOf(selector, from)
+  if (open < 0) throw new Error(`no "${selector}" block at/after offset ${from}`)
+  const start = open + selector.length
   const end = html.indexOf('}', start)
-  if (end < 0) throw new Error('unterminated "html body{…}" block')
+  if (end < 0) throw new Error(`unterminated "${selector}" block`)
   const block = html.slice(start, end)
   return block === '' ? [] : block.split(';')
 }
@@ -80,34 +107,50 @@ function scriptOf(row: BootPaletteRow | undefined): string {
   return row.text
 }
 
+/** The token count of a rendered block, canvas excluded. */
+const tokenCount = (declarations: string[]): number =>
+  declarations.filter((declaration) => declaration.startsWith('--dsw-')).length
+
 describe('bootPaletteRows — fixed choices', () => {
-  it('paints the light table as exactly one head html row carrying the boot attribute', () => {
+  it('paints the light table on the double selector, canvas included, plus a light script', () => {
     const rows = bootPaletteRows({ choice: ref('light') })
-    expect(rows).toHaveLength(1)
+    expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ kind: 'html', placement: 'head' })
+    expect(rows[1]).toMatchObject({ kind: 'script', placement: 'body' })
 
     const html = htmlOf(rows[0])
     expect(html.startsWith(`<style ${BOOT_SHEET_ATTR}>`)).toBe(true)
     expect(html.endsWith('</style>')).toBe(true)
-    // The selector is the load-bearing part: (0,0,2) against the official
-    // `body` token block (0,0,1), which the Client installs LATER in the page.
-    expect(html).toContain('html body{')
+    // BOTH selectors, one declaration block: the attribute cannot flip the
+    // sheet to the official table while it lives.
+    expect(html).toContain(FIXED_SELECTOR)
 
-    const declarations = declarationsAt(html, 0)
-    expect(declarations).toHaveLength(228)
-    expect(declarations).toEqual(tableDeclarations(MOONSET_LIGHT))
+    const declarations = declarationsAt(html, FIXED_SELECTOR)
+    expect(tokenCount(declarations)).toBe(228)
+    expect(declarations).toEqual(expectedBlock(MOONSET_LIGHT))
+    // The canvas is LAST: it is the first visible pixel, and it must win inside
+    // the block over any token that could have set the same property.
+    expect(declarations.at(-1)).toBe(CANVAS)
+    expect(declarations.filter((declaration) => declaration === CANVAS)).toHaveLength(1)
+
+    // The body script makes the shell's attribute agree with what we painted.
+    expect(scriptOf(rows[1])).toBe("(()=>{document.body.toggleAttribute('data-ds-dark-theme',false)})()")
   })
 
-  it('paints the dark table the same way, with values taken from MOONSET_DARK', () => {
+  it('paints the dark table the same way, with MOONSET_DARK values and a dark script', () => {
     const rows = bootPaletteRows({ choice: ref('dark') })
-    expect(rows).toHaveLength(1)
+    expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ kind: 'html', placement: 'head' })
+    expect(rows[1]).toMatchObject({ kind: 'script', placement: 'body' })
 
-    const declarations = declarationsAt(htmlOf(rows[0]), 0)
-    expect(declarations).toHaveLength(228)
-    expect(declarations).toEqual(tableDeclarations(MOONSET_DARK))
-    // The two tables are genuinely different: a mix-up cannot pass both cases.
-    expect(declarations).not.toEqual(tableDeclarations(MOONSET_LIGHT))
+    const declarations = declarationsAt(htmlOf(rows[0]), FIXED_SELECTOR)
+    expect(tokenCount(declarations)).toBe(228)
+    expect(declarations).toEqual(expectedBlock(MOONSET_DARK))
+    expect(declarations).not.toEqual(expectedBlock(MOONSET_LIGHT))
+
+    expect(scriptOf(rows[1])).toBe("(()=>{document.body.toggleAttribute('data-ds-dark-theme',true)})()")
+    // The script switches with the flavour — a fixed `true` would pin dark.
+    expect(bootPaletteScript('light')).not.toBe(bootPaletteScript('dark'))
   })
 })
 
@@ -135,12 +178,12 @@ describe('bootPaletteRows — everything that must NOT paint', () => {
     expect(bootPaletteRows({ choice: 'dark' })).toEqual([])
     expect(bootPaletteRows({ choice: 'follow' })).toEqual([])
     // The same values DO paint once they arrive through a ref.
-    expect(bootPaletteRows({ choice: ref('light') })).toHaveLength(1)
+    expect(bootPaletteRows({ choice: ref('light') })).toHaveLength(2)
   })
 })
 
 describe('bootPaletteRows — follow the OS', () => {
-  it('paints both halves, the dark one behind a media query, plus one body script', () => {
+  it('paints both halves with their own selector list, plus one matchMedia script', () => {
     const rows = bootPaletteRows({ choice: ref('follow') })
     expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ kind: 'html', placement: 'head' })
@@ -151,12 +194,14 @@ describe('bootPaletteRows — follow the OS', () => {
 
     // Light is the default block; the dark half must come AFTER it so it wins at
     // equal specificity, and it must be behind the media query, not the attribute.
-    const lightAt = html.indexOf('html body{')
-    const mediaAt = html.indexOf('@media (prefers-color-scheme: dark)')
+    const lightAt = html.indexOf(FOLLOW_LIGHT_SELECTOR)
+    const mediaAt = html.indexOf(FOLLOW_MEDIA)
     expect(lightAt).toBeGreaterThan(-1)
     expect(mediaAt).toBeGreaterThan(lightAt)
-    expect(declarationsAt(html, 0)).toEqual(tableDeclarations(MOONSET_LIGHT))
-    expect(declarationsAt(html, mediaAt)).toEqual(tableDeclarations(MOONSET_DARK))
+    expect(html.indexOf(FOLLOW_DARK_SELECTOR)).toBeGreaterThan(mediaAt)
+
+    expect(declarationsAt(html, FOLLOW_LIGHT_SELECTOR)).toEqual(expectedBlock(MOONSET_LIGHT))
+    expect(declarationsAt(html, FOLLOW_DARK_SELECTOR, mediaAt)).toEqual(expectedBlock(MOONSET_DARK))
 
     // The script is the reference implementation's: it only aligns the shell's
     // dark-variant attribute with the OS, and can never close its own element.
@@ -168,8 +213,31 @@ describe('bootPaletteRows — follow the OS', () => {
   })
 })
 
+describe('the canvas declaration', () => {
+  it('ends every painted block — both fixed schemes and both follow halves', () => {
+    const lightHtml = htmlOf(bootPaletteRows({ choice: ref('light') })[0])
+    const darkHtml = htmlOf(bootPaletteRows({ choice: ref('dark') })[0])
+    const followHtml = htmlOf(bootPaletteRows({ choice: ref('follow') })[0])
+    const mediaAt = followHtml.indexOf(FOLLOW_MEDIA)
+
+    const blocks: [string, string[]][] = [
+      ['light', declarationsAt(lightHtml, FIXED_SELECTOR)],
+      ['dark', declarationsAt(darkHtml, FIXED_SELECTOR)],
+      ['follow/light', declarationsAt(followHtml, FOLLOW_LIGHT_SELECTOR)],
+      ['follow/dark', declarationsAt(followHtml, FOLLOW_DARK_SELECTOR, mediaAt)],
+    ]
+    for (const [label, declarations] of blocks) {
+      // The label rides the compared strings, so a failure says which block.
+      expect(`${label}:${declarations.at(-1)}`).toBe(`${label}:${CANVAS}`)
+      expect(`${label}:${declarations.filter((entry) => entry === CANVAS).length}`).toBe(`${label}:1`)
+      expect(`${label}:${tokenCount(declarations)}`).toBe(`${label}:228`)
+      expect(`${label}:${declarations.length}`).toBe(`${label}:229`)
+    }
+  })
+})
+
 describe('bootPaletteRows — CSS safety', () => {
-  it('drops an unsafe value, warns once, and keeps the other 227 declarations', () => {
+  it('drops an unsafe value, warns once, and keeps the other 227 tokens plus the canvas', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const tampered = { ...MOONSET_LIGHT, '--dsw-alias-bg-base': '}</style><script>x</script>' }
@@ -178,13 +246,14 @@ describe('bootPaletteRows — CSS safety', () => {
       expect(warn).toHaveBeenCalledTimes(1)
       expect(String(warn.mock.calls[0]?.[0])).toContain('--dsw-alias-bg-base')
 
-      const declarations = declarationsAt(html, 0)
-      expect(declarations).toHaveLength(227)
-      expect(declarations).toEqual(
-        Object.entries(MOONSET_LIGHT)
+      const declarations = declarationsAt(html, FIXED_SELECTOR)
+      expect(tokenCount(declarations)).toBe(227)
+      expect(declarations).toEqual([
+        ...Object.entries(MOONSET_LIGHT)
           .filter(([name]) => name !== '--dsw-alias-bg-base')
           .map(([name, value]) => `${name}:${value}`),
-      )
+        CANVAS,
+      ])
 
       // The element's own closing tag is the only one the row may contain: the
       // row contract is "html must not close the element early".
@@ -277,9 +346,11 @@ describe('apply — the host listener', () => {
 
     const table: BootPaletteRow[] = []
     ctx.emit('webserver/index-inject', table)
-    expect(table).toHaveLength(1)
+    expect(table).toHaveLength(2)
     expect(table[0]).toMatchObject({ kind: 'html', placement: 'head' })
-    expect(declarationsAt(htmlOf(table[0]), 0)).toEqual(tableDeclarations(MOONSET_DARK))
+    expect(table[1]).toMatchObject({ kind: 'script', placement: 'body' })
+    expect(declarationsAt(htmlOf(table[0]), FIXED_SELECTOR)).toEqual(expectedBlock(MOONSET_DARK))
+    expect(scriptOf(table[1])).toBe(bootPaletteScript('dark'))
 
     // `off` contributes nothing — and an empty table is a legal result, so the
     // render must not throw either way.
