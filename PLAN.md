@@ -105,7 +105,7 @@
 | **M5.1** | ✅ | commit `ef41df7`；审计自跑：`pnpm test` **88 passed/6 files**、两条 typecheck 0、`build` 0；测试改动核过：`settings.spec.ts` 断言数 **100→105**、15 个 `it` 标题逐条相同、被删的 10 行断言全部在改后重现；唯一改动是把 `toHaveBeenCalled()` 收紧成 `toHaveBeenCalledTimes(1)`；**审计者自己做变异**：水位守卫改成恒假 → `tests/echo.spec.ts` 1 failed 且 exit 1，还原后 sha256 `d565b887…` 一致、exit 0、`git status` 空；镜像规则源码逐行核过，与裁定口径一致 |
 | **M6** | ✅ | commit `c6cc395`（复审修 `9a60d11`）；审计自跑：`pnpm test` **97 passed/7 files**、两条 typecheck 0、`build` 0；**审计者直接 import host 源码驱动**（node 类型剥离）：`light`/`dark` = 1 块 **229 条**（228 token + canvas 收尾）、`follow` = **2 块**各自 229 且暗块在 `@media (prefers-color-scheme: dark)` 内、`off`/无值/**非 ref 的静态值** 全部 0 行、`BOOT_SHEET_ATTR` 正确；产物 grep 到 `background-color:var(--dsw-alias-bg-base)`、两种双选择器、两条 `toggleAttribute`；客户端 `html.style|body.style` 仍 0；`f8edd19..HEAD` 3 files，受保护文件 0 行 |
 | **M7** | ✅ | commit `7e514da`；审计自跑 `node scripts/coexist-check.mjs` → exit 0、**6/6 PASS**（6 个 id、双 apply 不抛、6 主题切换、层互不误删、只卸我方剩 4 个、require 集合干净）；`pnpm test` 仍 97 passed；`4eb7763..HEAD` 1 file；宿主自证：register/setTheme/slots 三条 `assertThrows` 先证「能失败」再数 id；**并对实装 0.7.5 产物复跑 6/6**（`~/.dsh/profiles/desktop/node_modules/@nonamelego/dsh-catppuccin/lib/client.js`，version 0.7.5，sha256 `393A63F5…`，2026-11-22 20:2x） |
-| **M7.1** | ⬜ | — |
+| **M7.1** | 🚧 | 2026-11-22 20:40 落盘：`plugins/dsh-moonset-theme` junction → 本仓库；`package.json` 加 `link:plugins/dsh-moonset-theme` + bundles 末位；`pnpm install` exit 0（+4/−2，`node_modules` 126→128，全部声明依赖仍可解析，catppuccin 0.7.5 仍在）；profile 内 `require.resolve` 命中本仓库、`import('dsh-moonset-theme')` 导出 `Config/MOONSET_ENTRY_ID/apply/inject/name`、`dsh.bundle.patch` 可解析；备份 `*.bak-moonset-20261122123511`；catppuccin 已被用户以 `disabled: true` overlay 关掉；**待重启后目视 + 截图** |
 | **M8** | ⬜ | — |
 
 ## 五、执行与审核规则
