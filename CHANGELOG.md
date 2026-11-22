@@ -33,9 +33,23 @@
   （`queueMicrotask` 合并 + 每波次上限 3 次）恢复所选主题；窗口外的官方点击仍按原规则
   镜像成 `off`。详见 [docs/architecture.md](docs/architecture.md) §8。
 
+- **设置区即时反馈与跟随自愈**：设置区订阅「持久化 + `theme/change`」双来源，点击即高亮；
+  `follow` 下若覆盖层掉线会重挂、若 `system` 被回声钉成内置值会再断言（同一套延后/合并/上限纪律）。
+- **状态行**：设置区显示 `选择 · 官方偏好 X · 当前方案 Y · 覆盖层 已挂载/未挂载`，
+  把「跟随为什么不跟」的分歧点直接摆在用户面前（判别树见
+  [docs/plans/v0.1.0.md](docs/plans/v0.1.0.md) 已决 #21）。
+
+### 验证
+
+- **自动化**：117 个单元测试（8 个文件）+ 假宿主共存 6/6（对实装 catppuccin **0.7.5** 产物跑的）。
+- **真机（2026-11-22，桌面壳）**：三态各选一次，状态行读数分别为
+  `浅色 · 官方偏好 moonset-light · 当前方案 浅色 · 覆盖层 未挂载`、
+  `跟随系统 · 官方偏好 system · 当前方案 深色 · 覆盖层 已挂载`、
+  `深色 · 官方偏好 moonset-dark · 当前方案 深色 · 覆盖层 未挂载`；
+  截图 [assets/previews/](assets/previews/)。
+
 ### 已知边界
 
-与 catppuccin 同装时**同一时刻只让一方掌权**（它会回弹第三方主题 id），且 0.1.0 的真机复验
-尚未完成、只到 105 个单元测试与假宿主共存 6/6——原因、源码位置与其余边界见
-[docs/compatibility.md](docs/compatibility.md) 与
-[README「已知边界」](README.md#已知边界)。
+与 catppuccin 同装时**同一时刻只让一方掌权**（它会回弹第三方主题 id）；其余边界（`:root{color-scheme}`
+未发、macOS 未验、多窗口不同步、1500ms 窗口等）见 [docs/compatibility.md](docs/compatibility.md)
+与 [README「已知边界」](README.md#已知边界)。

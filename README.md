@@ -90,13 +90,15 @@ catppuccin 关掉的），重启后插件不激活，仓库和 link 都还在。
 
 ## 已知边界
 
-以下每条都有仓库内的证据；**真机复验尚未完成**的会如实标注。
+以下每条都有仓库内的证据；没有真机证据的会如实标注。
 
-- **真机复验：待复验。** 0.1.0 已装入 `profiles/desktop`（junction + `link:` + bundles 末位；
-  catppuccin 在该 profile 的 `cordis.patch.yml` 里是 `disabled: true`），但"重启后目视三态、
-  选完 10 秒不回弹、截图 2 张"这几步还没做。
-  在那之前，本仓库的验证只到 **105 个单元测试**（7 个文件）与 **假宿主共存 6/6**，
-  都是**非真机**证据。
+- **真机复验：已通过（2026-11-22，桌面壳）。** 三态各选一次并各停留观察，状态行读数：
+  ① `浅色 · 官方偏好 moonset-light · 当前方案 浅色 · 覆盖层 未挂载`；
+  ② `跟随系统 · 官方偏好 system · 当前方案 深色 · 覆盖层 已挂载`；
+  ③ `深色 · 官方偏好 moonset-dark · 当前方案 深色 · 覆盖层 未挂载`。
+  截图见 [assets/previews/](assets/previews/)（`01-light.png` / `02-follow.png` / `03-dark.png`）。
+  插件以 junction + `link:` 装入 `profiles/desktop`，catppuccin 在该 profile 里已 `disabled: true`。
+  自动化侧是 **117 个单元测试**（8 个文件）与 **假宿主共存 6/6**（后者用实装 0.7.5 产物跑）。
 - **只做配色。** 没有毛玻璃材质、没有环境光晕、正文颜色不可调——这三项是 v0.2 的独立
   插件/功能，见 [docs/backlog-v0.2.md](docs/backlog-v0.2.md)。
 - **与 catppuccin 互斥掌权。** 可同装（注册表、层、卸载互不影响，已用实装 0.7.5 产物
