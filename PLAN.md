@@ -86,7 +86,7 @@
 | **M4** | 双主题注册 + 跟随系统 | client 半区：`tolerantRegistration` 包住 `theme.register({id:'moonset-light'…})` 与 `moonset-dark`；跟随系统走 `theme.overrideTokens('moonset-follow',{token:{light,dark}})`，偏好留 `system` | `pnpm test -- tests/theme.spec.ts` 全绿（含 4 条：注册两个 id、重复注册不抛、dispose 后可重注册、跟随层 light/dark 各自取值） |
 | **M5** | 设置区 + 自带持久化 | 插件自己的 `settings.section`（浅色 / 深色 / 跟随系统 三个按钮）；host 侧 `Config` 的 volatile 字段存**插件自己的选择**（官方主题文档只认 `system/light/dark`，第三方 id 根本写不进去）；启动时读 section 并重新 apply（`setTheme(id)` 或 follower 层） | `pnpm test -- tests/settings.spec.ts` 全绿（≥6 条：注册元数据含 3 个选项且 id/locale/order 正确、点击分别调 `setTheme`/`enable`、section 写入、启动 re-apply、section 缺失回落 `off`、卸载后零写入）；`Select-String src/client -Pattern 'html.style|body.style'` 命中 0（token 由 Presenter 内联写，插件不碰 DOM 样式） |
 | **M5.1** | 回声与快速切换守卫 | `adopt()` 会用官方文档值覆盖内存偏好 ⇒ 插件需 pendingLocal + revision 高水位：迟到的回声不得回滚更新的本地选择；连续点击按 300ms 防抖合成一次写入 | `pnpm test -- tests/settings.spec.ts` 含「迟到的文档回声」「连续快速切换 3 次」两条用例；**变异自检**：删掉 pendingLocal 判断或以文档值无条件覆盖，必须变红并贴证据 |
-| **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`，把持久主题的 token 表塞进 index HTML | `pnpm test -- tests/boot.spec.ts` 全绿（含 3 条：注入行数 = 228、volatile 取值来自文档、无 webserver 时静默） |
+| **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`：head 注入一条 `html` 行（228 条 token **+ `background-color:var(--dsw-alias-bg-base)`**），固定风味选择器 = `html body,html body[data-ds-dark-theme]` 并发一条 body script 对齐 `data-ds-dark-theme`；`follow` = 亮 `html body,html body:not([data-ds-dark-theme])` + 媒体查询暗半 `html body,html body[data-ds-dark-theme]` + 对齐脚本 | `pnpm test -- tests/boot.spec.ts` 全绿（≥8 条：228 条声明 + background-color、双选择器、volatile 门禁、`off` 空、follow 两半、CSS 安全丢弃、撤表幂等、script 行）；`lib/index.js` grep 到 `webserver/index-inject`；真实渲染器交叉验证里 head 行确含 `background-color` |
 | **M7** | 共存验收（真机） | 把 moonset 以 `link:` 装进 `web` profile（与已装 catppuccin 0.7.5 并存），启动、切主题、截图；跑完卸载 link | 启动日志 `entry(s) did not activate` 命中 0；Appearance 列出 moonset 2 项 + catppuccin 4 项；切换脚本 6 次后 `theme.revision` 单调递增且 console error 数 0；`assets/previews/` 下 2 张 PNG 均 > 100KB |
 | **M8** | 文档与结账 | README（安装/切换/兼容矩阵/截图）、CHANGELOG `0.1.0`、`docs/palette.md`（色卡 + 与官方 token 的对照）、看板置 ✅ | `pnpm typecheck` 与 `pnpm test` 与 `pnpm build` 三条 exit 0；README 命中"安装""切换""兼容"三节；CHANGELOG 命中 `## 0.1.0` 一行 |
 
@@ -180,7 +180,13 @@
    - **镜像规则补 `system` 洞**：`preference==='system'` 且 `choice!=='follow'` 时也要镜像成 `off`——
      否则用户在官方 Appearance 选「跟随系统」时，我们的 section 仍存旧主题，下次启动会把它盖回去；
      `choice==='follow'` 时的 `system` 是我们自己写的，按 choice 排除，**不加** setTheme 抑制窗口（否则变异 #3 失效）。
-11. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
+11. **M6 首轮驳回，缺口来自契约而非实现（2026-11-22）**：交付按派单写了 228 条 token，但三条证据表明「首帧画成 moonset」并未达成——
+  ① 官方 pre-paint 行是 `:root{color-scheme:…}body{background-color:#151517;--dsh-boot-bg:…}`（asar `dsh-client-ui-theme/src/boot-theme.ts:20-21`），
+  脚本前**没有任何元素消费 `--dsw-*`**，只写 token 则可见画布仍是官方色；参考实现在声明块末尾追加 `background-color:var(--dsw-alias-bg-base)`（`boot-palette.ts:111`）。
+  ② 官方暗色 token 落在 `body[data-ds-dark-theme]`（0,1,1），压过 `html body`（0,0,2）；参考因此并列双选择器（`boot-palette.ts:134`）。
+  ③ 固定风味也要发 body script 对齐 `data-ds-dark-theme`（`boot-palette.ts:147`），否则 `color-scheme`/UA 控件跟官方偏好走。
+  派单里「选择器必须是 `html body`」「light/dark 恰好 1 行」这两句是本轮的错，按上表更正；实现侧不需背锅。
+12. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
    设置 schema 的字段只有 M5 的持久化需求能定义，提前写只会是空壳；此处以"契约服从最小可验收"修订，
    派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
