@@ -1,25 +1,47 @@
 /**
- * Browser half of the Moonset theme plugin — M4: the two themes plus the
- * "follow system" layer.
+ * Browser half of the Moonset theme plugin — M4 themes plus the M5 settings
+ * section and its own durable choice.
  *
  * The artifact is emitted by tsdown.client.ts as a closure factory
  * (window.__ModuleLoader__.load) and receives the client-side cordis context
  * through `apply`; the loader owns its lifecycle (activate / unload). Every
- * `@deepseek-ai/*` import here is `import type` — the runtime values
- * (the theme service included) arrive through `ctx`, which is also why the
- * browser bundle keeps its module-table purity.
+ * `@deepseek-ai/*` import here is `import type` — the runtime values (the
+ * theme, slot, and locale services included) arrive through `ctx`, which is
+ * also why the browser bundle keeps its module-table purity.
  *
- * M4 registers `moonset-light` / `moonset-dark` and ships the follow-system
- * layer; the Appearance row and its durable preference are M5, and the
- * first-paint injection is host-side (M6), so this entry stays thin.
+ * What `apply` wires, in order:
+ *
+ *  1. the two theme registrations (M4) — through `tolerantRegistration` (D3),
+ *     so a peer owning an id costs a skip, never the user's whole plugin set;
+ *  2. the settings dictionaries (M5) — one namespace, zh + en;
+ *  3. the choice controller (M5) — durable form + boot restore + follow layer;
+ *  4. the settings section (M5) — `settings.section`, three buttons.
+ *
+ * Nothing here switches the theme preference on its own initiative: a boot
+ * restore only re-applies a choice the user already MADE (a stored `off` is
+ * left alone), and a pick applies because the user clicked (D4).
+ *
+ * First-paint injection is host-side (M6), and the echo race between a
+ * document echo and a fast re-pick is M5.1 — this milestone deliberately does
+ * not handle it (the durable facade already counts writes for that milestone's
+ * assertions).
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import { registerMoonsetThemes } from './themes.ts'
+import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import { MOONSET_SECTION_OPTIONS, applyChoice, type ChoiceDeps, type MoonsetChoice } from './choice.ts'
+import { MOONSET_ENTRY_ID, createDurableChoice } from './durable.ts'
+import { MOONSET_LOCALE_NS, en, zh, type MoonsetLocaleKey } from './locales.ts'
+import { MoonsetSection, type MoonsetSectionLabels } from './settings-section.tsx'
+import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
+import { tolerantRegistration } from './registration-tolerance.ts'
 
-// The M5 surface: the settings row needs the ids and labels to render the
-// three choices, `createFollowLayer` to drive "follow system", and
-// `moonsetFollowOverrides` to inspect what the layer pushes. Re-exported here
-// so the row imports the plugin's own entry rather than a sibling module.
+// Re-exported so a consumer (or a test) reaches the plugin's surface through
+// its own entry rather than through sibling modules.
 export {
   FOLLOW_LAYER_SOURCE,
   MOONSET_THEMES,
@@ -37,24 +59,167 @@ export type {
 } from './themes.ts'
 export { tolerantDisposer, tolerantRegistration } from './registration-tolerance.ts'
 export type { TolerantDisposer } from './registration-tolerance.ts'
+export { MOONSET_CHOICES, MOONSET_SECTION_OPTIONS, applyChoice, resolveChoice } from './choice.ts'
+export type { ChoiceDeps, MoonsetChoice, MoonsetSectionOption } from './choice.ts'
+export { MOONSET_ENTRY_ID, createDurableChoice } from './durable.ts'
+export type { DurableChoice, MoonsetSettingsSection } from './durable.ts'
+export { MOONSET_LOCALE_NS, en, zh } from './locales.ts'
+export type { MoonsetLocaleKey } from './locales.ts'
+export { MoonsetSection } from './settings-section.tsx'
+export type { MoonsetOptionLabel, MoonsetSectionLabels, MoonsetSectionProps } from './settings-section.tsx'
+
+/** The locale namespace as a literal type (interface keys cannot be computed). */
+type MoonsetNamespace = 'settings.moonset'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The Moonset settings section's copy. */
+    'settings.moonset': MoonsetLocaleKey
+  }
+}
 
 /**
- * Client plugin body: register both themes, and hand back their disposer.
+ * Compile-time tie between the exported constant and the declared namespace:
+ * the interface key above cannot be a computed name, so a drift between the two
+ * literals would otherwise be silent until a raw key showed up on screen.
+ */
+const LOCALE_NS: MoonsetNamespace = MOONSET_LOCALE_NS
+
+/** The translate function the section's copy is built from. */
+type SectionTranslate = (key: MoonsetLocaleKey) => string
+
+/** Required services: theme runtime, slot registry, and locale registry. */
+export const inject = ['theme', 'slots', 'locale']
+
+/**
+ * Build the section's copy from the namespace binding.
  *
- * Registration is the only boot-critical step here, and it rides
- * `registerMoonsetThemes` → `tolerantRegistration` (D3): a duplicate id — a
- * second copy of this plugin, or a peer that already claimed the id — is
- * skipped instead of throwing, because a throwing `apply` aborts the whole web
- * boot and takes the user's other plugins down with it. The effect also gives
- * the registrations the fiber's lifetime, so unloading the plugin releases
- * them and a re-activation registers them again.
- *
- * Nothing here switches the theme preference: selecting a theme (or
- * "follow system") is the settings row's job in M5, and `setTheme` must never
- * be called on the plugin's own initiative (D4).
- * @param ctx - client cordis context (the theme service is injected via
- * `dsh.client.inject`, so `ctx.theme` is resolved before this runs).
+ * Called per render through the injected face, so switching the interface
+ * language re-localizes the section without re-registering it.
+ * @param t - namespace-bound translate function.
+ * @returns the three labels the component takes.
+ */
+function sectionLabels(t: SectionTranslate): MoonsetSectionLabels {
+  return {
+    title: t('section.title'),
+    description: t('section.description'),
+    options: MOONSET_SECTION_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(option.localeKey),
+    })),
+  }
+}
+
+/**
+ * Client plugin body: register both themes, then wire the settings surface.
+ * @param ctx - client cordis context (the theme, slot, and locale services are
+ * injected via `dsh.client.inject` and declared in {@link inject}).
  */
 export function apply(ctx: ClientContext): void {
+  // Registration is the only boot-critical step in M4's half, and it rides
+  // `registerMoonsetThemes` → `tolerantRegistration` (D3): a duplicate id — a
+  // second copy of this plugin, or a peer that already claimed the id — is
+  // skipped instead of throwing, because a throwing `apply` aborts the whole
+  // web boot and takes the user's other plugins down with it. The effect gives
+  // the registrations the fiber's lifetime, so unloading the plugin releases
+  // them and a re-activation registers them again.
   ctx.effect(() => registerMoonsetThemes(ctx.theme), 'moonset: light/dark theme registrations')
+  wireSettings(ctx)
+}
+
+/**
+ * Wire the M5 settings surface: dictionaries, the durable choice controller,
+ * and the section registration.
+ *
+ * Skipped entirely when the context carries no slot/locale service: a bare
+ * unit-test stub (or a pre-assembly harness) has no settings surface to wire,
+ * and the boot path must never throw (M5 "硬约束" 2). On a real client both
+ * services are guaranteed by {@link inject}.
+ * @param ctx - client cordis context.
+ */
+function wireSettings(ctx: ClientContext): void {
+  const slots: SlotRegistry | undefined = ctx.slots
+  const locale: LocaleRuntime | undefined = ctx.locale
+  if (slots === undefined || locale === undefined) return
+
+  const follow = createFollowLayer(ctx.theme)
+  const durable = createDurableChoice(ctx)
+  const deps: ChoiceDeps = {
+    setTheme: (id: string) => { ctx.theme.setTheme(id) },
+    preference: () => ctx.theme.getTheme().preference,
+    follow,
+  }
+
+  // Boot restore. The durable choice is the only place a third-party theme id
+  // survives a restart (PLAN 九、已决 #4), so every start re-applies it — and
+  // so does the LATE bind of an async settings form, which is why this runs
+  // from a subscription as well as once up front.
+  //
+  // `off` is NOT re-applied: it means "no choice made", and re-applying it
+  // would overwrite the user's official preference with `system` on every boot
+  // (M5's scope is restore, not repair). The restore happens at most once, from
+  // the first readable non-`off` value; a user pick supersedes it.
+  let restored = false
+  const restore = (): void => {
+    if (restored) return
+    const choice = durable.read()
+    if (choice === 'off') return
+    restored = true
+    applyChoice(choice, deps)
+  }
+
+  const pick = (choice: MoonsetChoice): void => {
+    // Persist first (best effort), then apply: a host without a settings form
+    // still switches themes for this session, it just forgets on restart.
+    restored = true
+    durable.write(choice)
+    applyChoice(choice, deps)
+  }
+
+  // The locale service already types this binding to the merged dictionary
+  // union; SectionTranslate only narrows it to the keys this section reads.
+  const t: SectionTranslate = locale.bind(LOCALE_NS)
+  const injected = (): { choice: MoonsetChoice; onPick: (choice: MoonsetChoice) => void; labels: MoonsetSectionLabels } => ({
+    choice: durable.read(),
+    onPick: pick,
+    labels: sectionLabels(t),
+  })
+
+  // Dictionaries first: the labels resolve through them at render time.
+  ctx.effect(
+    () => tolerantRegistration(() => locale.register(LOCALE_NS, { zh, en })),
+    'moonset: settings dictionaries',
+  )
+
+  // The choice controller: form binding, boot restore, follow layer. One
+  // effect so the unload path is one place — the layer must be released with
+  // the plugin (the theme runtime does not own it, M4's `createFollowLayer`
+  // hands the lifecycle to the caller).
+  ctx.effect(() => {
+    const unsubscribe = durable.subscribe(restore)
+    restore()
+    return () => {
+      unsubscribe()
+      follow.disable()
+      durable.dispose()
+    }
+  }, 'moonset: settings choice')
+
+  // The section itself. `tolerantRegistration` because with `settings.section`
+  // already declared this callback runs SYNCHRONOUSLY, so a duplicate install
+  // (same section id) would otherwise throw straight through `apply` (D3);
+  // the label is a THUNK, so a language switch re-renders the nav row without a
+  // re-registration. `order: 40` keeps the official sections and the peer
+  // theme's page ahead of ours.
+  ctx.effect(
+    () => slots.inject('settings.section', () => tolerantRegistration(() => slots.register({
+      name: 'settings.section',
+      id: 'moonset',
+      order: 40,
+      label: () => t('section.title'),
+      locale: LOCALE_NS,
+      inject: injected,
+    }, MoonsetSection))),
+    'moonset: settings section',
+  )
 }
