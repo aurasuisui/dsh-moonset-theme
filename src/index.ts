@@ -21,10 +21,14 @@
  * is what remembers it instead (PLAN 九、已决 #4): the browser half restores it
  * at boot and re-applies it on every pick.
  *
- * First-paint injection is M6 and lands here as a listener; until then the
- * Host half stays inert.
+ * M6 adds the one piece of Host BEHAVIOR: a `webserver/index-inject` listener
+ * that hands the persisted choice's palette to the index HTML, so the first
+ * frame is already Moonset instead of the official canvas. `boot-palette.ts`
+ * owns the rows and their verified contract notes; this module only wires them.
  */
+import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
+import { bootPaletteRows, type BootPaletteConfig } from './boot-palette.ts'
 
 /**
  * The profile entry id the settings form is keyed by — the `insert` row id in
@@ -80,5 +84,30 @@ export const Config = Schema.object({
   choice: maybeVolatile(Schema.union([...CHOICE_VALUES]).default('off')),
 })
 
-/** Host-side work: nothing yet (M6 adds the webserver/index-inject listener). */
-export function apply(): void {}
+/**
+ * Hard dependency on the host webserver: the first-paint rows ride its index
+ * render, so this Host half is not activated until `webServer` is live.
+ * Declaring `inject` (rather than a one-shot `ctx.get` probe) makes the
+ * listener deterministic no matter the mount order — Cordis activates the
+ * plugin once the service appears. A headless profile has no webServer, so the
+ * Host half simply stays waiting there; nothing else it does needs one.
+ */
+export const inject = ['webServer']
+
+/**
+ * Host plugin body: contribute the first-paint rows for the durable choice.
+ *
+ * The listener reads the volatile choice on EVERY index render, so a page load
+ * always reflects the document as it stands then. It never throws and an empty
+ * contribution is legal: an unusable config (no volatile ref on a legacy host,
+ * `off`, or a value naming no choice) yields no rows and the page keeps the
+ * official first frame (see `boot-palette.ts`).
+ * @param ctx - Host cordis context (webServer is injected, see {@link inject}).
+ * @param config - Loader-validated plugin config; its `choice` is a volatile ref
+ *   on DSH >= 0.1.7 and the patch's static value on older hosts.
+ */
+export function apply(ctx: Context, config?: BootPaletteConfig): void {
+  ctx.on('webserver/index-inject', (table) => {
+    table.push(...bootPaletteRows(config))
+  })
+}

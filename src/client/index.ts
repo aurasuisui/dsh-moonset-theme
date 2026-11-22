@@ -33,7 +33,10 @@
  *    releases the follow layer, which is what stops the next boot from undoing
  *    the user's own choice.
  *
- * First-paint injection is host-side (M6).
+ * First-paint injection is host-side (M6, `../boot-palette.ts`); what THIS half
+ * owns is the handover: the injected sheet is removed the moment the choice
+ * actually takes over (`boot-cleanup.ts`), because a sheet left behind outranks
+ * the official `body` block and would pin every token against later switches.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -42,6 +45,7 @@ import type { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import { removeBootSheet } from './boot-cleanup.ts'
 import {
   MOONSET_SECTION_OPTIONS,
   applyChoice,
@@ -74,6 +78,8 @@ export type {
 } from './themes.ts'
 export { tolerantDisposer, tolerantRegistration } from './registration-tolerance.ts'
 export type { TolerantDisposer } from './registration-tolerance.ts'
+export { BOOT_SHEET_ATTR, BOOT_SHEET_SELECTOR, removeBootSheet } from './boot-cleanup.ts'
+export type { BootSheetRoot } from './boot-cleanup.ts'
 export {
   MOONSET_CHOICES,
   MOONSET_SECTION_OPTIONS,
@@ -190,9 +196,15 @@ function wireSettings(ctx: ClientContext): void {
     // is exactly the rollback this milestone exists to prevent.
     if (durable.pendingLocal !== undefined) return
     const choice = durable.read()
+    // `off` has no sheet to remove (the Host injects none for it), so the early
+    // return keeps this path to exactly one responsibility.
     if (choice === 'off') return
     restored = true
     applyChoice(choice, deps)
+    // M6 handover: the theme now owns the tokens. Leaving the pre-paint sheet in
+    // the document would keep its `html body` block ahead of the official `body`
+    // one and pin every token against later theme switches.
+    removeBootSheet()
   }
 
   const pick = (choice: MoonsetChoice): void => {
@@ -203,6 +215,10 @@ function wireSettings(ctx: ClientContext): void {
     restored = true
     durable.write(choice)
     applyChoice(choice, deps)
+    // Same handover as the boot restore: a pick can be the FIRST apply on a page
+    // whose restore never ran (no settings form bound yet, or a pending intent
+    // outranking the snapshot), and the sheet must not outlive that either.
+    removeBootSheet()
   }
 
   /**
@@ -265,6 +281,9 @@ function wireSettings(ctx: ClientContext): void {
       releaseTheme?.()
       follow.disable()
       durable.dispose()
+      // Unloading must not leave our sheet behind: after this the plugin paints
+      // nothing, so a lingering sheet would pin a palette with no owner.
+      removeBootSheet()
     }
   }, 'moonset: settings choice')
 
