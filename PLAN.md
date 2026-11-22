@@ -36,10 +36,13 @@
 | 参考仓库工作树 | `d8e314d`（main，干净） | `git -C <ref> rev-parse HEAD` |
 | 参考仓库 typecheck | exit 0 | `pnpm typecheck` |
 | 参考仓库测试 | 457 passed / 24 files | `pnpm test` |
-| 工具链 | pnpm 10.33.3 / node v24.15.0 | `pnpm -v`、`node -v` |
-| 安装态 DSH | `0.2.2-rc.1` | `dsh --version` |
+| 工具链 | pnpm 11.22.0 / node v24.15.0（参考仓库因 `packageManager: pnpm@10.33.3` 会切到 10.33.3，别把它当本机版本） | `pnpm -v`、`node -v` |
+| token oracle（桌面壳 runtime） | `0.2.2-rc.5`（`@deepseek-ai/dsh-desktop-runtime`，token 样式表的唯一来源） | `node scripts/extract-dsw-tokens.mjs` 读 app.asar 内 `/dsh/package.json` |
+| npm 全局 CLI | `0.2.2-rc.1`（树里没有任何 `design-platform.css`，**不能**当 oracle） | `dsh --version` + 全盘搜该文件 0 命中 |
 | 官方 token 样式表 | `design-platform.css` 29861 B（app.asar 内） | `node scripts/extract-dsw-tokens.mjs` 打印 sha256 |
-| 参考仓库 token 规模 | 190 token/风味，4 风味 | `grep -c "\"--dsw-" src/client/palettes.ts` |
+| 参考仓库 token 规模 | 190 token/风味，4 风味（冻结于 0.2.0-rc.2） | `grep -c "\"--dsw-" src/client/palettes.ts` |
+| 安装态 token 规模 | **228 键 × 2 方案**；样式表内 237 个唯一名，差额 9 个是 macOS `darwin` 专用层 | `node -e` 读 `themes/dsw-tokens.json` + `Select-String` 数 darwin 块 |
+| 上游退场 | 190 名单里 `--dsw-specific-sidebar-nav-item-hover` 在 0.2.2-rc.5 **已删除**（全库 0 命中，正对照 `-active` 20 命中） | 带正对照的子串扫描 |
 | ThemeRuntime token 目录 | 403 个 `--dsw-*` 名（含 font/radius） | `node -e "…exportInspectTokens…"`（M2 旁证） |
 | 外盘缓存 | `D:\Vibe-Coding\.cache\dsh-ref` **不存在** | `Test-Path` |
 
@@ -59,7 +62,7 @@
 | ID | 现象与位置 | 关闭条件（可验证） |
 |---|---|---|
 | **D1** | 参考仓库重生成依赖 `D:\Vibe-Coding\.cache\dsh-ref`，本机不存在 ⇒ `pnpm gen:palettes` 必 ENOENT | 新仓库 `grep -R "Vibe-Coding" src scripts` 命中 0，且 `node scripts/extract-dsw-tokens.mjs` exit 0 |
-| **D2** | 190 名单冻结于 0.2.0-rc.2（`UPSTREAM_PIN 639ed01`），安装态是 0.2.2-rc.1，可能新增 token | `node scripts/verify-tokens.mjs` 输出 `missing=0` 且 `meta.dshVersion=0.2.2-rc.1` |
+| **D2** | 190 名单冻结于 0.2.0-rc.2（`UPSTREAM_PIN 639ed01`），安装态是 0.2.2-rc.5：新增 39、**上游删了 1**（`--dsw-specific-sidebar-nav-item-hover`） | `node scripts/verify-tokens.mjs` 输出 `missing=0` 且 `retired=1 live=228`；`missing` 的口径 = 冻结名单 − 安装态 − **显式退役名单**，退役名单之外的任何缺失仍 exit 1 |
 | **D3** | 与 catppuccin 抢 theme id ⇒ `theme.register` 抛错 ⇒ boot 半途失败（issue #23 形态） | `tests/theme.spec.ts` 断言所有 id 以 `moonset-` 开头；真机 Appearance 同时列出 6 项 |
 | **D4** | 单主题表达不了双端；`setTheme(风味)` 会钉死 `prefers-color-scheme` | `tests/theme.spec.ts` 断言跟随时偏好仍为 `system` 且层由 `overrideTokens` 提供 |
 | **D5** | 首帧先画官方深色（issue #30 形态） | `tests/boot.spec.ts` 断言注入行数 = 190 |
@@ -72,11 +75,11 @@
 | # | 里程碑 | 内容 | 出口条件（全部满足） |
 |---|---|---|---|
 | **M1** | 骨架与门禁 | package.json（exports 三项、`dsh.bundle.patch`、`dsh.client.inject/platform`）、tsconfig×2、tsdown.config.ts、tsdown.client.ts、vitest.config.ts、cordis.patch.yml、.gitignore、LICENSE、README 骨架；`src/index.ts`（`export const name` + 空 `apply`；`Config` 顺延到 M5）、`src/client/index.ts`（空 apply）；首个实现 commit（基线 commit = `8d85c4b` 的 PLAN.md） | `pnpm install` exit 0；`pnpm typecheck` exit 0；`pnpm test` exit 0 且 Tests ≥ 1；`pnpm build` 后 `lib/index.js` 与 `lib/client.js` 存在；`node -e "const p=require('./package.json');…"` 打印 exports/dsh 四项均非空 |
-| **M2** | token 取证 | `scripts/extract-dsw-tokens.mjs`：从 `app.asar` 按 asar 头解析并解出 `design-platform.css`（两条候选路径），切出 light（`body`）与 dark（`[data-ds-dark-theme]`）两块；产出 `themes/dsw-tokens.json` + `meta{dshVersion,sha256,counts}`；`scripts/verify-tokens.mjs` 对差参考 190 名单 | `node scripts/extract-dsw-tokens.mjs` exit 0；`node scripts/verify-tokens.mjs` 打印 `missing=0`；`themes/dsw-tokens.json` 中 light 与 dark 各 ≥190 键；`pnpm test -- tests/tokens.spec.ts` 全绿 |
-| **M3** | 调色板生成 | `themes/moonset-palette.json`（附录 A 的 16 色 × 2 模式，人工可编辑的唯一源）；`scripts/generate-palettes.mjs` 按家族 mix 阶梯产出 `src/client/palettes.ts`（`MOONSET_LIGHT`/`MOONSET_DARK`，各 190 键）；≥10 条对比度契约写进测试 | 连跑两次 `node scripts/generate-palettes.mjs` 后 `certutil -hashfile src/client/palettes.ts SHA256` 两次输出相同；`pnpm test -- tests/palettes.spec.ts` 全绿且该文件断言数 ≥10 |
+| **M2** | token 取证 | `scripts/extract-dsw-tokens.mjs`：从 `app.asar` 解出 `design-platform.css`，切出 light（`body`）与 dark（`[data-ds-dark-theme]`）两块，产出 `themes/dsw-tokens.json` + `meta{dshVersion,cssSha256,counts}`；`scripts/verify-tokens.mjs` 做**三方对差**（冻结 190 / 安装态 228 / 显式退役 1）；`themes/retired-tokens.json` 记录每个退役键及其证据 | `node scripts/extract-dsw-tokens.mjs` exit 0 且 `counts=228/228`；`node scripts/verify-tokens.mjs` exit 0 且打印 `missing=0 retired=1 live=228`；`pnpm test -- tests/tokens.spec.ts` 全绿（含「退役键确实不在安装态」「退役键 ⊆ 冻结名单」两条）；`meta.cssSha256` 与审计独立复算值相同 |
+| **M3** | 调色板生成 | `themes/moonset-palette.json`（附录 A 的 16 色 × 2 模式，人工可编辑的唯一源）；`scripts/generate-palettes.mjs` 按家族 mix 阶梯产出 `src/client/palettes.ts`（`MOONSET_LIGHT`/`MOONSET_DARK`，各 **228** 键；7 个 `--dsw-alias-json-tree-*` 是字面 hex、须单独处理；≥10 条对比度契约写进测试 | 连跑两次 `node scripts/generate-palettes.mjs` 后 `certutil -hashfile src/client/palettes.ts SHA256` 两次输出相同；`pnpm test -- tests/palettes.spec.ts` 全绿且该文件断言数 ≥10 |
 | **M4** | 双主题注册 + 跟随系统 | client 半区：`tolerantRegistration` 包住 `theme.register({id:'moonset-light'…})` 与 `moonset-dark`；跟随系统走 `theme.overrideTokens('moonset-follow',{token:{light,dark}})`，偏好留 `system` | `pnpm test -- tests/theme.spec.ts` 全绿（含 4 条：注册两个 id、重复注册不抛、dispose 后可重注册、跟随层 light/dark 各自取值） |
 | **M5** | 设置行 + 持久化 | Appearance 内的 moonset 组（Light / Dark / 跟随系统 3 项）；官方 settings seam 的 `Config` volatile 字段；300ms 防抖；`applySettings` 同时写 html 与 body | `pnpm test -- tests/settings.spec.ts` 全绿（含 5 条：渲染 3 项、选择落盘、防抖合并、body 镜像、卸载后零写入） |
-| **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`，把持久主题的 token 表塞进 index HTML | `pnpm test -- tests/boot.spec.ts` 全绿（含 3 条：注入行数 = 190、volatile 取值来自文档、无 webserver 时静默） |
+| **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`，把持久主题的 token 表塞进 index HTML | `pnpm test -- tests/boot.spec.ts` 全绿（含 3 条：注入行数 = 228、volatile 取值来自文档、无 webserver 时静默） |
 | **M7** | 共存验收（真机） | 把 moonset 以 `link:` 装进 `web` profile（与已装 catppuccin 0.7.5 并存），启动、切主题、截图；跑完卸载 link | 启动日志 `entry(s) did not activate` 命中 0；Appearance 列出 moonset 2 项 + catppuccin 4 项；切换脚本 6 次后 `theme.revision` 单调递增且 console error 数 0；`assets/previews/` 下 2 张 PNG 均 > 100KB |
 | **M8** | 文档与结账 | README（安装/切换/兼容矩阵/截图）、CHANGELOG `0.1.0`、`docs/palette.md`（色卡 + 与官方 token 的对照）、看板置 ✅ | `pnpm typecheck` 与 `pnpm test` 与 `pnpm build` 三条 exit 0；README 命中"安装""切换""兼容"三节；CHANGELOG 命中 `## 0.1.0` 一行 |
 
@@ -142,7 +145,14 @@
 3. **主题 id 一律 `moonset-` 前缀**，设置命名空间、locale 命名空间同理，不与 catppuccin 争位（D3）。
 4. **不移植玻璃层**：材质是 catppuccin 的独立子系统（`glass.module.css` 131KB + 一身 `[data-dsh-glass]` 钩子），
    移植它会把"配色插件"变成"皮肤插件"，且与新配色无语义关系。
-5. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
+5. **M2 契约决策：冻结名单 / 安装态 / 退役 三方分开（2026-11-22，审核时定）**。M2 在 `missing=1` 处按派单硬规矩停下，
+   这是对的：那个键确实被上游删了（0.2.0-rc.2 → 0.2.2-rc.5），不是解析漏。三条路里选**第二条并加守卫**：
+   `themes/baseline-tokens.json`（190，冻结、永不修剪）+ `themes/retired-tokens.json`（显式退役，逐条带证据）+
+   安装态现表（228）。`missing = 冻结 − 安装态 − 退役`，只有**登记过的**退场才豁免；
+   退役名单没有条目、却从安装态消失的键照样 exit 1，所以「悄悄删 token」仍然红，只是「上游删了」可以被记账。
+6. **token oracle 只有一份**：桌面壳 `app.asar` 里的 `design-platform.css`（runtime 0.2.2-rc.5）。
+   `dsh --version` 报的 0.2.2-rc.1 是 npm 全局 CLI，树里根本没有这个样式表——两者不能混作基线。
+7. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
    设置 schema 的字段只有 M5 的持久化需求能定义，提前写只会是空壳；此处以"契约服从最小可验收"修订，
    派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
@@ -157,6 +167,12 @@
   2. `tsdown.client.ts` 已删掉参考仓库的 CSS Modules 内联管线（`lightningcss`）——M5 的设置行要么用内联样式，要么把管线与依赖加回来，二选一要在 M5 派单里写死。
   3. 没有 `prepare` 脚本：M7 用 `link:` 装进 web profile 之前必须先跑 `pnpm build`，否则装进去的包没有 `lib/`。
   4. 仓库无 `.gitattributes`（本机 `core.autocrlf=true`）：行尾会在检出时漂成 CRLF，需要时单独加 `* text=auto eol=lf`。
+- **M2 带出的三条债**：
+  1. 样式表 237 个唯一名里有 9 个只出现在 `html[data-platform='darwin'] body` 的 macOS 振动层，按参考仓库同一口径**不进双方案表**；
+     对齐 macOS 观感需要单独一层，M7 在 macOS 上不验这一项。
+  2. `--dsw-alias-json-tree-*` 7 个 token 在官方表里是**字面 hex**（不走 `var()`），参考仓库的 `aliasLiteralOverrides` 也没收它们；
+     M3 必须显式给出这 7 个值，否则会落回官方深/浅色，与 moonset 的中性色不一致。
+  3. `meta.dshVersion` 记录的是**桌面壳 runtime**版本（0.2.2-rc.5），不是 npm CLI 的 0.2.2-rc.1；README/CHANGELOG 引用版本时要说清是哪一个。
 
 ## 附录 A：moonset 源色板（本计划的输入）
 
