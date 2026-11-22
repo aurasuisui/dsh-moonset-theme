@@ -84,7 +84,8 @@
 | **M2** | token 取证 | `scripts/extract-dsw-tokens.mjs`：从 `app.asar` 解出 `design-platform.css`，切出 light（`body`）与 dark（`[data-ds-dark-theme]`）两块，产出 `themes/dsw-tokens.json` + `meta{dshVersion,cssSha256,counts}`；`scripts/verify-tokens.mjs` 做**三方对差**（冻结 190 / 安装态 228 / 显式退役 1）；`themes/retired-tokens.json` 记录每个退役键及其证据 | `node scripts/extract-dsw-tokens.mjs` exit 0 且 `counts=228/228`；`node scripts/verify-tokens.mjs` exit 0 且打印 `missing=0 retired=1 live=228`；`pnpm test -- tests/tokens.spec.ts` 全绿（含「退役键确实不在安装态」「退役键 ⊆ 冻结名单」两条）；`meta.cssSha256` 与审计独立复算值相同 |
 | **M3** | 调色板生成 | `themes/moonset-palette.json`（附录 A 的 16 色 × 2 模式，人工可编辑的唯一源）；`scripts/generate-palettes.mjs` 按家族 mix 阶梯产出 `src/client/palettes.ts`（`MOONSET_LIGHT`/`MOONSET_DARK`，各 **228** 键；7 个 `--dsw-alias-json-tree-*` 是字面 hex、须单独处理；≥10 条对比度契约写进测试 | 连跑两次 `node scripts/generate-palettes.mjs` 后 `certutil -hashfile src/client/palettes.ts SHA256` 两次输出相同；`pnpm test -- tests/palettes.spec.ts` 全绿且该文件断言数 ≥10 |
 | **M4** | 双主题注册 + 跟随系统 | client 半区：`tolerantRegistration` 包住 `theme.register({id:'moonset-light'…})` 与 `moonset-dark`；跟随系统走 `theme.overrideTokens('moonset-follow',{token:{light,dark}})`，偏好留 `system` | `pnpm test -- tests/theme.spec.ts` 全绿（含 4 条：注册两个 id、重复注册不抛、dispose 后可重注册、跟随层 light/dark 各自取值） |
-| **M5** | 设置行 + 持久化 | Appearance 内的 moonset 组（Light / Dark / 跟随系统 3 项）；官方 settings seam 的 `Config` volatile 字段；300ms 防抖；`applySettings` 同时写 html 与 body | `pnpm test -- tests/settings.spec.ts` 全绿（含 5 条：渲染 3 项、选择落盘、防抖合并、body 镜像、卸载后零写入） |
+| **M5** | 设置行 + 自带持久化 | Appearance 内的 moonset 组（Light / Dark / 跟随系统）；host 侧 `Config` 的 volatile 字段存**插件自己的选择**（官方主题文档只认 `system/light/dark`，第三方 id 根本写不进去）；启动时读 section 并重新 apply（`setTheme(id)` 或 follower 层） | `pnpm test -- tests/settings.spec.ts` 全绿（≥6 条：渲染 3 项、点击分别调 `setTheme`/`enable`、section 写入、启动 re-apply、section 缺失回落 `system`、卸载后零写入）；`Select-String src/client -Pattern 'html.style|body.style'` 命中 0（token 由 Presenter 内联写，插件不碰 DOM 样式） |
+| **M5.1** | 回声与快速切换守卫 | `adopt()` 会用官方文档值覆盖内存偏好 ⇒ 插件需 pendingLocal + revision 高水位：迟到的回声不得回滚更新的本地选择；连续点击按 300ms 防抖合成一次写入 | `pnpm test -- tests/settings.spec.ts` 含「迟到的文档回声」「连续快速切换 3 次」两条用例；**变异自检**：删掉 pendingLocal 判断或以文档值无条件覆盖，必须变红并贴证据 |
 | **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`，把持久主题的 token 表塞进 index HTML | `pnpm test -- tests/boot.spec.ts` 全绿（含 3 条：注入行数 = 228、volatile 取值来自文档、无 webserver 时静默） |
 | **M7** | 共存验收（真机） | 把 moonset 以 `link:` 装进 `web` profile（与已装 catppuccin 0.7.5 并存），启动、切主题、截图；跑完卸载 link | 启动日志 `entry(s) did not activate` 命中 0；Appearance 列出 moonset 2 项 + catppuccin 4 项；切换脚本 6 次后 `theme.revision` 单调递增且 console error 数 0；`assets/previews/` 下 2 张 PNG 均 > 100KB |
 | **M8** | 文档与结账 | README（安装/切换/兼容矩阵/截图）、CHANGELOG `0.1.0`、`docs/palette.md`（色卡 + 与官方 token 的对照）、看板置 ✅ | `pnpm typecheck` 与 `pnpm test` 与 `pnpm build` 三条 exit 0；README 命中"安装""切换""兼容"三节；CHANGELOG 命中 `## 0.1.0` 一行 |
@@ -98,8 +99,9 @@
 | **M1** | ✅ | commit `67d7ece`；审计自跑：`pnpm install`/`typecheck`/`typecheck:tests`/`test`(3 passed)/`build` 全 exit 0，`lib/index.js`+`lib/client.js` 存在且 `node --check` 通过，manifest 四项非空；`git diff --stat b1ec8cc..HEAD` = 15 files，`PLAN.md` 改动 0 行，参考仓库 `git status` 0 行、HEAD 仍 `d8e314d` |
 | **M2** | ✅ | commit `40bb92a`；审计自跑：`extract` 0（228/228，cssSha256 `3234f31876…`）、`verify` **0** → `missing=0 retired=1 live=228 added=39`、`pnpm test` **10 passed/2 files**、两条 typecheck 0；**审计者自己做变异**：`retired=[]` → exit 1 `missing=1`、假退役（真实 token）→ exit 1、幽灵退役（不在冻结名单）→ exit 1、还原后 sha256 逐字节一致 `bd1d951b…`；`e8bed9f..HEAD` 只动 7 个文件，`PLAN.md`/`src`/`package.json` 0 行 |
 | **M3** | ✅ | commit `85e9650`；审计自跑：连跑两次生成器 sha256 均 `49423383…` 且工作树干净、`pnpm test` **47 passed/3 files**、两条 typecheck 0；**审计者自写解析器复核**：两表各 228 键且键集合相同、分类独立重算 = 82/109/14/23/0 与 82/110/16/20/0、B3 与官方原值重合 **0** 条、仅 B1 逐字照抄（109/110）、var 引用 55/45 条悬空 0、退役 token 未生成；**22 条对比度全部用第三方实现复算一致**（label-primary 17.80/15.81、border-l1 1.08/1.14 等）；`45b13bb..HEAD` 仅 4 个文件，受保护文件 0 行 |
-| **M4** | ⬜ | — |
+| **M4** | ✅ | commit `75c292d`；审计自跑：`pnpm test` **60 passed/4 files**、两条 typecheck 0、`pnpm build` 0（`lib/client.js` 38.41 kB）、产物 grep 两个 id 命中 9 处、`src/client/*.ts` 里 `setTheme(` **0** 命中、产物里 `@deepseek-ai/` **0** 命中（无运行时外部导入）；核对官方 runtime 源码：重复 id 的报错原文是 `theme "…" is already registered`（tolerance 正则命中），`overrideTokens` 在返回前同步 `publish()`（重入守卫因此必要而非装饰）；`3e1b227..HEAD` 4 files，受保护文件 0 行 |
 | **M5** | ⬜ | — |
+| **M5.1** | ⬜ | — |
 | **M6** | ⬜ | — |
 | **M7** | ⬜ | — |
 | **M8** | ⬜ | — |
@@ -149,16 +151,22 @@
 2. **token 取证改走安装态 app.asar**，不复用外盘缓存：缓存不在仓库里、已丢过一次，且换了上游 tag 在 diff 里与"改配色"无法区分；
    新做法把 `dshVersion` 与 `sha256` 写进产物当审计锚点（替代参考仓库的 `--pin` 约定）。
 3. **主题 id 一律 `moonset-` 前缀**，设置命名空间、locale 命名空间同理，不与 catppuccin 争位（D3）。
-4. **不移植玻璃层**：材质是 catppuccin 的独立子系统（`glass.module.css` 131KB + 一身 `[data-dsh-glass]` 钩子），
+4. **第三方主题 id 写不进官方偏好文档（2026-11-22 读 runtime 源码确认）**：`setTheme(id)` 只有当 `id ∈ {system,light,dark}` 时才
+   写设置文档（`if (isThemePreference(id)) this.write(...)`），第三方 id 只活在**内存偏好**里；而 `adopt()` 每次回声都会用文档值
+   覆盖内存偏好 ⇒ **只靠官方 seam 记不住 Catppuccin/Moonset 这类主题**。这解释了 M5 为什么要自带 section、
+   M6 为什么必须做首帧注入，也解释了参考仓库 `state.ts` 那 33KB 存在的原因。
+5. **`overrideTokens` 同步派发**：它的 disposer 与写入都会在返回前 `publish()`，所以跟随层的重建/销毁必须离开
+   `theme/change` 派发（M4 已用 `mutating` 窗口实现并写进 JSDoc）。
+6. **不移植玻璃层**：材质是 catppuccin 的独立子系统（`glass.module.css` 131KB + 一身 `[data-dsh-glass]` 钩子），
    移植它会把"配色插件"变成"皮肤插件"，且与新配色无语义关系。
-5. **M2 契约决策：冻结名单 / 安装态 / 退役 三方分开（2026-11-22，审核时定）**。M2 在 `missing=1` 处按派单硬规矩停下，
+7. **M2 契约决策：冻结名单 / 安装态 / 退役 三方分开（2026-11-22，审核时定）**。M2 在 `missing=1` 处按派单硬规矩停下，
    这是对的：那个键确实被上游删了（0.2.0-rc.2 → 0.2.2-rc.5），不是解析漏。三条路里选**第二条并加守卫**：
    `themes/baseline-tokens.json`（190，冻结、永不修剪）+ `themes/retired-tokens.json`（显式退役，逐条带证据）+
    安装态现表（228）。`missing = 冻结 − 安装态 − 退役`，只有**登记过的**退场才豁免；
    退役名单没有条目、却从安装态消失的键照样 exit 1，所以「悄悄删 token」仍然红，只是「上游删了」可以被记账。
-6. **token oracle 只有一份**：桌面壳 `app.asar` 里的 `design-platform.css`（runtime 0.2.2-rc.5）。
+8. **token oracle 只有一份**：桌面壳 `app.asar` 里的 `design-platform.css`（runtime 0.2.2-rc.5）。
    `dsh --version` 报的 0.2.2-rc.1 是 npm 全局 CLI，树里根本没有这个样式表——两者不能混作基线。
-7. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
+9. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
    设置 schema 的字段只有 M5 的持久化需求能定义，提前写只会是空壳；此处以"契约服从最小可验收"修订，
    派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
@@ -193,6 +201,12 @@
   2. 浅色 `--dsw-menu-surface-fill` 为 `rgba(255,255,255,.7)`（源板 `elevated` 就是纯白），与官方 `rgba(252,253,254,.7)` 有 2–3 级差；属源板语义，不修。
   3. `state-warn-primary` 压在 `state-warn-tertiary` 上仅 1.86:1（上游 1.95:1）：warn 是指示色不是文字，未写入契约。
   4. `palettes.ts` 与 `themes/` 在 `core.autocrlf=true` 下会出现「幻影 M」（内容相同、行尾不同）。测试已做行尾归一化（CRLF 检出下 37 条全绿）；根治要等 M8 的 `.gitattributes`。
+- **M4 带出的四条债**：
+  1. 跟随层 source 定名 `dsh-moonset`（= 插件 id），契约里原写 `moonset-follow`；**以代码为准**，M5 的断言按 `dsh-moonset`。
+  2. 官方注册表**不存 label**：Appearance 不认第三方 id 时会显示裸 id，M5 必须用 `MOONSET_THEMES.label` 自渲染。
+  3. 宿主 runtime 的 ui-theme（0.2.2-rc.5）高于本地 devDep（0.2.1-rc.2）；`overrideTokens` 签名一致但高版本侧只有文档兜底，
+     M7 真机要记录 `typeof theme.overrideTokens === 'function'` 的探测结果。
+  4. 同一 runtime 上两个 fiber（重复安装）共享一份注册与一次释放，不是引用计数：第二份卸载会让主题消失到下次激活。先不做计数，M7 记录行为。
 
 ## 附录 A：moonset 源色板（本计划的输入）
 
