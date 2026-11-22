@@ -37,6 +37,26 @@
  *    write, and is answered by a deferred re-assert instead of being believed —
  *    the root cause is spelled out in `wireSettings`.
  *
+ * M5.3 answers the two symptoms a real profile hit, and adds the surface that
+ * makes the next report diagnosable:
+ *
+ *  - **the section has ONE source of truth.** It seeds from `read()` and
+ *    re-reads on a change instead of mirroring the `choice` prop in local
+ *    state: a settings write makes the Host re-derive its scope forms and
+ *    REMOUNT the section, and since the write is queued for 300 ms (M5.1) that
+ *    remount can beat the document — with a prop mirror the click looked
+ *    ignored ("点了跟随系统，设置区不跳").
+ *  - **follow mode heals itself.** A `theme/change` while the stored choice is
+ *    `follow` repairs the two states that make following a silent no-op: a
+ *    layer that is not stacked, and a built-in preference the settings echo
+ *    pinned (the runtime re-publishes an OS flip only while the preference is
+ *    `system`, `dsh-client-ui-theme/lib/client.js:1671`).
+ *  - **the section shows its own state.** One status line renders the stored
+ *    choice, the runtime preference, the resolved scheme, and whether the layer
+ *    is attached (`describeState`, in `choice.ts`). On the desktop shell the
+ *    GUI window exposes no document to an outside observer, so that line is the
+ *    plugin's only visible diagnostic.
+ *
  * First-paint injection is host-side (M6, `../boot-palette.ts`); what THIS half
  * owns is the handover: the injected sheet is removed the moment the choice
  * actually takes over (`boot-cleanup.ts`), because a sheet left behind outranks
@@ -54,6 +74,7 @@ import { removeBootSheet } from './boot-cleanup.ts'
 import {
   MOONSET_SECTION_OPTIONS,
   applyChoice,
+  describeState,
   isOfficialThemePreference,
   moonsetThemeId,
   shouldMirrorOfficialPick,
@@ -62,7 +83,12 @@ import {
 } from './choice.ts'
 import { MOONSET_ENTRY_ID, RESTORE_WINDOW_MS, createDurableChoice } from './durable.ts'
 import { MOONSET_LOCALE_NS, en, zh, type MoonsetLocaleKey } from './locales.ts'
-import { MoonsetSection, type MoonsetSectionLabels } from './settings-section.tsx'
+import {
+  MoonsetSection,
+  type MoonsetSectionFace,
+  type MoonsetSectionLabels,
+  type MoonsetSectionView,
+} from './settings-section.tsx'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
 import { tolerantRegistration } from './registration-tolerance.ts'
 
@@ -91,7 +117,9 @@ export {
   MOONSET_CHOICES,
   MOONSET_SECTION_OPTIONS,
   OFFICIAL_THEME_PICKS,
+  STATUS_SEPARATOR,
   applyChoice,
+  describeState,
   isOfficialThemePreference,
   resolveChoice,
   shouldMirrorOfficialPick,
@@ -102,7 +130,13 @@ export type { DurableChoice, MoonsetSettingsSection } from './durable.ts'
 export { MOONSET_LOCALE_NS, en, zh } from './locales.ts'
 export type { MoonsetLocaleKey } from './locales.ts'
 export { MoonsetSection } from './settings-section.tsx'
-export type { MoonsetOptionLabel, MoonsetSectionLabels, MoonsetSectionProps } from './settings-section.tsx'
+export type {
+  MoonsetOptionLabel,
+  MoonsetSectionFace,
+  MoonsetSectionLabels,
+  MoonsetSectionProps,
+  MoonsetSectionView,
+} from './settings-section.tsx'
 
 /** The locale namespace as a literal type (interface keys cannot be computed). */
 type MoonsetNamespace = 'settings.moonset'
@@ -197,6 +231,50 @@ function wireSettings(ctx: ClientContext): void {
     follow,
   }
 
+  // ── M5.3: the section's view channel ─────────────────────────────────────
+  //
+  // The section renders `read()` and nothing else, and it re-reads whenever
+  // THIS channel fires. Two sources feed it, because the view draws two
+  // different things:
+  //
+  //  - the DURABLE store (a pick landing, a late form binding, the mirror rule
+  //    storing `off`) — the choice half of the line;
+  //  - `theme/change` — the scheme half. An OS flip while following changes no
+  //    stored value at all, so without this source the status line would sit
+  //    frozen on the scheme that was live when the section mounted, and the
+  //    section's own status would LIE about the thing it exists to explain.
+  //
+  // One set holds the listeners: a section unmount removes exactly one entry
+  // plus its durable subscription (see `subscribe`), and the plugin's unload
+  // clears the set outright.
+  /** Live section listeners, fed by both sources. */
+  const viewListeners = new Set<() => void>()
+
+  /** Notify every live section (the `theme/change` half of the channel). */
+  const notifyView = (): void => {
+    // Copied: a listener may release itself from inside the notification (an
+    // unmount that races the publish).
+    for (const listener of [...viewListeners]) listener()
+  }
+
+  /**
+   * Subscribe one renderer to every change the view draws.
+   *
+   * The returned release unbinds BOTH sources for this listener: the durable
+   * subscription it created, and the `theme/change` path (the listener is out
+   * of the set, so the plugin's own publish no longer reaches it).
+   * @param listener - called after a durable change OR a `theme/change`.
+   * @returns the release.
+   */
+  const subscribe = (listener: () => void): (() => void) => {
+    viewListeners.add(listener)
+    const releaseDurable = durable.subscribe(listener)
+    return () => {
+      viewListeners.delete(listener)
+      releaseDurable()
+    }
+  }
+
   // ── M5.2: the settings echo ───────────────────────────────────────────────
   //
   // ROOT CAUSE, measured rather than guessed. The official `ThemeRuntime`
@@ -277,6 +355,11 @@ function wireSettings(ctx: ClientContext): void {
     reasserts = 0
     reassertStopped = false
     reassertAnnounced = false
+    // M5.3: the same reset for the follow-mode repairs. The user acting is also
+    // the signal that the old repair fight is worth giving up on.
+    repairs = 0
+    repairStopped = false
+    repairAnnounced = false
     durable.write(choice)
     applyChoice(choice, deps)
     // Same handover as the boot restore: a pick can be the FIRST apply on a page
@@ -342,15 +425,132 @@ function wireSettings(ctx: ClientContext): void {
     })
   }
 
+  // ── M5.3: follow-mode self-healing ────────────────────────────────────────
+  //
+  // Two repairs, both answering a `theme/change` while the stored choice is
+  // `follow`. Each one fixes a state in which "follow system" is a silent
+  // no-op — the second symptom a real profile reported ("切操作系统的深浅模式，
+  // 主题不跟随"):
+  //
+  //  ① THE LAYER IS NOT STACKED. `overrideTokens` can be refused (a peer owns
+  //    the source, a re-entrant call, a rejected token table) and a refused
+  //    layer paints nothing: the preference then resolves `system` to the
+  //    OFFICIAL palette, and the OS can flip forever without Moonset moving.
+  //    Re-enable it.
+  //  ② THE PREFERENCE WAS PINNED TO A BUILT-IN inside the local-write window.
+  //    That value is the settings echo (adopt()) of our own write, and it pins
+  //    the scheme twice over: follow mode means `system`, and the runtime only
+  //    re-publishes an OS flip while the preference is `system`
+  //    (`dsh-client-ui-theme/lib/client.js:1671`, the `media` change listener).
+  //    Put `system` back.
+  //
+  // Both are DEFERRED by a microtask and merged, exactly like M5.2's re-assert
+  // and for the same two reasons: they run from inside a `theme/change`
+  // dispatch, where a synchronous `overrideTokens` re-enters the publish it is
+  // answering (issue #36 constraint 2) and a synchronous `setTheme` lands in
+  // the middle of adopt()'s own dispatch. The cap is the echo fight's, for the
+  // same reason: a repair that a publish immediately undoes would be worse than
+  // the state it repairs, so three rounds and the plugin stops and says so
+  // ONCE. The status line then shows the truth (未挂载) instead of pretending.
+  //
+  // A repair that finds nothing to do (the layer is attached again, the
+  // preference is already `system`) is a no-op: it does not consume the cap and
+  // does not warn — which is what keeps our OWN `enable()`/`setTheme()` calls
+  // (they publish synchronously from inside their own stack) from logging a
+  // repair that never happened.
+  /**
+   * Repairs already queued for this tick, by kind.
+   *
+   * Per KIND, not one flag for both: the two repairs answer different states,
+   * and one of them is routinely queued by our OWN attach (the layer's
+   * `overrideTokens` publishes before it hands back its disposer, so the
+   * publish listener sees `enabled === false` once). A single flag would let
+   * that no-op shadow a real repair queued in the same tick — measured, not
+   * theorised: it swallowed B② on the first run of the M5.3 suite.
+   */
+  const repairQueued = new Set<'reattach' | 'restore'>()
+  /** Repairs made in the current burst (reset by a user pick). */
+  let repairs = 0
+  /** Set once the cap is hit: the plugin stops repairing until the next pick. */
+  let repairStopped = false
+  /** The diagnostic warning is announced once per burst. */
+  let repairAnnounced = false
+
+  /**
+   * Queue one deferred repair, merged per kind and capped.
+   *
+   * The repair runs one microtask later, re-checks that the choice is still
+   * `follow` (it may have moved on while the repair waited), and only then
+   * acts. A repair that reports nothing to do is dropped silently — which is
+   * also why a kind is merged rather than deduplicated into a boolean.
+   * @param kind - `reattach` or `restore`; echoes of one kind merge, the other
+   *   kind still gets its turn.
+   * @param run - performs the repair; returns whether it actually changed
+   *   something (a no-op must not consume the cap or warn).
+   * @param complaint - the one-line diagnostic logged when a repair fires, and
+   *   again (with the cap) when the plugin gives up.
+   */
+  const scheduleRepair = (kind: 'reattach' | 'restore', run: () => boolean, complaint: string): void => {
+    if (!active || repairQueued.has(kind) || repairStopped) return
+    if (repairs >= REASSERT_LIMIT) {
+      repairStopped = true
+      if (!repairAnnounced) {
+        repairAnnounced = true
+        console.warn(
+          `[dsh-moonset] stopped repairing follow mode after ${REASSERT_LIMIT} attempts — ${complaint}`,
+        )
+      }
+      return
+    }
+    repairQueued.add(kind)
+    queueMicrotask(() => {
+      repairQueued.delete(kind)
+      if (!active || repairStopped) return
+      // The choice is the gate, re-read here: a pick that landed between the
+      // schedule and this tick owns the state now.
+      if (durable.read() !== 'follow') return
+      if (!run()) return
+      repairs += 1
+      if (!repairAnnounced) {
+        repairAnnounced = true
+        console.warn(`[dsh-moonset] ${complaint}`)
+      }
+    })
+  }
+
+  /**
+   * ① Re-stack the follow layer when it is missing.
+   *
+   * `follow.enable()` is deliberately NOT wrapped in a try/catch: the layer's
+   * own `tolerantRegistration` already degrades a refusal to
+   * `enabled === false` (D3), and that is exactly what the status line reports
+   * as 未挂载. Swallowing it here as well would hide the one fact the user (and
+   * the next bug report) needs.
+   */
+  const scheduleFollowReattach = (): void => scheduleRepair('reattach', () => {
+    if (follow.enabled) return false
+    follow.enable()
+    return follow.enabled
+  }, 'the follow layer was not attached while the choice is "follow" — re-attaching it (M5.3)')
+
+  /** ② Put the `system` preference back after the settings echo pinned it. */
+  const scheduleSystemRestore = (): void => scheduleRepair('restore', () => {
+    if (deps.preference() === 'system') return false
+    deps.setTheme('system')
+    return true
+  }, 'restoring the "system" preference — the settings echo had pinned it (M5.3)')
+
   /**
    * Decide what one `theme/change` means for the stored choice (M5.1 + M5.2).
    *
    * Table, by what the section stores:
    *
    *  - `off` — nothing: there is no choice to defend or hand back.
-   *  - `follow` — mirror only an EXPLICIT official `light` / `dark`; a
-   *    `system` publish is follow mode's own end state (or an adopt() of the
-   *    document) and must never mirror or re-assert.
+   *  - `follow` — mirror only an EXPLICIT official `light` / `dark`, and an
+   *    explicit pick inside the local-write window is the echo instead, so it
+   *    is repaired to `system` (M5.3 ②). A `system` publish is follow mode's
+   *    own end state (or an adopt() of the document) and is never mirrored. A
+   *    publish also re-attaches a missing layer (M5.3 ①).
    *  - `light` / `dark` — a third-party id (ours or a peer's) needs no answer;
    *    a BUILT-IN preference inside the local-write window is the echo of our
    *    own write and is re-asserted, while one outside it is the user's own
@@ -359,10 +559,33 @@ function wireSettings(ctx: ClientContext): void {
    */
   const handleThemeChange = (snapshot: { preference: string }): void => {
     const preference = snapshot.preference
+    // M5.3: every publish refreshes the status line — an OS flip included,
+    // because it changes no stored value at all. Notified BEFORE any branch can
+    // return, so the section's line also tracks `off` and the concrete themes.
+    notifyView()
     const choice = durable.read()
     if (choice === 'off') return
     if (choice === 'follow') {
-      if (shouldMirrorOfficialPick(preference, choice)) mirrorOfficialPick()
+      // ① a layer that is not stacked paints nothing, so "follow" would be a
+      // no-op and the OS could flip forever without Moonset moving.
+      if (!follow.enabled) scheduleFollowReattach()
+      if (shouldMirrorOfficialPick(preference, choice)) {
+        // ② a built-in `light`/`dark` INSIDE the local-write window is the
+        // settings echo of our own write, not an official pick: it pins the
+        // scheme (and the runtime then stops publishing OS flips — the second
+        // reported symptom), so follow mode gets `system` back. Outside the
+        // window it is the user's own Appearance pick, and M5.1's mirror stands.
+        // A `system` echo needs no branch at all: it IS follow mode's target,
+        // which is why `shouldMirrorOfficialPick` answers false for it — the
+        // repair below additionally re-checks the live preference before
+        // writing, so a preference that is already back on `system` costs no
+        // `setTheme` call.
+        if (durable.sinceLastWrite() <= RESTORE_WINDOW_MS) {
+          scheduleSystemRestore()
+          return
+        }
+        mirrorOfficialPick()
+      }
       return
     }
     // A built-in preference is the only value adopt() can write back, so it is
@@ -378,10 +601,61 @@ function wireSettings(ctx: ClientContext): void {
   // The locale service already types this binding to the merged dictionary
   // union; SectionTranslate only narrows it to the keys this section reads.
   const t: SectionTranslate = locale.bind(LOCALE_NS)
-  const injected = (): { choice: MoonsetChoice; onPick: (choice: MoonsetChoice) => void; labels: MoonsetSectionLabels } => ({
-    choice: durable.read(),
+
+  /**
+   * The scheme the presenter is painting right now — the status line's third
+   * fact.
+   *
+   * Read structurally instead of through `ThemeSnapshot`'s type: a composed
+   * host always carries `active.colorScheme`, while a bare harness may hand
+   * back a stub snapshot without it, and the settings page must render either
+   * way (M5 "硬约束" 2 — the boot path never throws). A missing snapshot costs a
+   * label, never the panel.
+   * @returns `dark` only when the resolved snapshot says so.
+   */
+  const schemeNow = (): 'light' | 'dark' => {
+    const snapshot = ctx.theme.getTheme() as
+      | { readonly active?: { readonly colorScheme?: string } }
+      | undefined
+    return snapshot?.active?.colorScheme === 'dark' ? 'dark' : 'light'
+  }
+
+  /**
+   * The section's whole view (M5.3): the choice to highlight and the status line
+   * that explains the live state.
+   *
+   * `read()` is the section's ONLY input, which is what makes a remount safe:
+   * the durable store answers with a queued intent (M5.1), so the remount a
+   * settings write causes can no longer land on an older value than the click.
+   * The line itself is composed HERE, not in the component, so every fact it
+   * prints is read at render time from the service that owns it.
+   * @returns the current view.
+   */
+  const read = (): MoonsetSectionView => {
+    const choice = durable.read()
+    return {
+      choice,
+      status: describeState({
+        choice,
+        preference: deps.preference(),
+        scheme: schemeNow(),
+        layerAttached: follow.enabled,
+        t,
+      }),
+    }
+  }
+
+  // The face the section receives. `choice` rides along as a live GETTER so the
+  // face's M5 shape (and every test that reads it directly) keeps working while
+  // there is exactly one answer: `read()`.
+  const injected = (): MoonsetSectionFace => ({
     onPick: pick,
     labels: sectionLabels(t),
+    subscribe,
+    read,
+    get choice(): MoonsetChoice {
+      return read().choice
+    },
   })
 
   // Dictionaries first: the labels resolve through them at render time.
@@ -410,6 +684,9 @@ function wireSettings(ctx: ClientContext): void {
       // A re-assert queued for this tick must not fire into an unloaded plugin.
       active = false
       unsubscribe()
+      // No section survives the unload: dropping the set is what keeps a
+      // queued `theme/change` from re-rendering an unmounted panel.
+      viewListeners.clear()
       releaseTheme?.()
       follow.disable()
       durable.dispose()

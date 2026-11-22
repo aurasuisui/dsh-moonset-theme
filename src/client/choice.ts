@@ -25,7 +25,7 @@
  * context, no `setTheme`, and no `ctx` access, so the table below is the whole
  * contract and the tests pin it without a host.
  */
-import type { MoonsetLocaleKey } from './locales.ts'
+import { zh, type MoonsetLocaleKey } from './locales.ts'
 import { MOONSET_THEME_IDS, type FollowSystemLayer, type MoonsetThemeId } from './themes.ts'
 
 /** What the plugin remembers: a concrete theme, the follow layer, or nothing. */
@@ -214,4 +214,80 @@ export function applyChoice(choice: MoonsetChoice, deps: ChoiceDeps): void {
   // `off`: official theme, official preference, no layer.
   deps.follow.disable()
   deps.setTheme('system')
+}
+
+// ── M5.3: the status line ────────────────────────────────────────────────────
+//
+// The settings section renders ONE line describing the live state. It is not
+// decoration: on the desktop shell the GUI window exposes no document to an
+// outside observer (CDP answers with a single `dsh://host` target that has no
+// DOM), so this line is the only place the plugin can SHOW what it believes —
+// the stored choice, the runtime's preference, the resolved scheme, and
+// whether the follow layer is actually stacked. That is why it is a pure
+// function of exactly those four facts and nothing else: the tests pin the
+// whole contract without a host, a renderer, or a DOM.
+
+/** How the status line separates its four facts (punctuation, not copy). */
+export const STATUS_SEPARATOR = ' · '
+
+/**
+ * The four facts the status line renders (M5.3).
+ *
+ * All four are read at render time by the plugin entry: the choice from the
+ * durable store, the preference from the theme runtime, the scheme from the
+ * runtime's resolved snapshot, and the layer from its own switch.
+ */
+export interface StateDescriptionInput {
+  /** What this plugin stores — the highlighted button. */
+  readonly choice: MoonsetChoice
+  /** The runtime's live preference: `system`, a built-in, or a theme id. */
+  readonly preference: string
+  /** The scheme the presenter is painting right now. */
+  readonly scheme: 'light' | 'dark'
+  /** Whether the follow layer is stacked; only `follow` ever stacks it. */
+  readonly layerAttached: boolean
+  /**
+   * Copy resolver for the three `status.*` labels. Optional so the line can be
+   * produced without a locale service (a bare host, a unit test): the default
+   * resolves through the `zh` dictionary, which is the key-set source of truth.
+   */
+  readonly t?: (key: MoonsetLocaleKey) => string
+}
+
+/** The zh dictionary as a translate function (the default {@link describeState} copy). */
+const zhCopy = (key: MoonsetLocaleKey): string => zh[key]
+
+/**
+ * Compose the status line.
+ *
+ * `off` deliberately renders one short phrase instead of four facts: there is
+ * no plugin state to report ("no choice made" IS the state), and the official
+ * theme owns everything else.
+ *
+ * Other choices render all four facts, in this order:
+ *
+ *   `跟随系统 · 官方偏好 system · 当前方案 深色 · 覆盖层 已挂载`
+ *
+ * The preference is printed verbatim: it may be `system`, a built-in pick, or a
+ * third-party id such as `moonset-dark`, and reading it is exactly what tells a
+ * following user whether the runtime is still on `system` (the value follow
+ * mode requires) or was pinned elsewhere.
+ * @param input - the four live facts plus the optional copy resolver.
+ * @returns the one-line status, already localized.
+ */
+export function describeState(input: StateDescriptionInput): string {
+  const t = input.t ?? zhCopy
+  // "No choice" is the whole story: the official theme and the official
+  // preference are in charge, and a scheme/layer report would suggest this
+  // plugin is doing something.
+  if (input.choice === 'off') return t('status.off')
+  const choiceLabel = t(
+    input.choice === 'follow' ? 'option.follow' : input.choice === 'light' ? 'option.light' : 'option.dark',
+  )
+  return [
+    choiceLabel,
+    `${t('status.official')} ${input.preference}`,
+    t(input.scheme === 'dark' ? 'status.scheme.dark' : 'status.scheme.light'),
+    t(input.layerAttached ? 'status.layer.on' : 'status.layer.off'),
+  ].join(STATUS_SEPARATOR)
 }
