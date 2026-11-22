@@ -104,7 +104,7 @@
 | **M5** | ✅ | commit `f232e56`；审计自跑：`pnpm test` **75 passed/5 files**、两条 typecheck 0、`pnpm build` 0、`src/client` DOM 写 **0**、`package.json`+lock **0 行**；**审计者自写 artifact harness**（stub loader + stub react 驱动 `lib/client.js`）：注册 `moonset-light/light/228`+`moonset-dark/dark/228`、`configForms.get('dsh-moonset')`、启动按 section `dark` 自动 `setTheme('moonset-dark')`、section 元数据 `{name,id:'moonset',order:40,locale}`、渲染出 **3 个 button**（`aria-pressed` 指向 dark）、点 follow → `form.set('choice','follow')`+`setTheme('system')`+`overrideTokens('dsh-moonset',228)`、点 light → `setTheme('moonset-light')` 且层被撤；`33ba636..HEAD` 7 files，受保护文件 0 行 |
 | **M5.1** | ✅ | commit `ef41df7`；审计自跑：`pnpm test` **88 passed/6 files**、两条 typecheck 0、`build` 0；测试改动核过：`settings.spec.ts` 断言数 **100→105**、15 个 `it` 标题逐条相同、被删的 10 行断言全部在改后重现；唯一改动是把 `toHaveBeenCalled()` 收紧成 `toHaveBeenCalledTimes(1)`；**审计者自己做变异**：水位守卫改成恒假 → `tests/echo.spec.ts` 1 failed 且 exit 1，还原后 sha256 `d565b887…` 一致、exit 0、`git status` 空；镜像规则源码逐行核过，与裁定口径一致 |
 | **M6** | ✅ | commit `c6cc395`（复审修 `9a60d11`）；审计自跑：`pnpm test` **97 passed/7 files**、两条 typecheck 0、`build` 0；**审计者直接 import host 源码驱动**（node 类型剥离）：`light`/`dark` = 1 块 **229 条**（228 token + canvas 收尾）、`follow` = **2 块**各自 229 且暗块在 `@media (prefers-color-scheme: dark)` 内、`off`/无值/**非 ref 的静态值** 全部 0 行、`BOOT_SHEET_ATTR` 正确；产物 grep 到 `background-color:var(--dsw-alias-bg-base)`、两种双选择器、两条 `toggleAttribute`；客户端 `html.style|body.style` 仍 0；`f8edd19..HEAD` 3 files，受保护文件 0 行 |
-| **M7** | ✅ | commit `7e514da`；审计自跑 `node scripts/coexist-check.mjs` → exit 0、**6/6 PASS**（6 个 id、双 apply 不抛、6 主题切换、层互不误删、只卸我方剩 4 个、require 集合干净）；`pnpm test` 仍 97 passed；`4eb7763..HEAD` 1 file；宿主自证：register/setTheme/slots 三条 `assertThrows` 先证「能失败」再数 id |
+| **M7** | ✅ | commit `7e514da`；审计自跑 `node scripts/coexist-check.mjs` → exit 0、**6/6 PASS**（6 个 id、双 apply 不抛、6 主题切换、层互不误删、只卸我方剩 4 个、require 集合干净）；`pnpm test` 仍 97 passed；`4eb7763..HEAD` 1 file；宿主自证：register/setTheme/slots 三条 `assertThrows` 先证「能失败」再数 id；**并对实装 0.7.5 产物复跑 6/6**（`~/.dsh/profiles/desktop/node_modules/@nonamelego/dsh-catppuccin/lib/client.js`，version 0.7.5，sha256 `393A63F5…`，2026-11-22 20:2x） |
 | **M7.1** | ⬜ | — |
 | **M8** | ⬜ | — |
 
@@ -192,6 +192,7 @@
    catppuccin 的 `applyDesired` 会在每次 `theme/change` 里跑 `builtinPickWins(preference, liveBuiltinPick)`（`src/client/index.ts:463-469`），
    而它只让「本次会话里用户显式挑的 light/dark」获胜——**第三方 id 永不获胜**，于是 `scheduleRestore` 会把偏好改回它的风味。
    实测：存着 `catppuccin-mocha` 时 `setTheme('moonset-dark')`，同步生效、microtask 后回到 `catppuccin-mocha`。
+   （该结论已对**实装的 0.7.5 构建产物**复跑确认：同一 6 条检查 6/6 PASS。）
    ⇒ 结论：两者**可以同时安装**（boot、注册表、层、卸载互不影响，M7 已证），但**同一时刻只应有一方掌权**；
    文档必须写「切到另一方的主题前，先把这一方关掉」，M7.1 也按这个跑法验证。这是 catppuccin 的既有行为，不是本插件能改的。
 14. **M7.1 的判定指标要换（2026-11-22）**：
@@ -266,6 +267,10 @@
   3. 固定块 ≈12 KB / follow ≈24 KB 每次 index 渲染内联，未裁剪；gzip 后 `lib/index.js` 8.85 kB，可接受。
 - **M7 带出的四条债**：
   1. **互斥使用**：catppuccin 开启时会回弹第三方主题（见「已决 #13」）——文档要写清，别让用户以为坏了。
+- **profile 事实更正（2026-11-22，审核者误读后订正）**：`~/.dsh/profiles/**desktop**/package.json` 里 `@nonamelego/dsh-catppuccin` = **`0.7.5`**（精确版本，且在 `bundles` 里），
+  这就是用户实际在用的 GUI（桌面壳）；而 `profiles/**web**/package.json` 声明 `^0.6.0`、实装 **0.7.0**，且该 profile 当前并未服务任何界面。
+  此前我把 web profile 当成了「用户环境」，据此说过「真机无法证明 0.7.5 兼容」——**这句是错的**，已用实装 0.7.5 产物重跑 M7 证伪。
+  M7.1 的现实约束随之变化：**活跃的 0.7.5 在 desktop profile，而该 profile 被 Electron 独占**（`dsh` CLI 会硬拒 `--profile desktop`），无法脚本化起停。
   2. catppuccin **惰性注册**：新装完 registry 里 0 条风味，只有它的设置行在选某个风味时才注册；任何「数 registry」的验收口径都不成立。
   3. catppuccin 会**包装 `theme.setTheme`**（卸载时按身份还原；两个 fiber 会链式包装）。我们的调用会穿过多层包装，功能上没问题，但读调用栈时会看到它。
   4. 我们的第二 fiber 卸载会连带撤掉共享注册（M4 债 #4 现场确认：先释放的那次生效、后一次 no-op）。
