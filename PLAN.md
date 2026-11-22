@@ -70,6 +70,12 @@
 | **D7** | 生成器非幂等 ⇒ 每次提交都产生假 diff | 连续两次 `node scripts/generate-palettes.mjs` 后 `certutil -hashfile` 两次相同 |
 | **D8** | 设置回声回滚本地选择（issue #31 形态） | `tests/settings.spec.ts` 的"迟到的文档回声"用例全绿 |
 
+**M3 判定时的三条口径确认（2026-11-22）**：
+- **B1 扩到「表达式照抄」**：官方有 7 条 `var(--dsw-alias-…)` 与 1 条引用 alias 的 `color-mix`，按字面会落进 B4。
+  接受把 B1 定义为「任何引用同表内 token 的表达式照抄」，因为引用对象都在同一张表里、可被 `tests/palettes.spec.ts` 的解析用例证伪（现 0 悬空）。
+- **B2 在暗色下端点对调**：白→`inkPrimary`、黑→`canvas`。若照字面（白→canvas），暗色 `border-l1..l4`、`bg-skeleton`、`interactive-bg-hover` 会画成 canvas 叠 canvas 而消失——这是设计意图，不是偏离。
+- **"不落回官方值"的判定按 B3 执行**：B1 逐字照抄是规则本身；`--dsw-static-amber-500` 与官方同为 `#F59E0B` 是因为源板 `moon` 就是那个琥珀色，字符串不同、属 A 类，不算回落。
+
 ## 三、里程碑与出口条件
 
 | # | 里程碑 | 内容 | 出口条件（全部满足） |
@@ -91,7 +97,7 @@
 |---|---|---|
 | **M1** | ✅ | commit `67d7ece`；审计自跑：`pnpm install`/`typecheck`/`typecheck:tests`/`test`(3 passed)/`build` 全 exit 0，`lib/index.js`+`lib/client.js` 存在且 `node --check` 通过，manifest 四项非空；`git diff --stat b1ec8cc..HEAD` = 15 files，`PLAN.md` 改动 0 行，参考仓库 `git status` 0 行、HEAD 仍 `d8e314d` |
 | **M2** | ✅ | commit `40bb92a`；审计自跑：`extract` 0（228/228，cssSha256 `3234f31876…`）、`verify` **0** → `missing=0 retired=1 live=228 added=39`、`pnpm test` **10 passed/2 files**、两条 typecheck 0；**审计者自己做变异**：`retired=[]` → exit 1 `missing=1`、假退役（真实 token）→ exit 1、幽灵退役（不在冻结名单）→ exit 1、还原后 sha256 逐字节一致 `bd1d951b…`；`e8bed9f..HEAD` 只动 7 个文件，`PLAN.md`/`src`/`package.json` 0 行 |
-| **M3** | ⬜ | — |
+| **M3** | ✅ | commit `85e9650`；审计自跑：连跑两次生成器 sha256 均 `49423383…` 且工作树干净、`pnpm test` **47 passed/3 files**、两条 typecheck 0；**审计者自写解析器复核**：两表各 228 键且键集合相同、分类独立重算 = 82/109/14/23/0 与 82/110/16/20/0、B3 与官方原值重合 **0** 条、仅 B1 逐字照抄（109/110）、var 引用 55/45 条悬空 0、退役 token 未生成；**22 条对比度全部用第三方实现复算一致**（label-primary 17.80/15.81、border-l1 1.08/1.14 等）；`45b13bb..HEAD` 仅 4 个文件，受保护文件 0 行 |
 | **M4** | ⬜ | — |
 | **M5** | ⬜ | — |
 | **M6** | ⬜ | — |
@@ -182,6 +188,11 @@
      M3 的家族规则必须覆盖它们，否则那 8 个 alias 会落回官方色。
   4. 7 个 `--dsw-alias-json-tree-*` 是字面值且 **keyword 与 number 同值**（`#1c00cf` / `#99c8ff`），
      M3 需显式给值——不能靠"按 token 名推断语义"的规则漏掉其中一个。
+- **M3 带出的四条债**：
+  1. 暗色 overlay 的 α 沿用官方值（0.06–0.24），未按暗色观感调大；M7 真机若觉得描边/悬停偏弱，调的是 B3 表里的 α，不是锚点色。
+  2. 浅色 `--dsw-menu-surface-fill` 为 `rgba(255,255,255,.7)`（源板 `elevated` 就是纯白），与官方 `rgba(252,253,254,.7)` 有 2–3 级差；属源板语义，不修。
+  3. `state-warn-primary` 压在 `state-warn-tertiary` 上仅 1.86:1（上游 1.95:1）：warn 是指示色不是文字，未写入契约。
+  4. `palettes.ts` 与 `themes/` 在 `core.autocrlf=true` 下会出现「幻影 M」（内容相同、行尾不同）。测试已做行尾归一化（CRLF 检出下 37 条全绿）；根治要等 M8 的 `.gitattributes`。
 
 ## 附录 A：moonset 源色板（本计划的输入）
 
