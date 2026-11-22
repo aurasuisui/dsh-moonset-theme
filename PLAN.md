@@ -86,10 +86,11 @@
 | **M4** | 双主题注册 + 跟随系统 | client 半区：`tolerantRegistration` 包住 `theme.register({id:'moonset-light'…})` 与 `moonset-dark`；跟随系统走 `theme.overrideTokens('moonset-follow',{token:{light,dark}})`，偏好留 `system` | `pnpm test -- tests/theme.spec.ts` 全绿（含 4 条：注册两个 id、重复注册不抛、dispose 后可重注册、跟随层 light/dark 各自取值） |
 | **M5** | 设置区 + 自带持久化 | 插件自己的 `settings.section`（浅色 / 深色 / 跟随系统 三个按钮）；host 侧 `Config` 的 volatile 字段存**插件自己的选择**（官方主题文档只认 `system/light/dark`，第三方 id 根本写不进去）；启动时读 section 并重新 apply（`setTheme(id)` 或 follower 层） | `pnpm test -- tests/settings.spec.ts` 全绿（≥6 条：注册元数据含 3 个选项且 id/locale/order 正确、点击分别调 `setTheme`/`enable`、section 写入、启动 re-apply、section 缺失回落 `off`、卸载后零写入）；`Select-String src/client -Pattern 'html.style|body.style'` 命中 0（token 由 Presenter 内联写，插件不碰 DOM 样式） |
 | **M5.1** | 回声与快速切换守卫 | `adopt()` 会用官方文档值覆盖内存偏好 ⇒ 插件需 pendingLocal + revision 高水位：迟到的回声不得回滚更新的本地选择；连续点击按 300ms 防抖合成一次写入 | `pnpm test -- tests/settings.spec.ts` 含「迟到的文档回声」「连续快速切换 3 次」两条用例；**变异自检**：删掉 pendingLocal 判断或以文档值无条件覆盖，必须变红并贴证据 |
+| **M5.2** | 主题回弹修复（0.1.0 阻断项） | 用户实测：设置里选浅/深色会**闪一下切回系统主题**。根因：官方 `ThemeRuntime` 在构造时就 `ctx.effect(() => host.subscribe(() => this.adopt()))`（`dsh-client-ui-theme/lib/client.js:1681`），`adopt()` 把内存偏好覆盖成设置文档里的 `theme`（只会是 system/light/dark）——我们的 `form.set('choice', …)` 一旦落盘就会触发它，把 `moonset-*` 冲掉。修法：`theme/change` 里做**再断言**（choice∈{light,dark} 且偏好塌回 builtin、且处于本地写入窗口内 → 重新 `setTheme(ourId)`），窗口外仍按 M5.1 的镜像规则把官方选择记为 `off`；并让假宿主**模拟 adopt()**，否则这类 bug 永远测不出来 | `pnpm test -- tests/echo.spec.ts` 新增 ≥5 条全绿（含「写入回声把偏好冲回 system → 被再断言救回」「窗口外官方 light 仍镜像成 off」「再断言不产生无限循环」）；既有 97 条一条不改；两条 typecheck 0；`build` 0 |
 | **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`：head 注入一条 `html` 行（228 条 token **+ `background-color:var(--dsw-alias-bg-base)`**），固定风味选择器 = `html body,html body[data-ds-dark-theme]` 并发一条 body script 对齐 `data-ds-dark-theme`；`follow` = 亮 `html body,html body:not([data-ds-dark-theme])` + 媒体查询暗半 `html body,html body[data-ds-dark-theme]` + 对齐脚本 | `pnpm test -- tests/boot.spec.ts` 全绿（≥8 条：228 条声明 + background-color、双选择器、volatile 门禁、`off` 空、follow 两半、CSS 安全丢弃、撤表幂等、script 行）；`lib/index.js` grep 到 `webserver/index-inject`；真实渲染器交叉验证里 head 行确含 `background-color` |
 | **M7** | 共存验收（假宿主） | `scripts/coexist-check.mjs`：把**两个真实构建产物**（本仓库 `lib/client.js` 与 catppuccin 仓库的 `lib/client.js`，后者用 `--catppuccin <path>` 传入、缺省找同级目录）装进**同一个**假宿主（共享 theme 注册表 / slots / locale / configForms / effect，含「重复 id 抛错」的真实语义），跑注册、切换、卸载 | 脚本 exit 0，且报告含：注册表 **6 个 id**（4 catppuccin + 2 moonset）、两边各 apply 两次不抛、6 个主题逐个切换后 `preference` 跟随、我们的跟随层与 catppuccin 的层**互不误删**、只卸载 moonset 后 catppuccin 4 个仍在、两边 `setTheme` 之外零 DOM 写 |
-| **M7.1** | 共存验收（真机，**需人类口令**） | 隔离 `DSH_HOME` 新建 web profile：装 `@nonamelego/dsh-catppuccin@0.7.5` + 我们的 `link:`，起在备用端口，分两相跑：**相 1** catppuccin 未选风味时选 moonset 三态；**相 2** catppuccin 选 mocha 后再选 moonset（记录回弹）；截图；删临时 home | 启动日志 `entry(s) did not activate` 命中 0；Appearance 出现 moonset 2 项；**相 1**：选完 3 秒后 `preference` 仍是 `moonset-*`/`system`（`console` 采样，不回弹）；**相 2**：回弹被如实记录（预期现象，不算失败）；`assets/previews/` 2 张 PNG > 100KB；临时 `DSH_HOME` 删除后 `Test-Path` 为 False |
-| **M8** | 文档与结账 | README（安装/切换/兼容矩阵/截图）、CHANGELOG `0.1.0`、`docs/palette.md`（色卡 + 与官方 token 的对照）、看板置 ✅ | `pnpm typecheck` 与 `pnpm test` 与 `pnpm build` 三条 exit 0；README 命中"安装""切换""兼容"三节；CHANGELOG 命中 `## 0.1.0` 一行 |
+| **M7.1** | 真机自验（用户桌面壳，solo） | 用户已把 `dsh-moonset-theme` 以 `link:` 装进 `profiles/desktop`（junction + pnpm，备份 `*.bak-moonset-20261122123511`），catppuccin 已 `disabled: true`；用户目视三态并截图 | 启动日志无 `entry(s) did not activate`；设置里出现「Moonset 主题」；**浅色/深色/跟随系统 三态各选一次，选完 10 秒内不回弹**；`assets/previews/` 存 2 张 PNG；用户在对话里确认观感 |
+| **M8** | 文档体系与结账（0.1.0） | 建 `docs/` 树并**收编零碎文件**：`PLAN.md` → `docs/plans/v0.1.0.md`（历史留档，仓库根只留 `README.md`/`CHANGELOG.md`/`LICENSE`）；新增 `docs/architecture.md`（两半区/注册表/持久化/首帧的机制图）、`docs/palette.md`（16 锚点 + 228 键映射 + 对比度契约）、`docs/compatibility.md`（与 catppuccin 的事实记录：可同装、互斥使用）、`docs/backlog-v0.2.md`（毛玻璃插件/环境光晕/正文色可调）；README 重写为「是什么/怎么装/怎么用/已知边界」四节；CHANGELOG 补 `0.1.0` 一节 | `pnpm typecheck`/`pnpm test`/`pnpm build` 三条 exit 0；`docs/` 下每个文件都被 README 或另一份文档链接（无孤儿：`Select-String` 反查 0 未引用）；仓库根只剩 4 个文档级文件；`node scripts/plan-lint.mjs` 对 `docs/plans/v0.1.0.md` 仍 0 error；CHANGELOG 命中 `## 0.1.0` |
 
 > 判定点：每个里程碑做完，执行者停下报「待审核」并交四件真实输出；审核者独立复跑出口条件后才置 ✅。
 
@@ -102,6 +103,7 @@
 | **M3** | ✅ | commit `85e9650`；审计自跑：连跑两次生成器 sha256 均 `49423383…` 且工作树干净、`pnpm test` **47 passed/3 files**、两条 typecheck 0；**审计者自写解析器复核**：两表各 228 键且键集合相同、分类独立重算 = 82/109/14/23/0 与 82/110/16/20/0、B3 与官方原值重合 **0** 条、仅 B1 逐字照抄（109/110）、var 引用 55/45 条悬空 0、退役 token 未生成；**22 条对比度全部用第三方实现复算一致**（label-primary 17.80/15.81、border-l1 1.08/1.14 等）；`45b13bb..HEAD` 仅 4 个文件，受保护文件 0 行 |
 | **M4** | ✅ | commit `75c292d`；审计自跑：`pnpm test` **60 passed/4 files**、两条 typecheck 0、`pnpm build` 0（`lib/client.js` 38.41 kB）、产物 grep 两个 id 命中 9 处、`src/client/*.ts` 里 `setTheme(` **0** 命中、产物里 `@deepseek-ai/` **0** 命中（无运行时外部导入）；核对官方 runtime 源码：重复 id 的报错原文是 `theme "…" is already registered`（tolerance 正则命中），`overrideTokens` 在返回前同步 `publish()`（重入守卫因此必要而非装饰）；`3e1b227..HEAD` 4 files，受保护文件 0 行 |
 | **M5** | ✅ | commit `f232e56`；审计自跑：`pnpm test` **75 passed/5 files**、两条 typecheck 0、`pnpm build` 0、`src/client` DOM 写 **0**、`package.json`+lock **0 行**；**审计者自写 artifact harness**（stub loader + stub react 驱动 `lib/client.js`）：注册 `moonset-light/light/228`+`moonset-dark/dark/228`、`configForms.get('dsh-moonset')`、启动按 section `dark` 自动 `setTheme('moonset-dark')`、section 元数据 `{name,id:'moonset',order:40,locale}`、渲染出 **3 个 button**（`aria-pressed` 指向 dark）、点 follow → `form.set('choice','follow')`+`setTheme('system')`+`overrideTokens('dsh-moonset',228)`、点 light → `setTheme('moonset-light')` 且层被撤；`33ba636..HEAD` 7 files，受保护文件 0 行 |
+| **M5.2** | ⬜ | — |
 | **M5.1** | ✅ | commit `ef41df7`；审计自跑：`pnpm test` **88 passed/6 files**、两条 typecheck 0、`build` 0；测试改动核过：`settings.spec.ts` 断言数 **100→105**、15 个 `it` 标题逐条相同、被删的 10 行断言全部在改后重现；唯一改动是把 `toHaveBeenCalled()` 收紧成 `toHaveBeenCalledTimes(1)`；**审计者自己做变异**：水位守卫改成恒假 → `tests/echo.spec.ts` 1 failed 且 exit 1，还原后 sha256 `d565b887…` 一致、exit 0、`git status` 空；镜像规则源码逐行核过，与裁定口径一致 |
 | **M6** | ✅ | commit `c6cc395`（复审修 `9a60d11`）；审计自跑：`pnpm test` **97 passed/7 files**、两条 typecheck 0、`build` 0；**审计者直接 import host 源码驱动**（node 类型剥离）：`light`/`dark` = 1 块 **229 条**（228 token + canvas 收尾）、`follow` = **2 块**各自 229 且暗块在 `@media (prefers-color-scheme: dark)` 内、`off`/无值/**非 ref 的静态值** 全部 0 行、`BOOT_SHEET_ATTR` 正确；产物 grep 到 `background-color:var(--dsw-alias-bg-base)`、两种双选择器、两条 `toggleAttribute`；客户端 `html.style|body.style` 仍 0；`f8edd19..HEAD` 3 files，受保护文件 0 行 |
 | **M7** | ✅ | commit `7e514da`；审计自跑 `node scripts/coexist-check.mjs` → exit 0、**6/6 PASS**（6 个 id、双 apply 不抛、6 主题切换、层互不误删、只卸我方剩 4 个、require 集合干净）；`pnpm test` 仍 97 passed；`4eb7763..HEAD` 1 file；宿主自证：register/setTheme/slots 三条 `assertThrows` 先证「能失败」再数 id；**并对实装 0.7.5 产物复跑 6/6**（`~/.dsh/profiles/desktop/node_modules/@nonamelego/dsh-catppuccin/lib/client.js`，version 0.7.5，sha256 `393A63F5…`，2026-11-22 20:2x） |
@@ -152,7 +154,9 @@
    双端只能靠两套定义；"跟随系统"另走 `overrideTokens` 层（参考 `docs/issue-36-follow-system.md` 的结论）。
 2. **token 取证改走安装态 app.asar**，不复用外盘缓存：缓存不在仓库里、已丢过一次，且换了上游 tag 在 diff 里与"改配色"无法区分；
    新做法把 `dshVersion` 与 `sha256` 写进产物当审计锚点（替代参考仓库的 `--pin` 约定）。
-3. **主题 id 一律 `moonset-` 前缀**，设置命名空间、locale 命名空间同理，不与 catppuccin 争位（D3）。
+3. ~~主题 id 一律 `moonset-` 前缀~~（仍保留）**新增 A3 修订（2026-11-22 21:45，用户实测后定）**：
+   **「与 catppuccin 兼容」不再是目标**——实测两者会互斥（它会把第三方主题弹回）。保留的只是事实记录：「可同装、互斥使用」。
+   用户真正想要的是**毛玻璃材质**，那是**另一个插件**（v0.2），不在 0.1.0 范围。0.1.0 只交付：能选、能记住、重启恢复、首帧不闪。
 4. **第三方主题 id 写不进官方偏好文档（2026-11-22 读 runtime 源码确认）**：`setTheme(id)` 只有当 `id ∈ {system,light,dark}` 时才
    写设置文档（`if (isThemePreference(id)) this.write(...)`），第三方 id 只活在**内存偏好**里；而 `adopt()` 每次回声都会用文档值
    覆盖内存偏好 ⇒ **只靠官方 seam 记不住 Catppuccin/Moonset 这类主题**。这解释了 M5 为什么要自带 section、
@@ -199,7 +203,12 @@
    - 「Appearance 列出 6 项」作废——catppuccin 是**惰性注册**（只注册当前风味，`item JJ`），registry 里通常只有 0–1 条；
    - 「`theme.revision` 单调 + console error = 0」作废——回弹同样会发一次 `theme/change`，指标照样绿（M7 已实测这条盲区）；
    - 改为：相 1 采样 `preference` 在 3 秒后仍等于我们选的值；相 2 如实记录回弹。
-15. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
+16. **0.1.0 的收尾口径（2026-11-22 21:45，用户实测后定）**：用户说「先完成 0.1.0 计划，后面再定计划完善」。据此：
+   - **0.1.0 只交付**：能选 / 能记住 / 重启恢复 / 首帧不闪 / 文档体系。
+   - **出 0.1.0 之外**（进 `docs/backlog-v0.2.md`）：「毛玻璃材质插件」（用户真正想要的是这个，且明确说**无法兼容就不兼容**）、
+     「环境光晕（月晕/琥珀辉光）」——那是 UI 皮肤层，主题插件只能改 token，做不了 `fixed` 渐变；「正文颜色可调」——需要额外的覆盖设置。
+   - 用户实测的三条观察（回弹、光晕缺失、正文色不变）里，**回弹是 0.1.0 阻断项**（M5.2）；另两条是 0.2 的功能缺口，不是缺陷。
+17. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
    设置 schema 的字段只有 M5 的持久化需求能定义，提前写只会是空壳；此处以"契约服从最小可验收"修订，
    派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
