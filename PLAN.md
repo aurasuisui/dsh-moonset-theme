@@ -101,7 +101,7 @@
 | **M3** | ✅ | commit `85e9650`；审计自跑：连跑两次生成器 sha256 均 `49423383…` 且工作树干净、`pnpm test` **47 passed/3 files**、两条 typecheck 0；**审计者自写解析器复核**：两表各 228 键且键集合相同、分类独立重算 = 82/109/14/23/0 与 82/110/16/20/0、B3 与官方原值重合 **0** 条、仅 B1 逐字照抄（109/110）、var 引用 55/45 条悬空 0、退役 token 未生成；**22 条对比度全部用第三方实现复算一致**（label-primary 17.80/15.81、border-l1 1.08/1.14 等）；`45b13bb..HEAD` 仅 4 个文件，受保护文件 0 行 |
 | **M4** | ✅ | commit `75c292d`；审计自跑：`pnpm test` **60 passed/4 files**、两条 typecheck 0、`pnpm build` 0（`lib/client.js` 38.41 kB）、产物 grep 两个 id 命中 9 处、`src/client/*.ts` 里 `setTheme(` **0** 命中、产物里 `@deepseek-ai/` **0** 命中（无运行时外部导入）；核对官方 runtime 源码：重复 id 的报错原文是 `theme "…" is already registered`（tolerance 正则命中），`overrideTokens` 在返回前同步 `publish()`（重入守卫因此必要而非装饰）；`3e1b227..HEAD` 4 files，受保护文件 0 行 |
 | **M5** | ✅ | commit `f232e56`；审计自跑：`pnpm test` **75 passed/5 files**、两条 typecheck 0、`pnpm build` 0、`src/client` DOM 写 **0**、`package.json`+lock **0 行**；**审计者自写 artifact harness**（stub loader + stub react 驱动 `lib/client.js`）：注册 `moonset-light/light/228`+`moonset-dark/dark/228`、`configForms.get('dsh-moonset')`、启动按 section `dark` 自动 `setTheme('moonset-dark')`、section 元数据 `{name,id:'moonset',order:40,locale}`、渲染出 **3 个 button**（`aria-pressed` 指向 dark）、点 follow → `form.set('choice','follow')`+`setTheme('system')`+`overrideTokens('dsh-moonset',228)`、点 light → `setTheme('moonset-light')` 且层被撤；`33ba636..HEAD` 7 files，受保护文件 0 行 |
-| **M5.1** | ⬜ | — |
+| **M5.1** | ✅ | commit `ef41df7`；审计自跑：`pnpm test` **88 passed/6 files**、两条 typecheck 0、`build` 0；测试改动核过：`settings.spec.ts` 断言数 **100→105**、15 个 `it` 标题逐条相同、被删的 10 行断言全部在改后重现；唯一改动是把 `toHaveBeenCalled()` 收紧成 `toHaveBeenCalledTimes(1)`；**审计者自己做变异**：水位守卫改成恒假 → `tests/echo.spec.ts` 1 failed 且 exit 1，还原后 sha256 `d565b887…` 一致、exit 0、`git status` 空；镜像规则源码逐行核过，与裁定口径一致 |
 | **M6** | ⬜ | — |
 | **M7** | ⬜ | — |
 | **M8** | ⬜ | — |
@@ -173,7 +173,14 @@
    - **follow 会把任何非 `system` 的偏好重置成 `system`**：官方 `light/dark` 会钉死 scheme，跟随层的 OS 半边永远不活，
      所以"跟随系统"必须落到 `system`；这与 D4「插件不主动切偏好」不冲突——这是**用户选择的语义**，不是开机时的自作主张。
    - **开机不重放 `off`**：`off` 是"没选过"，重放会每次启动把用户的官方偏好写成 `system`；只有 light/dark/follow 才 re-apply。
-10. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
+10. **M5.1 的两条裁定（2026-11-22）**：
+   - **批准「改测试的观察方式」（方案 A）**：M5 那 4 处同步断言与 300ms 纯尾沿防抖不可共存；改为 fake timers 推进后断言，
+     前提是强度不降（仍 `length===1` + 精确值 + 警告只一次），并补一条「点击后同步断言 0 次写入」把纯尾沿钉死。
+     审计已核：断言数 100→105、标题全同、无弱等价物（没有裸 `toHaveBeenCalled()`）。
+   - **镜像规则补 `system` 洞**：`preference==='system'` 且 `choice!=='follow'` 时也要镜像成 `off`——
+     否则用户在官方 Appearance 选「跟随系统」时，我们的 section 仍存旧主题，下次启动会把它盖回去；
+     `choice==='follow'` 时的 `system` 是我们自己写的，按 choice 排除，**不加** setTheme 抑制窗口（否则变异 #3 失效）。
+11. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
    设置 schema 的字段只有 M5 的持久化需求能定义，提前写只会是空壳；此处以"契约服从最小可验收"修订，
    派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
@@ -224,6 +231,13 @@
   2. `follow` 的开机恢复会在**启动期**写官方文档（`setTheme('system')`）；语义上必要，但属于"启动即写用户设置"，M6/M7 留意首帧顺序。
   3. 多窗口不同步：挂载后另一窗口改 section，本窗口按钮不刷新（无冲突提示）。
   4. `dsh.client.inject` 仍是 4 条，而 M5 已真吃 `configForms`；M7 必须重点看 `entry(s) did not activate`。
+     另：`Config` 的真机投影未验（只证了 schema 形状），`slots.inject` 本身未包 tolerant（与参考同形），`order: 40` 是自定值。
+- **M5.1 带出的四条债**：
+  1. 无 form 时先点击、后绑定成功会盖回文档值（M5 契约规定「无 form 只 warn 不记忆」，未改）。
+  2. 镜像路径里的 `follow.disable()` 在 `theme/change` 派发栈内执行，真实宿主会同步再 publish 一次（靠 `read()` 已返回 off 使其 no-op）；
+     PLAN 已决 #5 的「离开派发」理想形态没做到，是有意换取的（加窗口会让变异 #3 失效）。
+  3. `theme/change` 只在 `wireSettings` 跑起来（需要 slots + locale）时才订阅——「镜像依赖设置区装配」的隐性耦合。
+  4. 多窗口不同步仍在：别的窗口改 section，本窗口不重放（用例只证 `read()` 采纳）。
      另：`Config` 的真机投影未验（只证了 schema 形状），`slots.inject` 本身未包 tolerant（与参考同形），`order: 40` 是自定值。
 
 ## 附录 A：moonset 源色板（本计划的输入）
