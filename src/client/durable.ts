@@ -12,9 +12,9 @@
  *   `ctx.configForms.get('dsh-moonset')`  →  `{ choice }`  →  `form.set('choice', …)`
  *
  * Scope of this module (deliberately small, and deliberately DOM-free):
- * read, write, flush, notify, dispose. It never touches styles, never calls
- * `setTheme`, and never applies a policy — `choice.ts` owns the policy and
- * `index.ts` owns the wiring.
+ * read, write, flush, notify, dispose, and the LOCAL-WRITE CLOCK. It never
+ * touches styles, never calls `setTheme`, and never applies a policy —
+ * `choice.ts` owns the policy and `index.ts` owns the wiring.
  *
  * **M5.1 — the echo race and the fast-switch guard.** Two mechanisms live down
  * here, below the policy, so `choice.ts` stays a pure function:
@@ -34,6 +34,15 @@
  * The invariant that keeps both honest: `write()` is called by user actions
  * and by the mirror rule in `index.ts` only; the echo path NEVER writes back,
  * so a late snapshot can only ever be ignored, never re-persisted.
+ *
+ * **M5.2 — the local-write clock.** The one echo this module cannot dismiss
+ * with a watermark is the RUNTIME's own `adopt()` (`dsh-client-ui-theme`
+ * subscribes to its settings scope in its constructor, `lib/client.js:1681`):
+ * an accepted settings write makes it copy the document's built-in
+ * `preference` over the third-party id we just set. `index.ts` answers that
+ * with a re-assert, and it needs to know whether the built-in it just saw is an
+ * echo: {@link DurableChoice.sinceLastWrite} answers that, and a QUEUED intent
+ * counts — its echo is already on its way.
  *
  * Degradation is the pre-M5 status quo, never a crash: a host that serves no
  * `configForms` service (or no form for this entry) reports `off` and warns on
@@ -65,6 +74,20 @@ export const MOONSET_ENTRY_ID = 'dsh-moonset'
  */
 export const WRITE_DEBOUNCE_MS = 300
 
+/**
+ * How long after a LOCAL write an official-looking preference may still be the
+ * echo of that write rather than a user action (M5.2).
+ *
+ * The official runtime adopts the settings document into its memory preference
+ * on every settings write (`host.subscribe(() => this.adopt())`,
+ * `dsh-client-ui-theme/lib/client.js:1681`), so our own `form.set('choice', …)`
+ * can revert a third-party preference to the document's built-in value. Inside
+ * this window the plugin re-asserts its theme instead of believing the change;
+ * outside it, a built-in preference is a real user action again. Exported so
+ * the tests advance exactly this window instead of restating a magic number.
+ */
+export const RESTORE_WINDOW_MS = 1500
+
 /** The section the Host's volatile `Config` projects (client view: plain values). */
 export interface MoonsetSettingsSection {
   /** One of `MoonsetChoice`'s values; unknown while the form is still loading. */
@@ -89,6 +112,17 @@ export interface DurableChoice {
   subscribe(listener: () => void): () => void
   /** Flush, then release the form listener and the injection fiber. Safe twice. */
   dispose(): void
+  /**
+   * Epoch milliseconds of the most recent LOCAL write — the moment an intent
+   * was queued or a queued intent reached the form — or 0 when nothing was
+   * ever written (M5.2).
+   */
+  lastWriteAt(): number
+  /**
+   * Milliseconds since {@link lastWriteAt}; `Infinity` before the first local
+   * write. A queued intent counts: the echo it provokes is already on its way.
+   */
+  sinceLastWrite(): number
   /** Writes that actually reached the form (diagnostics for the echo tests). */
   readonly writes: number
   /** The queued-but-unlanded intent, if any (the boot restore consults it). */
@@ -140,6 +174,12 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
   let watermark = -1
   /** The pending debounce handle (cleared by flush/dispose). */
   let timer: ReturnType<typeof setTimeout> | undefined
+  /**
+   * When this plugin last wrote (epoch ms, 0 = never). Stamped when an intent
+   * is QUEUED and again when it LANDS, because the settings echo follows the
+   * landing, not the click (M5.2).
+   */
+  let lastWriteAtMs = 0
 
   const listeners = new Set<() => void>()
 
@@ -250,6 +290,9 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
     }
     writes += 1
     sent = value
+    // Landing is the moment the echo is provoked: the adopt() it wakes runs
+    // right after the form accepts the write (M5.2).
+    lastWriteAtMs = Date.now()
     let result: Promise<boolean>
     try {
       result = current.set('choice', value)
@@ -365,6 +408,9 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
         if (seeded && choice === confirmed) return
       }
       pendingLocal = choice
+      // A queued intent already counts as a local write: its echo can arrive
+      // before the window below has any landed write to measure (M5.2).
+      lastWriteAtMs = Date.now()
       if (timer !== undefined) clearTimeout(timer)
       const handle = setTimeout(() => {
         timer = undefined
@@ -398,6 +444,12 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
       } catch (error) {
         warn('could not dispose the settings injection', error)
       }
+    },
+    lastWriteAt(): number {
+      return lastWriteAtMs
+    },
+    sinceLastWrite(): number {
+      return lastWriteAtMs === 0 ? Number.POSITIVE_INFINITY : Date.now() - lastWriteAtMs
     },
     get writes(): number {
       return writes

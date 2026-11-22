@@ -24,14 +24,18 @@
  * The echo guards themselves live in `durable.ts` (M5.1): a pick becomes a
  * queued INTENT, `read()` answers with the intent until the document confirms
  * it, and a snapshot below the accepted revision watermark is dropped. This
- * file adds the two things that need a context:
+ * file adds the three things that need a context:
  *
  *  - the boot restore is `pendingLocal`-aware, so a late echo cannot drive (or
  *    undo) the apply;
  *  - `theme/change` is mirrored through {@link shouldMirrorOfficialPick}: an
  *    OFFICIAL light/dark/system pick while our section is live stores `off` and
  *    releases the follow layer, which is what stops the next boot from undoing
- *    the user's own choice.
+ *    the user's own choice;
+ *  - (M5.2) a `theme/change` that collapses the preference back to a BUILT-IN
+ *    value shortly after OUR OWN write is the runtime's `adopt()` echoing that
+ *    write, and is answered by a deferred re-assert instead of being believed —
+ *    the root cause is spelled out in `wireSettings`.
  *
  * First-paint injection is host-side (M6, `../boot-palette.ts`); what THIS half
  * owns is the handover: the injected sheet is removed the moment the choice
@@ -50,11 +54,13 @@ import { removeBootSheet } from './boot-cleanup.ts'
 import {
   MOONSET_SECTION_OPTIONS,
   applyChoice,
+  isOfficialThemePreference,
+  moonsetThemeId,
   shouldMirrorOfficialPick,
   type ChoiceDeps,
   type MoonsetChoice,
 } from './choice.ts'
-import { MOONSET_ENTRY_ID, createDurableChoice } from './durable.ts'
+import { MOONSET_ENTRY_ID, RESTORE_WINDOW_MS, createDurableChoice } from './durable.ts'
 import { MOONSET_LOCALE_NS, en, zh, type MoonsetLocaleKey } from './locales.ts'
 import { MoonsetSection, type MoonsetSectionLabels } from './settings-section.tsx'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
@@ -86,6 +92,7 @@ export {
   MOONSET_SECTION_OPTIONS,
   OFFICIAL_THEME_PICKS,
   applyChoice,
+  isOfficialThemePreference,
   resolveChoice,
   shouldMirrorOfficialPick,
 } from './choice.ts'
@@ -119,6 +126,17 @@ type SectionTranslate = (key: MoonsetLocaleKey) => string
 
 /** Required services: theme runtime, slot registry, and locale registry. */
 export const inject = ['theme', 'slots', 'locale']
+
+/**
+ * How many consecutive re-asserts the plugin is willing to make before it
+ * stops fighting the settings echo (M5.2).
+ *
+ * The re-assert exists to answer ONE overwrite; a runaway loop against
+ * `adopt()` would be a worse bug than the flash it fixes, so the counter is
+ * capped and the give-up is announced once. Exported so the tests drive exactly
+ * this many rounds instead of restating a magic number.
+ */
+export const REASSERT_LIMIT = 3
 
 /**
  * Build the section's copy from the namespace binding.
@@ -179,6 +197,45 @@ function wireSettings(ctx: ClientContext): void {
     follow,
   }
 
+  // ── M5.2: the settings echo ───────────────────────────────────────────────
+  //
+  // ROOT CAUSE, measured rather than guessed. The official `ThemeRuntime`
+  // subscribes to its OWN settings scope inside its constructor:
+  //
+  //   ctx.effect(() => host.subscribe(() => { this.adopt() }),
+  //              'ui-theme: settings scope adoption')
+  //   @deepseek-ai/dsh-client-ui-theme/lib/client.js:1681
+  //
+  // and `adopt()` (same file, 1787) copies the document's `preference` into the
+  // runtime's MEMORY preference whenever the two differ. That document field is
+  // narrowed by `isThemePreference` to `system` / `light` / `dark`, so a
+  // third-party id such as `moonset-light` can never be stored there. The Host
+  // re-derives every scope form after ANY accepted settings write, so our own
+  // `form.set('choice', …)` wakes that subscription — and the runtime overwrites
+  // the preference we just set. On screen the theme flashes and snaps back.
+  //
+  // The answer is an ASSERTION, not a write: inside a short window after a
+  // local write, a built-in preference is the echo of that write, so put the
+  // theme back with `setTheme(ourId)`. It MUST be deferred — calling it inside
+  // the publish stack would be answered by the very `adopt()` that produced the
+  // publish (the same reason catppuccin's `scheduleRestore` is a microtask).
+  // Outside the window the preference is the user's own, and M5.1's mirror rule
+  // stands. A third-party id needs no answer at all, which is why the gate is
+  // "is this preference built-in?".
+  //
+  // The cap exists because a re-assert and an adopt() could in principle feed
+  // each other: three rounds, then the plugin stops and says so once.
+  /** Whether a re-assert is already queued for this tick (echoes merge). */
+  let reassertScheduled = false
+  /** Re-asserts made in the current burst (reset by a user pick). */
+  let reasserts = 0
+  /** Set once the cap is hit: the plugin stops answering the echo. */
+  let reassertStopped = false
+  /** The give-up warning is announced once per burst. */
+  let reassertAnnounced = false
+  /** Cleared by the fiber's teardown: a queued re-assert must not run after unload. */
+  let active = true
+
   // Boot restore. The durable choice is the only place a third-party theme id
   // survives a restart (PLAN 九、已决 #4), so every start re-applies it — and
   // so does the LATE bind of an async settings form, which is why this runs
@@ -214,6 +271,12 @@ function wireSettings(ctx: ClientContext): void {
     // write is an INTENT (M5.1): it lands 300 ms later, or on unload, and until
     // then `read()` keeps answering with it.
     restored = true
+    // A fresh pick starts a new burst: the re-assert cap is per fight, not per
+    // session, and the user acting is exactly the signal that the old fight was
+    // worth giving up on.
+    reasserts = 0
+    reassertStopped = false
+    reassertAnnounced = false
     durable.write(choice)
     applyChoice(choice, deps)
     // Same handover as the boot restore: a pick can be the FIRST apply on a page
@@ -234,16 +297,82 @@ function wireSettings(ctx: ClientContext): void {
    * Deliberately NOT `applyChoice('off', deps)`: that ends in
    * `setTheme('system')` and would overwrite the very preference the user just
    * chose (an official `dark` would flip back to `system`).
-   *
-   * {@link shouldMirrorOfficialPick} owns the whole decision, including the two
-   * cases that must NOT mirror: our own `setTheme('moonset-*')` (a third-party
-   * id is never built-in) and the `system` value follow mode writes itself.
-   * @param snapshot - the `theme/change` payload (only its preference is read).
    */
-  const mirrorOfficialPick = (snapshot: { preference: string }): void => {
-    if (!shouldMirrorOfficialPick(snapshot.preference, durable.read())) return
+  const mirrorOfficialPick = (): void => {
     durable.write('off')
     follow.disable()
+  }
+
+  /**
+   * Put our theme back after the runtime adopted over it (M5.2).
+   *
+   * Deferred by a MICROTASK, never called synchronously: the caller is a
+   * `theme/change` listener running inside `adopt()` → `publish()`, and a
+   * synchronous `setTheme` there lands in the middle of the dispatch that is
+   * already rewriting the preference. One microtask later the stack is gone and
+   * the call sticks (catppuccin's `scheduleRestore` uses the same boundary).
+   *
+   * Merged and capped: any number of echoes inside one tick produce ONE call,
+   * and {@link REASSERT_LIMIT} rounds end the fight with a single warning — an
+   * endless re-assert/adopt loop would be a worse bug than the flash.
+   * @param choice - the concrete choice whose theme must be re-asserted.
+   */
+  const scheduleReassert = (choice: 'light' | 'dark'): void => {
+    if (!active || reassertScheduled || reassertStopped) return
+    if (reasserts >= REASSERT_LIMIT) {
+      reassertStopped = true
+      if (!reassertAnnounced) {
+        reassertAnnounced = true
+        console.warn(
+          `[dsh-moonset] stopped re-asserting "${moonsetThemeId(choice)}" after ${REASSERT_LIMIT} attempts — `
+          + 'the settings echo keeps overwriting the preference (M5.2: see the adopt() note above)',
+        )
+      }
+      return
+    }
+    reassertScheduled = true
+    queueMicrotask(() => {
+      reassertScheduled = false
+      if (!active || reassertStopped) return
+      reasserts += 1
+      // Only the preference: a concrete choice already has the follow layer
+      // released, and re-running applyChoice here would re-publish a layer
+      // change on every single echo.
+      deps.setTheme(moonsetThemeId(choice))
+    })
+  }
+
+  /**
+   * Decide what one `theme/change` means for the stored choice (M5.1 + M5.2).
+   *
+   * Table, by what the section stores:
+   *
+   *  - `off` — nothing: there is no choice to defend or hand back.
+   *  - `follow` — mirror only an EXPLICIT official `light` / `dark`; a
+   *    `system` publish is follow mode's own end state (or an adopt() of the
+   *    document) and must never mirror or re-assert.
+   *  - `light` / `dark` — a third-party id (ours or a peer's) needs no answer;
+   *    a BUILT-IN preference inside the local-write window is the echo of our
+   *    own write and is re-asserted, while one outside it is the user's own
+   *    Appearance pick and is mirrored to `off` (M5.1).
+   * @param snapshot - the `theme/change` payload (only its preference is read).
+   */
+  const handleThemeChange = (snapshot: { preference: string }): void => {
+    const preference = snapshot.preference
+    const choice = durable.read()
+    if (choice === 'off') return
+    if (choice === 'follow') {
+      if (shouldMirrorOfficialPick(preference, choice)) mirrorOfficialPick()
+      return
+    }
+    // A built-in preference is the only value adopt() can write back, so it is
+    // the only one that can be the echo this milestone answers.
+    if (!isOfficialThemePreference(preference)) return
+    if (durable.sinceLastWrite() <= RESTORE_WINDOW_MS) {
+      scheduleReassert(choice)
+      return
+    }
+    mirrorOfficialPick()
   }
 
   // The locale service already types this binding to the merged dictionary
@@ -274,10 +403,12 @@ function wireSettings(ctx: ClientContext): void {
     // a context that carries no event bus (a bare unit-test stub), where the
     // boot path must still not throw (M5 "硬约束" 2).
     const releaseTheme = typeof ctx.on === 'function'
-      ? ctx.on('theme/change', (snapshot: { preference: string }) => { mirrorOfficialPick(snapshot) })
+      ? ctx.on('theme/change', (snapshot: { preference: string }) => { handleThemeChange(snapshot) })
       : undefined
     restore()
     return () => {
+      // A re-assert queued for this tick must not fire into an unloaded plugin.
+      active = false
       unsubscribe()
       releaseTheme?.()
       follow.disable()

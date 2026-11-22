@@ -81,6 +81,31 @@ export function resolveChoice(raw: unknown): MoonsetChoice {
 export const OFFICIAL_THEME_PICKS = ['light', 'dark'] as const
 
 /**
+ * Every preference the official Appearance row can put in the settings
+ * document: the explicit pair plus "follow the OS".
+ *
+ * The Host's `isThemePreference` narrows the document to exactly these, which
+ * is the fact M5.2 is built on: if a `theme/change` carries one of them while
+ * our section stores a Moonset theme, either the user just acted or the
+ * runtime just adopted the document over the preference we set.
+ */
+export const OFFICIAL_THEME_PREFERENCES = ['system', ...OFFICIAL_THEME_PICKS] as const
+
+/**
+ * Whether a `theme/change` preference is one of the built-ins.
+ *
+ * A third-party id — ours or a peer's — is never official, so a publish
+ * carrying one can only be a theme application (ours included) and must not be
+ * treated as the document adopting over us.
+ * @param preference - the snapshot's preference (raw: a dirty or missing value
+ * is simply "not official").
+ * @returns true for `system` / `light` / `dark`.
+ */
+export function isOfficialThemePreference(preference: unknown): boolean {
+  return (OFFICIAL_THEME_PREFERENCES as readonly unknown[]).includes(preference)
+}
+
+/**
  * Whether a `theme/change` preference means "the user just picked an OFFICIAL
  * theme", so the stored Moonset choice must be mirrored to `off`.
  *
@@ -116,12 +141,12 @@ export const OFFICIAL_THEME_PICKS = ['light', 'dark'] as const
 export function shouldMirrorOfficialPick(preference: unknown, choice: MoonsetChoice): boolean {
   // `off` already means "no choice": there is nothing to mirror away.
   if (choice === 'off') return false
+  // A third-party id — including our own `moonset-*` — is never official.
+  if (!isOfficialThemePreference(preference)) return false
   // The official row's explicit light/dark pick.
   if ((OFFICIAL_THEME_PICKS as readonly unknown[]).includes(preference)) return true
   // `system` means different things depending on which side wrote it.
-  if (preference === 'system') return choice !== 'follow'
-  // A third-party id — including our own `moonset-*` — is never official.
-  return false
+  return choice !== 'follow'
 }
 
 /** The services one apply drives, all injected so the function stays pure. */
@@ -144,6 +169,19 @@ const LIGHT_THEME_ID: MoonsetThemeId = MOONSET_THEME_IDS[0]
 const DARK_THEME_ID: MoonsetThemeId = MOONSET_THEME_IDS[1]
 
 /**
+ * The registered theme id for a concrete choice.
+ *
+ * Exported for M5.2's re-assert, which has to name the theme without going
+ * through the whole {@link applyChoice} step: re-asserting only restores the
+ * preference the settings echo overwrote, it does not re-run the policy.
+ * @param choice - a concrete (non-`off`/`follow`) choice.
+ * @returns the registered theme id to hand to `setTheme`.
+ */
+export function moonsetThemeId(choice: 'light' | 'dark'): MoonsetThemeId {
+  return choice === 'light' ? LIGHT_THEME_ID : DARK_THEME_ID
+}
+
+/**
  * Apply one choice to the live theme runtime.
  *
  * The two mechanisms are mutually exclusive by design (D4): a concrete Moonset
@@ -163,7 +201,7 @@ export function applyChoice(choice: MoonsetChoice, deps: ChoiceDeps): void {
   if (choice === 'light' || choice === 'dark') {
     // Release first: the layer covers the very tokens the theme is about to set.
     deps.follow.disable()
-    deps.setTheme(choice === 'light' ? LIGHT_THEME_ID : DARK_THEME_ID)
+    deps.setTheme(moonsetThemeId(choice))
     return
   }
   if (choice === 'follow') {
