@@ -90,7 +90,7 @@
 | 里程碑 | 状态 | 证据 |
 |---|---|---|
 | **M1** | ✅ | commit `67d7ece`；审计自跑：`pnpm install`/`typecheck`/`typecheck:tests`/`test`(3 passed)/`build` 全 exit 0，`lib/index.js`+`lib/client.js` 存在且 `node --check` 通过，manifest 四项非空；`git diff --stat b1ec8cc..HEAD` = 15 files，`PLAN.md` 改动 0 行，参考仓库 `git status` 0 行、HEAD 仍 `d8e314d` |
-| **M2** | ⬜ | — |
+| **M2** | ✅ | commit `40bb92a`；审计自跑：`extract` 0（228/228，cssSha256 `3234f31876…`）、`verify` **0** → `missing=0 retired=1 live=228 added=39`、`pnpm test` **10 passed/2 files**、两条 typecheck 0；**审计者自己做变异**：`retired=[]` → exit 1 `missing=1`、假退役（真实 token）→ exit 1、幽灵退役（不在冻结名单）→ exit 1、还原后 sha256 逐字节一致 `bd1d951b…`；`e8bed9f..HEAD` 只动 7 个文件，`PLAN.md`/`src`/`package.json` 0 行 |
 | **M3** | ⬜ | — |
 | **M4** | ⬜ | — |
 | **M5** | ⬜ | — |
@@ -173,6 +173,15 @@
   2. `--dsw-alias-json-tree-*` 7 个 token 在官方表里是**字面 hex**（不走 `var()`），参考仓库的 `aliasLiteralOverrides` 也没收它们；
      M3 必须显式给出这 7 个值，否则会落回官方深/浅色，与 moonset 的中性色不一致。
   3. `meta.dshVersion` 记录的是**桌面壳 runtime**版本（0.2.2-rc.5），不是 npm CLI 的 0.2.2-rc.1；README/CHANGELOG 引用版本时要说清是哪一个。
+- **M2 收口时新增的四条债**：
+  1. `scripts/extract-dsw-tokens.mjs` **非幂等**：`meta.extractedAt` 每次重写都会让 `themes/dsw-tokens.json` 变脏。
+     审计跑过 extract 后必须 `git checkout -- themes/dsw-tokens.json`；M8 的门禁不把该文件纳入"工作树干净"检查。
+  2. `verify` 首行的 `live` 是 light∪dark 的并集，两端分叉（light≠dark）在首行看不出来——
+     M3 的测试必须断言两份表的**键集合完全相同**，把这个盲点补上。
+  3. 0.2.2 新增的 5 个 static 原语（`neutral-bluish-55/90/310`、`violet-400/600`）被 8 个新 alias 引用，
+     M3 的家族规则必须覆盖它们，否则那 8 个 alias 会落回官方色。
+  4. 7 个 `--dsw-alias-json-tree-*` 是字面值且 **keyword 与 number 同值**（`#1c00cf` / `#99c8ff`），
+     M3 需显式给值——不能靠"按 token 名推断语义"的规则漏掉其中一个。
 
 ## 附录 A：moonset 源色板（本计划的输入）
 
