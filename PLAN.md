@@ -88,7 +88,7 @@
 | **M5.1** | 回声与快速切换守卫 | `adopt()` 会用官方文档值覆盖内存偏好 ⇒ 插件需 pendingLocal + revision 高水位：迟到的回声不得回滚更新的本地选择；连续点击按 300ms 防抖合成一次写入 | `pnpm test -- tests/settings.spec.ts` 含「迟到的文档回声」「连续快速切换 3 次」两条用例；**变异自检**：删掉 pendingLocal 判断或以文档值无条件覆盖，必须变红并贴证据 |
 | **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`：head 注入一条 `html` 行（228 条 token **+ `background-color:var(--dsw-alias-bg-base)`**），固定风味选择器 = `html body,html body[data-ds-dark-theme]` 并发一条 body script 对齐 `data-ds-dark-theme`；`follow` = 亮 `html body,html body:not([data-ds-dark-theme])` + 媒体查询暗半 `html body,html body[data-ds-dark-theme]` + 对齐脚本 | `pnpm test -- tests/boot.spec.ts` 全绿（≥8 条：228 条声明 + background-color、双选择器、volatile 门禁、`off` 空、follow 两半、CSS 安全丢弃、撤表幂等、script 行）；`lib/index.js` grep 到 `webserver/index-inject`；真实渲染器交叉验证里 head 行确含 `background-color` |
 | **M7** | 共存验收（假宿主） | `scripts/coexist-check.mjs`：把**两个真实构建产物**（本仓库 `lib/client.js` 与 catppuccin 仓库的 `lib/client.js`，后者用 `--catppuccin <path>` 传入、缺省找同级目录）装进**同一个**假宿主（共享 theme 注册表 / slots / locale / configForms / effect，含「重复 id 抛错」的真实语义），跑注册、切换、卸载 | 脚本 exit 0，且报告含：注册表 **6 个 id**（4 catppuccin + 2 moonset）、两边各 apply 两次不抛、6 个主题逐个切换后 `preference` 跟随、我们的跟随层与 catppuccin 的层**互不误删**、只卸载 moonset 后 catppuccin 4 个仍在、两边 `setTheme` 之外零 DOM 写 |
-| **M7.1** | 共存验收（真机，**需人类口令**） | 把 moonset 以 `link:` 装进 `web` profile（与已装 catppuccin 并存），启动、切主题、截图；跑完卸载 link | 启动日志 `entry(s) did not activate` 命中 0；Appearance 列出 moonset 2 项 + catppuccin 4 项；切换脚本 6 次后 `theme.revision` 单调递增且 console error 数 0；`assets/previews/` 下 2 张 PNG 均 > 100KB |
+| **M7.1** | 共存验收（真机，**需人类口令**） | 隔离 `DSH_HOME` 新建 web profile：装 `@nonamelego/dsh-catppuccin@0.7.5` + 我们的 `link:`，起在备用端口，分两相跑：**相 1** catppuccin 未选风味时选 moonset 三态；**相 2** catppuccin 选 mocha 后再选 moonset（记录回弹）；截图；删临时 home | 启动日志 `entry(s) did not activate` 命中 0；Appearance 出现 moonset 2 项；**相 1**：选完 3 秒后 `preference` 仍是 `moonset-*`/`system`（`console` 采样，不回弹）；**相 2**：回弹被如实记录（预期现象，不算失败）；`assets/previews/` 2 张 PNG > 100KB；临时 `DSH_HOME` 删除后 `Test-Path` 为 False |
 | **M8** | 文档与结账 | README（安装/切换/兼容矩阵/截图）、CHANGELOG `0.1.0`、`docs/palette.md`（色卡 + 与官方 token 的对照）、看板置 ✅ | `pnpm typecheck` 与 `pnpm test` 与 `pnpm build` 三条 exit 0；README 命中"安装""切换""兼容"三节；CHANGELOG 命中 `## 0.1.0` 一行 |
 
 > 判定点：每个里程碑做完，执行者停下报「待审核」并交四件真实输出；审核者独立复跑出口条件后才置 ✅。
@@ -104,7 +104,7 @@
 | **M5** | ✅ | commit `f232e56`；审计自跑：`pnpm test` **75 passed/5 files**、两条 typecheck 0、`pnpm build` 0、`src/client` DOM 写 **0**、`package.json`+lock **0 行**；**审计者自写 artifact harness**（stub loader + stub react 驱动 `lib/client.js`）：注册 `moonset-light/light/228`+`moonset-dark/dark/228`、`configForms.get('dsh-moonset')`、启动按 section `dark` 自动 `setTheme('moonset-dark')`、section 元数据 `{name,id:'moonset',order:40,locale}`、渲染出 **3 个 button**（`aria-pressed` 指向 dark）、点 follow → `form.set('choice','follow')`+`setTheme('system')`+`overrideTokens('dsh-moonset',228)`、点 light → `setTheme('moonset-light')` 且层被撤；`33ba636..HEAD` 7 files，受保护文件 0 行 |
 | **M5.1** | ✅ | commit `ef41df7`；审计自跑：`pnpm test` **88 passed/6 files**、两条 typecheck 0、`build` 0；测试改动核过：`settings.spec.ts` 断言数 **100→105**、15 个 `it` 标题逐条相同、被删的 10 行断言全部在改后重现；唯一改动是把 `toHaveBeenCalled()` 收紧成 `toHaveBeenCalledTimes(1)`；**审计者自己做变异**：水位守卫改成恒假 → `tests/echo.spec.ts` 1 failed 且 exit 1，还原后 sha256 `d565b887…` 一致、exit 0、`git status` 空；镜像规则源码逐行核过，与裁定口径一致 |
 | **M6** | ✅ | commit `c6cc395`（复审修 `9a60d11`）；审计自跑：`pnpm test` **97 passed/7 files**、两条 typecheck 0、`build` 0；**审计者直接 import host 源码驱动**（node 类型剥离）：`light`/`dark` = 1 块 **229 条**（228 token + canvas 收尾）、`follow` = **2 块**各自 229 且暗块在 `@media (prefers-color-scheme: dark)` 内、`off`/无值/**非 ref 的静态值** 全部 0 行、`BOOT_SHEET_ATTR` 正确；产物 grep 到 `background-color:var(--dsw-alias-bg-base)`、两种双选择器、两条 `toggleAttribute`；客户端 `html.style|body.style` 仍 0；`f8edd19..HEAD` 3 files，受保护文件 0 行 |
-| **M7** | ⬜ | — |
+| **M7** | ✅ | commit `7e514da`；审计自跑 `node scripts/coexist-check.mjs` → exit 0、**6/6 PASS**（6 个 id、双 apply 不抛、6 主题切换、层互不误删、只卸我方剩 4 个、require 集合干净）；`pnpm test` 仍 97 passed；`4eb7763..HEAD` 1 file；宿主自证：register/setTheme/slots 三条 `assertThrows` 先证「能失败」再数 id |
 | **M7.1** | ⬜ | — |
 | **M8** | ⬜ | — |
 
@@ -188,7 +188,17 @@
   ② 官方暗色 token 落在 `body[data-ds-dark-theme]`（0,1,1），压过 `html body`（0,0,2）；参考因此并列双选择器（`boot-palette.ts:134`）。
   ③ 固定风味也要发 body script 对齐 `data-ds-dark-theme`（`boot-palette.ts:147`），否则 `color-scheme`/UA 控件跟官方偏好走。
   派单里「选择器必须是 `html body`」「light/dark 恰好 1 行」这两句是本轮的错，按上表更正；实现侧不需背锅。
-12. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
+13. **A3「同装共存」的口径修正（2026-11-22，M7 实测 + 源码复核）**：共存 = **结构性共存**，不是**同时掌权**。
+   catppuccin 的 `applyDesired` 会在每次 `theme/change` 里跑 `builtinPickWins(preference, liveBuiltinPick)`（`src/client/index.ts:463-469`），
+   而它只让「本次会话里用户显式挑的 light/dark」获胜——**第三方 id 永不获胜**，于是 `scheduleRestore` 会把偏好改回它的风味。
+   实测：存着 `catppuccin-mocha` 时 `setTheme('moonset-dark')`，同步生效、microtask 后回到 `catppuccin-mocha`。
+   ⇒ 结论：两者**可以同时安装**（boot、注册表、层、卸载互不影响，M7 已证），但**同一时刻只应有一方掌权**；
+   文档必须写「切到另一方的主题前，先把这一方关掉」，M7.1 也按这个跑法验证。这是 catppuccin 的既有行为，不是本插件能改的。
+14. **M7.1 的判定指标要换（2026-11-22）**：
+   - 「Appearance 列出 6 项」作废——catppuccin 是**惰性注册**（只注册当前风味，`item JJ`），registry 里通常只有 0–1 条；
+   - 「`theme.revision` 单调 + console error = 0」作废——回弹同样会发一次 `theme/change`，指标照样绿（M7 已实测这条盲区）；
+   - 改为：相 1 采样 `preference` 在 3 秒后仍等于我们选的值；相 2 如实记录回弹。
+15. **M1 契约更正（2026-11-22，审核时改）**：M1 原写 `src/index.ts` 含 `Config`，实际按派单把 `Config` 顺延到 M5——
    设置 schema 的字段只有 M5 的持久化需求能定义，提前写只会是空壳；此处以"契约服从最小可验收"修订，
    派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
@@ -254,6 +264,11 @@
   2. macOS 的 `html[data-platform='darwin'] body`(0,1,2) 在 macOS 上仍压过我们两个选择器；其 10 个名字里只有 `--dsw-specific-menu` 与我们重叠，
      M7 不在 macOS 上验证（本机是 Windows）。
   3. 固定块 ≈12 KB / follow ≈24 KB 每次 index 渲染内联，未裁剪；gzip 后 `lib/index.js` 8.85 kB，可接受。
+- **M7 带出的四条债**：
+  1. **互斥使用**：catppuccin 开启时会回弹第三方主题（见「已决 #13」）——文档要写清，别让用户以为坏了。
+  2. catppuccin **惰性注册**：新装完 registry 里 0 条风味，只有它的设置行在选某个风味时才注册；任何「数 registry」的验收口径都不成立。
+  3. catppuccin 会**包装 `theme.setTheme`**（卸载时按身份还原；两个 fiber 会链式包装）。我们的调用会穿过多层包装，功能上没问题，但读调用栈时会看到它。
+  4. 我们的第二 fiber 卸载会连带撤掉共享注册（M4 债 #4 现场确认：先释放的那次生效、后一次 no-op）。
      另：`Config` 的真机投影未验（只证了 schema 形状），`slots.inject` 本身未包 tolerant（与参考同形），`order: 40` 是自定值。
 
 ## 附录 A：moonset 源色板（本计划的输入）
