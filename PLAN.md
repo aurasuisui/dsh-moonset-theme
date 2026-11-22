@@ -102,7 +102,7 @@
 | **M4** | ✅ | commit `75c292d`；审计自跑：`pnpm test` **60 passed/4 files**、两条 typecheck 0、`pnpm build` 0（`lib/client.js` 38.41 kB）、产物 grep 两个 id 命中 9 处、`src/client/*.ts` 里 `setTheme(` **0** 命中、产物里 `@deepseek-ai/` **0** 命中（无运行时外部导入）；核对官方 runtime 源码：重复 id 的报错原文是 `theme "…" is already registered`（tolerance 正则命中），`overrideTokens` 在返回前同步 `publish()`（重入守卫因此必要而非装饰）；`3e1b227..HEAD` 4 files，受保护文件 0 行 |
 | **M5** | ✅ | commit `f232e56`；审计自跑：`pnpm test` **75 passed/5 files**、两条 typecheck 0、`pnpm build` 0、`src/client` DOM 写 **0**、`package.json`+lock **0 行**；**审计者自写 artifact harness**（stub loader + stub react 驱动 `lib/client.js`）：注册 `moonset-light/light/228`+`moonset-dark/dark/228`、`configForms.get('dsh-moonset')`、启动按 section `dark` 自动 `setTheme('moonset-dark')`、section 元数据 `{name,id:'moonset',order:40,locale}`、渲染出 **3 个 button**（`aria-pressed` 指向 dark）、点 follow → `form.set('choice','follow')`+`setTheme('system')`+`overrideTokens('dsh-moonset',228)`、点 light → `setTheme('moonset-light')` 且层被撤；`33ba636..HEAD` 7 files，受保护文件 0 行 |
 | **M5.1** | ✅ | commit `ef41df7`；审计自跑：`pnpm test` **88 passed/6 files**、两条 typecheck 0、`build` 0；测试改动核过：`settings.spec.ts` 断言数 **100→105**、15 个 `it` 标题逐条相同、被删的 10 行断言全部在改后重现；唯一改动是把 `toHaveBeenCalled()` 收紧成 `toHaveBeenCalledTimes(1)`；**审计者自己做变异**：水位守卫改成恒假 → `tests/echo.spec.ts` 1 failed 且 exit 1，还原后 sha256 `d565b887…` 一致、exit 0、`git status` 空；镜像规则源码逐行核过，与裁定口径一致 |
-| **M6** | ⬜ | — |
+| **M6** | ✅ | commit `c6cc395`（复审修 `9a60d11`）；审计自跑：`pnpm test` **97 passed/7 files**、两条 typecheck 0、`build` 0；**审计者直接 import host 源码驱动**（node 类型剥离）：`light`/`dark` = 1 块 **229 条**（228 token + canvas 收尾）、`follow` = **2 块**各自 229 且暗块在 `@media (prefers-color-scheme: dark)` 内、`off`/无值/**非 ref 的静态值** 全部 0 行、`BOOT_SHEET_ATTR` 正确；产物 grep 到 `background-color:var(--dsw-alias-bg-base)`、两种双选择器、两条 `toggleAttribute`；客户端 `html.style|body.style` 仍 0；`f8edd19..HEAD` 3 files，受保护文件 0 行 |
 | **M7** | ⬜ | — |
 | **M8** | ⬜ | — |
 
@@ -244,6 +244,14 @@
      PLAN 已决 #5 的「离开派发」理想形态没做到，是有意换取的（加窗口会让变异 #3 失效）。
   3. `theme/change` 只在 `wireSettings` 跑起来（需要 slots + locale）时才订阅——「镜像依赖设置区装配」的隐性耦合。
   4. 多窗口不同步仍在：别的窗口改 section，本窗口不重放（用例只证 `read()` 采纳）。
+- **M6 带出的三条债**：
+  1. **`:root{color-scheme}` 没发**：官方唯一设置点是 boot 行的 `:root{color-scheme:light|dark}`（`design-platform.css` 里 `color-scheme` 命中 **0**，
+     我复核过），`data-ds-dark-theme` 只切 token 块、不驱动 `color-scheme` ⇒ 选 moonset-dark 而官方偏好是 light 时，
+     UA 控件/滚动条会短暂按 light 画。参考实现在样式行前缀带了 `:root{color-scheme:${colorScheme}}`（`boot-palette.ts:133`）。
+     补丁是一行、并列 `:root` 同为 (0,1,0) 且我们后渲染，等特异性后写胜；**M7 真机若看得见这处色差就补**。
+  2. macOS 的 `html[data-platform='darwin'] body`(0,1,2) 在 macOS 上仍压过我们两个选择器；其 10 个名字里只有 `--dsw-specific-menu` 与我们重叠，
+     M7 不在 macOS 上验证（本机是 Windows）。
+  3. 固定块 ≈12 KB / follow ≈24 KB 每次 index 渲染内联，未裁剪；gzip 后 `lib/index.js` 8.85 kB，可接受。
      另：`Config` 的真机投影未验（只证了 schema 形状），`slots.inject` 本身未包 tolerant（与参考同形），`order: 40` 是自定值。
 
 ## 附录 A：moonset 源色板（本计划的输入）
