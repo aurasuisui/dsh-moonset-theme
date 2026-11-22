@@ -84,7 +84,7 @@
 | **M2** | token 取证 | `scripts/extract-dsw-tokens.mjs`：从 `app.asar` 解出 `design-platform.css`，切出 light（`body`）与 dark（`[data-ds-dark-theme]`）两块，产出 `themes/dsw-tokens.json` + `meta{dshVersion,cssSha256,counts}`；`scripts/verify-tokens.mjs` 做**三方对差**（冻结 190 / 安装态 228 / 显式退役 1）；`themes/retired-tokens.json` 记录每个退役键及其证据 | `node scripts/extract-dsw-tokens.mjs` exit 0 且 `counts=228/228`；`node scripts/verify-tokens.mjs` exit 0 且打印 `missing=0 retired=1 live=228`；`pnpm test -- tests/tokens.spec.ts` 全绿（含「退役键确实不在安装态」「退役键 ⊆ 冻结名单」两条）；`meta.cssSha256` 与审计独立复算值相同 |
 | **M3** | 调色板生成 | `themes/moonset-palette.json`（附录 A 的 16 色 × 2 模式，人工可编辑的唯一源）；`scripts/generate-palettes.mjs` 按家族 mix 阶梯产出 `src/client/palettes.ts`（`MOONSET_LIGHT`/`MOONSET_DARK`，各 **228** 键；7 个 `--dsw-alias-json-tree-*` 是字面 hex、须单独处理；≥10 条对比度契约写进测试 | 连跑两次 `node scripts/generate-palettes.mjs` 后 `certutil -hashfile src/client/palettes.ts SHA256` 两次输出相同；`pnpm test -- tests/palettes.spec.ts` 全绿且该文件断言数 ≥10 |
 | **M4** | 双主题注册 + 跟随系统 | client 半区：`tolerantRegistration` 包住 `theme.register({id:'moonset-light'…})` 与 `moonset-dark`；跟随系统走 `theme.overrideTokens('moonset-follow',{token:{light,dark}})`，偏好留 `system` | `pnpm test -- tests/theme.spec.ts` 全绿（含 4 条：注册两个 id、重复注册不抛、dispose 后可重注册、跟随层 light/dark 各自取值） |
-| **M5** | 设置行 + 自带持久化 | Appearance 内的 moonset 组（Light / Dark / 跟随系统）；host 侧 `Config` 的 volatile 字段存**插件自己的选择**（官方主题文档只认 `system/light/dark`，第三方 id 根本写不进去）；启动时读 section 并重新 apply（`setTheme(id)` 或 follower 层） | `pnpm test -- tests/settings.spec.ts` 全绿（≥6 条：渲染 3 项、点击分别调 `setTheme`/`enable`、section 写入、启动 re-apply、section 缺失回落 `system`、卸载后零写入）；`Select-String src/client -Pattern 'html.style|body.style'` 命中 0（token 由 Presenter 内联写，插件不碰 DOM 样式） |
+| **M5** | 设置区 + 自带持久化 | Appearance 内的 moonset 组（Light / Dark / 跟随系统）；host 侧 `Config` 的 volatile 字段存**插件自己的选择**（官方主题文档只认 `system/light/dark`，第三方 id 根本写不进去）；启动时读 section 并重新 apply（`setTheme(id)` 或 follower 层） | `pnpm test -- tests/settings.spec.ts` 全绿（≥6 条：注册元数据含 3 个选项且 id/locale/order 正确、点击分别调 `setTheme`/`enable`、section 写入、启动 re-apply、section 缺失回落 `off`、卸载后零写入）；`Select-String src/client -Pattern 'html.style|body.style'` 命中 0（token 由 Presenter 内联写，插件不碰 DOM 样式） |
 | **M5.1** | 回声与快速切换守卫 | `adopt()` 会用官方文档值覆盖内存偏好 ⇒ 插件需 pendingLocal + revision 高水位：迟到的回声不得回滚更新的本地选择；连续点击按 300ms 防抖合成一次写入 | `pnpm test -- tests/settings.spec.ts` 含「迟到的文档回声」「连续快速切换 3 次」两条用例；**变异自检**：删掉 pendingLocal 判断或以文档值无条件覆盖，必须变红并贴证据 |
 | **M6** | 首帧预注入 | host 半区 `ctx.on('webserver/index-inject')` + `bootPaletteRows(config)`，把持久主题的 token 表塞进 index HTML | `pnpm test -- tests/boot.spec.ts` 全绿（含 3 条：注入行数 = 228、volatile 取值来自文档、无 webserver 时静默） |
 | **M7** | 共存验收（真机） | 把 moonset 以 `link:` 装进 `web` profile（与已装 catppuccin 0.7.5 并存），启动、切主题、截图；跑完卸载 link | 启动日志 `entry(s) did not activate` 命中 0；Appearance 列出 moonset 2 项 + catppuccin 4 项；切换脚本 6 次后 `theme.revision` 单调递增且 console error 数 0；`assets/previews/` 下 2 张 PNG 均 > 100KB |
@@ -171,6 +171,10 @@
    派单与契约自此一致（M5 出口条件已含设置落盘用例）。
 
 **已知债**
+- **M5 的 UI 形态取 `settings.section`（插件自己的设置区），不是 Appearance 里的一个行**：官方主题注册表会自动把 `moonset-*`
+  列进 Appearance，但那里表达不了"跟随系统套我们自己的层"，而且第三方 id 只显示裸 id；自己的 section 是参考仓库走通的路。
+- **M5 不在 jsdom 里渲染组件**：仓库没有 React 测试栈（不引 `@testing-library/react` + jsdom），M5 只测
+  控制器 / 持久化 / 注册元数据，组件的视觉验收放到 M7 真机截图。设置区样式只能**内联**（M1 债 #2：CSS Modules 管线已删）。
 - 桌面壳（Electron，`profiles/desktop`）未验；本计划只覆盖 web profile。
 - 参考仓库 0.7.5 的测试基线不是本次实测值（本次实测的是 HEAD `d8e314d` = 457 tests）；0.7.5 tag 上的计数未单独跑。
 - TUI 主题（`~/.dsh-tui/themes/`）不做：`dsh-tui` 只读目录、无注册 API，属于另一条发布面。
