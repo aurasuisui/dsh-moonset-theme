@@ -1,0 +1,29 @@
+// Explicit upstream retirements for the --dsw-* ladder (M2 diff oracle).
+//
+// This list exists for exactly one reason: a token that DSH really deleted
+// upstream, so that "frozen roster minus installed stylesheet" can tell an
+// upstream deletion apart from our own extraction bug.
+//
+// It is NOT a place to silence a diff. A frozen name that merely disappears
+// from the installed stylesheet still fails scripts/verify-tokens.mjs; only a
+// hand-written entry here, with its own evidence, exempts it. And a retired
+// name that comes back is a failure too.
+//
+// Entry shape:
+//   name       the --dsw-* custom property
+//   frozenIn   DSH version whose roster still declared it
+//   retiredIn  DSH version where it is no longer declared
+//   evidence   one sentence with a reproducible check
+//   schemes    which scheme tables it disappeared from
+//
+// JSON has no comments, so the provenance lives in these leading // lines;
+// scripts/verify-tokens.mjs and tests/tokens.spec.ts strip them before parsing.
+[
+  {
+    "name": "--dsw-specific-sidebar-nav-item-hover",
+    "frozenIn": "0.2.0-rc.2",
+    "retiredIn": "0.2.2-rc.5",
+    "evidence": "Substring scan of the whole 209,083,008 B app.asar (8 MiB chunks, 24 B overlap): this name 0 hits, while the same scan finds --dsw-specific-sidebar-nav-item-active 20 times and --dsw-static-amber-100 12 times; in the four scheme blocks of design-platform.css the family now only declares --dsw-specific-sidebar-nav-item-active and -active-accent.",
+    "schemes": ["light", "dark"]
+  }
+]
