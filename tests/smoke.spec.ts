@@ -34,7 +34,7 @@ const clientBundleId = (() => {
 describe('package manifest', () => {
   it('declares the plugin identity', () => {
     expect(manifest.name).toBe('@aurasuisui/dsh-moonset-theme')
-    expect(manifest.version).toBe('0.1.0')
+    expect(manifest.version).toBe('0.1.1')
   })
 
   it('is publishable', () => {
