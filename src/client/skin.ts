@@ -97,46 +97,44 @@ export type GlowScope = (typeof GLOW_SCOPES)[number]
  */
 export const DEFAULT_GLOW_SCOPE: GlowScope = 'main'
 
-/** The strength floor the slider and the resolver share (0-200%). */
+/** The strength floor the sliders and the resolver share (0-200%). */
 export const GLOW_STRENGTH_MIN = 0
 
-/** The strength ceiling the slider and the resolver share (0-200%). */
+/** The strength ceiling the sliders and the resolver share (0-200%). */
 export const GLOW_STRENGTH_MAX = 200
 
-/** The strength a profile that never touched the control uses (100%). */
-export const DEFAULT_GLOW_STRENGTH = 100
+/**
+ * The strength the LIGHT ground starts on (90% — the user's final pick).
+ */
+export const DEFAULT_GLOW_STRENGTH_LIGHT = 90
+
+/** The strength the DARK ground starts on (100% — the user's final pick). */
+export const DEFAULT_GLOW_STRENGTH_DARK = 100
 
 /**
- * The five glow hues the settings offer (M4's 光晕色相).
+ * The three glow hues (M6 — M4's five collapsed to three).
  *
- * One control for BOTH schemes: each option names a per-scheme token pair, so
- * "the same hue" means the same ladder step, not the same hex — light and dark
- * read different rungs of the same family (which is how the official static
- * ladder is designed to be used).
+ * The user compared the forms on a real machine and the two "dark" variants
+ * produced the same pixels as their light siblings (`accentDark` / `accentSoftDark`
+ * changed the ladder step, which this palette renders almost identically), so
+ * they were removed instead of shipped as buttons that do nothing visible. What
+ * is left is the three that DO differ: the accent, its soft form, and the night
+ * blue the skin owns.
+ *
+ * Each hue names a per-scheme token pair, so "the same hue" means the same
+ * family, not the same hex: light and dark read different rungs of it.
  */
-export const GLOW_HUES = ['accent', 'accentDark', 'accentSoft', 'accentSoftDark', 'nightBlue'] as const
+export const GLOW_HUES = ['accent', 'soft', 'night'] as const
 
 /** One glow hue: see {@link GLOW_HUES}. */
 export type GlowHue = (typeof GLOW_HUES)[number]
 
-/** The hue a profile that never touched the control uses. */
-export const DEFAULT_GLOW_HUE: GlowHue = 'accent'
+/** The hue the LIGHT ground starts on (柔和 — the user's final pick). */
+export const DEFAULT_GLOW_HUE_LIGHT: GlowHue = 'soft'
 
-/**
- * One hue option: the token each scheme mixes from, and the alpha multiplier.
- *
- * The four accent forms are the colour card's: `accent` / `accentDark` are the
- * anchor rung in each scheme, `accentSoft` / `accentSoftDark` are the same two
- * at a fraction of the alpha (16% → 8.96% / 12%), and `nightBlue` is the skin's
- * own anchor (see {@link NIGHT_BLUE_TOKEN} — the table has no blue). The
- * DEFAULT pair is exactly what 0.1.2 shipped (light `deepseek-500`, dark
- * `deepseek-400`), so adding the control cannot change the look the user already
- * approved.
- *
- * The multiplier is applied to the HUE layers only (moon halo, dark core / halo
- * / bottom reflection and both washes). The amber glint is a different role and
- * keeps its own 3% — the hue control must not move it.
- */
+/** The hue the DARK ground starts on (夜空蓝 — the user's final pick). */
+export const DEFAULT_GLOW_HUE_DARK: GlowHue = 'night'
+
 /**
  * The skin-owned night-blue anchor — the sheet's ONLY literal colour.
  *
@@ -148,9 +146,9 @@ export const DEFAULT_GLOW_HUE: GlowHue = 'accent'
  * come from the skin layer (0.1.2 §11.3's fifth whitelist class, "hue anchor").
  *
  * It is declared TWICE in the sheet (light on `html[data-moonset-skin]`, dark on
- * the host's `body[data-ds-dark-theme]` marker) and used by `nightBlue` alone.
- * `tests/skin.spec.ts` is the guard: apart from those two declarations the sheet
- * may not contain a single `#` literal.
+ * the host's `body[data-ds-dark-theme]` marker) and read by the `night` hue
+ * alone. `tests/skin.spec.ts` is the guard: apart from those two declarations
+ * the sheet may not contain a single `#` literal.
  */
 export const NIGHT_BLUE_TOKEN = '--dsh-moonset-night'
 
@@ -160,30 +158,39 @@ export const NIGHT_BLUE_LIGHT = '#2563EB'
 /** The night-blue anchor in the dark scheme (the same hue, lightened for it). */
 export const NIGHT_BLUE_DARK = '#60A5FA'
 
+/**
+ * One hue option: the token each scheme mixes from, and the alpha multiplier.
+ *
+ * `accent` is the palette's own anchor rung; `soft` is the SAME tokens at 0.56
+ * of the alpha (16% → 8.96%); `night` is the skin's own anchor (above) — the
+ * 228-key table has no usable blue.
+ *
+ * The multiplier is applied to the HUE layers only (light moon + wash, dark
+ * core / halo / bottom reflection / wash). The amber glint is a different role
+ * and keeps its own 3% — the hue control must not move it.
+ */
 export const GLOW_HUE_AT_FULL: Readonly<Record<GlowHue, { light: string; dark: string; factor: number }>> = {
   accent: { light: '--dsw-static-deepseek-500', dark: '--dsw-static-deepseek-400', factor: 1 },
-  accentDark: { light: '--dsw-static-deepseek-400', dark: '--dsw-static-deepseek-400', factor: 1 },
-  accentSoft: { light: '--dsw-static-deepseek-500', dark: '--dsw-static-deepseek-400', factor: 0.56 },
-  accentSoftDark: { light: '--dsw-static-deepseek-400', dark: '--dsw-static-deepseek-400', factor: 0.75 },
-  // The only entry that is NOT a token from the 228-key table: the skin's own
-  // anchor (above). Both schemes read the same property, whose value flips with
-  // the scheme in the two declarations `groundRules` emits.
-  nightBlue: { light: NIGHT_BLUE_TOKEN, dark: NIGHT_BLUE_TOKEN, factor: 1 },
+  soft: { light: '--dsw-static-deepseek-500', dark: '--dsw-static-deepseek-400', factor: 0.56 },
+  night: { light: NIGHT_BLUE_TOKEN, dark: NIGHT_BLUE_TOKEN, factor: 1 },
 }
 
 /**
  * Narrow one raw hue value to a hue.
  *
- * Same contract as the other two resolvers: a value this version does not know
- * (an older document, a hand edit, a future option) falls back to the default
- * instead of painting something the user never chose.
- * @param raw - the stored `glowHue` field.
+ * Same contract as the other resolvers: a value this version does not know (an
+ * older document that still stores `accentDark`, a hand edit, a future option)
+ * falls back to the caller's default instead of painting something the user
+ * never chose.
+ * @param raw - the stored `glowHueLight` / `glowHueDark` field.
+ * @param fallback - the default for the scheme being read (light `soft`, dark
+ *   `night`).
  * @returns the narrowed hue.
  */
-export function resolveGlowHue(raw: unknown): GlowHue {
+export function resolveGlowHue(raw: unknown, fallback: GlowHue = DEFAULT_GLOW_HUE_LIGHT): GlowHue {
   return typeof raw === 'string' && (GLOW_HUES as readonly string[]).includes(raw)
     ? raw as GlowHue
-    : DEFAULT_GLOW_HUE
+    : fallback
 }
 
 /** Which colour scheme a ground rule is built for. */
@@ -232,12 +239,13 @@ export function resolveGlowScope(raw: unknown): GlowScope {
  * accepted (a document round-trip can carry one), and NaN or an out-of-range
  * value is clamped rather than refused — the setting is cosmetic, so a broken
  * document must cost the glow's intensity, never the skin.
- * @param raw - the stored `glowStrength` field.
+ * @param raw - the stored `glowStrengthLight` / `glowStrengthDark` field.
+ * @param fallback - the default for the scheme being read (light 90, dark 100).
  * @returns an integer in [GLOW_STRENGTH_MIN, GLOW_STRENGTH_MAX].
  */
-export function resolveGlowStrength(raw: unknown): number {
+export function resolveGlowStrength(raw: unknown, fallback: number = DEFAULT_GLOW_STRENGTH_LIGHT): number {
   const value = typeof raw === 'string' ? Number(raw) : raw
-  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_GLOW_STRENGTH
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(GLOW_STRENGTH_MAX, Math.max(GLOW_STRENGTH_MIN, Math.round(value)))
 }
 
@@ -285,10 +293,10 @@ export interface DarkGlowAlphas {
  * keeps its own 3% because it is a different role, not a different hue.
  * @param strength - 0-200 (out-of-range input is resolved first, see
  *   {@link resolveGlowStrength}).
- * @param hue - the chosen hue (default {@link DEFAULT_GLOW_HUE}).
+ * @param hue - the light ground's hue (default {@link DEFAULT_GLOW_HUE_LIGHT}).
  * @returns the alphas in paint order: moon halo, amber glint, wash.
  */
-export function glowAlphas(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE): LightGlowAlphas {
+export function glowAlphas(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE_LIGHT): LightGlowAlphas {
   const strengthFactor = resolveGlowStrength(strength) / 100
   const hueFactor = strengthFactor * GLOW_HUE_AT_FULL[hue].factor
   const row = GLOW_ALPHA_AT_FULL.light
@@ -302,10 +310,10 @@ export function glowAlphas(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE): L
 /**
  * The DARK alphas at one strength and hue — one hue, three footprints.
  * @param strength - 0-200 (out-of-range input is resolved first).
- * @param hue - the chosen hue (default {@link DEFAULT_GLOW_HUE}).
+ * @param hue - the dark ground's hue (default {@link DEFAULT_GLOW_HUE_DARK}).
  * @returns the alphas in paint order: core, halo, bottom reflection, wash.
  */
-export function darkGlowAlphas(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE): DarkGlowAlphas {
+export function darkGlowAlphas(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE_DARK): DarkGlowAlphas {
   const factor = (resolveGlowStrength(strength) / 100) * GLOW_HUE_AT_FULL[hue].factor
   const row = GLOW_ALPHA_AT_FULL.dark
   return {
@@ -332,10 +340,14 @@ export interface SkinOptions {
   glow?: boolean
   /** Which carrier layers give up their background. Defaults to {@link DEFAULT_GLOW_SCOPE}. */
   scope?: GlowScope
-  /** The glow strength in percent (0-200). Defaults to {@link DEFAULT_GLOW_STRENGTH}. */
-  strength?: number
-  /** The hue the ground mixes from. Defaults to {@link DEFAULT_GLOW_HUE}. */
-  hue?: GlowHue
+  /** The LIGHT ground's hue. Defaults to {@link DEFAULT_GLOW_HUE_LIGHT}. */
+  hueLight?: GlowHue
+  /** The LIGHT ground's strength in percent (0-200). Defaults to {@link DEFAULT_GLOW_STRENGTH_LIGHT}. */
+  strengthLight?: number
+  /** The DARK ground's hue. Defaults to {@link DEFAULT_GLOW_HUE_DARK}. */
+  hueDark?: GlowHue
+  /** The DARK ground's strength in percent (0-200). Defaults to {@link DEFAULT_GLOW_STRENGTH_DARK}. */
+  strengthDark?: number
 }
 
 /**
@@ -494,19 +506,31 @@ const VISIBILITY_SELECTORS: Readonly<Record<GlowScope, readonly string[]>> = {
  * The alphas arrive pre-formatted from {@link glowAlphas} / {@link
  * darkGlowAlphas}, so this builder never does arithmetic and the sheet never
  * carries a `calc()`.
- * @param strength - 0-200; out-of-range input is resolved by the caller.
+ * M6 splits the pair: the light rule uses `hueLight × strengthLight`, the dark
+ * rule `hueDark × strengthDark` — two independent controls, because the user's
+ * final colour call is different in each scheme (浅色 柔和 @90 / 深色 夜空蓝 @100).
+ * @param hueLight - the light ground's hue.
+ * @param strengthLight - the light ground's strength (0-200).
+ * @param hueDark - the dark ground's hue.
+ * @param strengthDark - the dark ground's strength (0-200).
  * @returns the rules' lines (light first, then the dark override).
  */
-function groundRules(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE): readonly string[] {
-  const form = GLOW_HUE_AT_FULL[hue]
-  const light = glowAlphas(strength, hue)
-  const dark = darkGlowAlphas(strength, hue)
+function groundRules(
+  hueLight: GlowHue,
+  strengthLight: number,
+  hueDark: GlowHue,
+  strengthDark: number,
+): readonly string[] {
+  const lightForm = GLOW_HUE_AT_FULL[hueLight]
+  const darkForm = GLOW_HUE_AT_FULL[hueDark]
+  const light = glowAlphas(strengthLight, hueLight)
+  const dark = darkGlowAlphas(strengthDark, hueDark)
   return [
     // M5: the ONE literal colour the sheet owns (see NIGHT_BLUE_TOKEN). It is
     // declared here, inside the switchable ground segment, so `glow: false` takes
-    // it — and the nightBlue option it serves — with it.
+    // it — and the `night` hue that reads it — with it.
     '/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the',
-    '   skin owns exactly ONE literal colour, used by the nightBlue option. */',
+    '   skin owns exactly ONE literal colour, read by the `night` hue. */',
     'html[data-moonset-skin] {',
     `  ${NIGHT_BLUE_TOKEN}: ${NIGHT_BLUE_LIGHT};`,
     '}',
@@ -517,9 +541,9 @@ function groundRules(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE): readonl
     '   strength is resolved in JS, so every alpha below is a LITERAL percentage. */',
     'html[data-moonset-skin] body {',
     '  background:',
-    `    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(${form.light}) ${light.moon}, transparent) 0%, transparent 62%),`,
+    `    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(${lightForm.light}) ${light.moon}, transparent) 0%, transparent 62%),`,
     `    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) ${light.warm}, transparent) 0%, transparent 46%),`,
-    `    linear-gradient(165deg, color-mix(in srgb, var(${form.light}) ${light.wash}, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);`,
+    `    linear-gradient(165deg, color-mix(in srgb, var(${lightForm.light}) ${light.wash}, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);`,
     '}',
     // The dark override. Same gating attribute, plus the host's own dark marker
     // (`body[data-ds-dark-theme]`, the official design-platform switch), so it
@@ -528,10 +552,10 @@ function groundRules(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE): readonl
     '   bottom reflection) plus a thinner wash — depth without a second colour. */',
     'html[data-moonset-skin] body[data-ds-dark-theme] {',
     '  background:',
-    `    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(${form.dark}) ${dark.core}, transparent) 0%, transparent 26%),`,
-    `    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(${form.dark}) ${dark.moon}, transparent) 0%, transparent 70%),`,
-    `    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(${form.dark}) ${dark.floor}, transparent) 0%, transparent 55%),`,
-    `    linear-gradient(160deg, color-mix(in srgb, var(${form.dark}) ${dark.wash}, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);`,
+    `    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(${darkForm.dark}) ${dark.core}, transparent) 0%, transparent 26%),`,
+    `    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(${darkForm.dark}) ${dark.moon}, transparent) 0%, transparent 70%),`,
+    `    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(${darkForm.dark}) ${dark.floor}, transparent) 0%, transparent 55%),`,
+    `    linear-gradient(160deg, color-mix(in srgb, var(${darkForm.dark}) ${dark.wash}, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);`,
     '}',
   ]
 }
@@ -720,7 +744,12 @@ export function skinCss(options: SkinOptions = {}): string {
     '}',
   ]
   if (options.glow !== false) {
-    rules.push(...groundRules(options.strength ?? DEFAULT_GLOW_STRENGTH, options.hue ?? DEFAULT_GLOW_HUE))
+    rules.push(...groundRules(
+      options.hueLight ?? DEFAULT_GLOW_HUE_LIGHT,
+      options.strengthLight ?? DEFAULT_GLOW_STRENGTH_LIGHT,
+      options.hueDark ?? DEFAULT_GLOW_HUE_DARK,
+      options.strengthDark ?? DEFAULT_GLOW_STRENGTH_DARK,
+    ))
     rules.push(...visibilityRules(options.scope ?? DEFAULT_GLOW_SCOPE))
   }
   return rules.join('\n')

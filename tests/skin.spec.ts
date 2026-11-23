@@ -44,9 +44,11 @@ import { BOOT_SHEET_SELECTOR } from '../src/client/boot-cleanup'
 import { SKIN_REBUILD_MS, apply } from '../src/client/index'
 import { MOONSET_DARK, MOONSET_LIGHT, MOONSET_TOKEN_OVERRIDES } from '../src/client/palettes'
 import {
-  DEFAULT_GLOW_HUE,
+  DEFAULT_GLOW_HUE_DARK,
+  DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
-  DEFAULT_GLOW_STRENGTH,
+  DEFAULT_GLOW_STRENGTH_DARK,
+  DEFAULT_GLOW_STRENGTH_LIGHT,
   GLOW_ALPHA_AT_FULL,
   GLOW_HUES,
   GLOW_HUE_AT_FULL,
@@ -115,10 +117,10 @@ const EXPECTED_BASE_CSS = [
   '}',
 ].join('\n')
 
-/** The 0.1.2 ground segment (night anchor + light + the dark override), verbatim. */
+/** The 0.1.2 segment (night anchor + light ground + dark override), verbatim. */
 const EXPECTED_GLOW_CSS = [
   '/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the',
-  '   skin owns exactly ONE literal colour, used by the nightBlue option. */',
+  '   skin owns exactly ONE literal colour, read by the `night` hue. */',
   'html[data-moonset-skin] {',
   '  --dsh-moonset-night: #2563EB;',
   '}',
@@ -129,18 +131,18 @@ const EXPECTED_GLOW_CSS = [
   '   strength is resolved in JS, so every alpha below is a LITERAL percentage. */',
   'html[data-moonset-skin] body {',
   '  background:',
-  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, transparent) 0%, transparent 62%),',
-  '    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) 3%, transparent) 0%, transparent 46%),',
-  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 1.5%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
+  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 8.06%, transparent) 0%, transparent 62%),',
+  '    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) 2.7%, transparent) 0%, transparent 46%),',
+  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 0.76%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
   '}',
   '/* 0.1.2 ground (dark): ONE indigo hue at three footprints (core, halo,',
   '   bottom reflection) plus a thinner wash — depth without a second colour. */',
   'html[data-moonset-skin] body[data-ds-dark-theme] {',
   '  background:',
-  '    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsw-static-deepseek-400) 12%, transparent) 0%, transparent 26%),',
-  '    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsw-static-deepseek-400) 20%, transparent) 0%, transparent 70%),',
-  '    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsw-static-deepseek-400) 4%, transparent) 0%, transparent 55%),',
-  '    linear-gradient(160deg, color-mix(in srgb, var(--dsw-static-deepseek-400) 1%, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);',
+  '    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsh-moonset-night) 12%, transparent) 0%, transparent 26%),',
+  '    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsh-moonset-night) 20%, transparent) 0%, transparent 70%),',
+  '    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsh-moonset-night) 4%, transparent) 0%, transparent 55%),',
+  '    linear-gradient(160deg, color-mix(in srgb, var(--dsh-moonset-night) 1%, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);',
   '}',
   '/* 0.1.2 visibility (scope: main): the host paints bg-base on these',
   '   carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */',
@@ -157,6 +159,32 @@ const EXPECTED_GLOW_CSS = [
 
 /** The complete 0.1.2 sheet: the 0.1.1 rules plus the ground. */
 const EXPECTED_CSS = EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS
+
+/** The LIGHT ground rule of one sheet (the night anchor and the dark rule follow). */
+function lightGroundRule(sheet: string): string {
+  const start = sheet.indexOf('html[data-moonset-skin] body {')
+  return sheet.slice(start, sheet.indexOf('}', start) + 1)
+}
+
+/** The DARK ground rule of one sheet (the night anchor rule comes first). */
+function darkGroundRule(sheet: string): string {
+  const groundAt = sheet.indexOf('/* 0.1.2 ground (dark)')
+  const start = sheet.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
+  return sheet.slice(start, sheet.indexOf('}', start) + 1)
+}
+
+/**
+ * The percentage format `skin.ts` emits: at most two decimals, no trailing zeros.
+ *
+ * Restated here so the matrix test derives its expectations from the ARITHMETIC
+ * rather than from a second copy of the numbers (a drifted formatter would fail
+ * every cell instead of passing on a coincidence).
+ * @param value - a percentage.
+ * @returns the CSS percentage token.
+ */
+function percentOf(value: number): string {
+  return String(Math.round(value * 100) / 100) + '%'
+}
 
 
 /* ------------------------------------------------------------------ *
@@ -364,7 +392,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 60 lines, seven rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 60 lines, nine rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
@@ -413,7 +441,7 @@ describe('skinCss — the whitelisted rules', () => {
 
     // Every declaration reads a `--dsw-*` token or the skin's own `--dsh-moonset-`
     // one: the accent at several opacities, the moon anchor for the light glint,
-    // the darker indigo for the dark composition, and the canvas under both
+    // the night anchor for the dark composition, and the canvas under both
     // grounds. The night anchor is the single exception, and it is a
     // `var(--dsh-moonset-night)` reference — not a hex — everywhere it is used.
     const tokens = css.match(/var\(--dsw-[a-z0-9-]+\)/g) ?? []
@@ -421,17 +449,18 @@ describe('skinCss — the whitelisted rules', () => {
       `var(${ACCENT})`,
       `var(${MOON})`,
       `var(${CANVAS})`,
-      'var(--dsw-static-deepseek-400)',
     ]))
-    // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light:
-    // accent halo + amber glint + accent wash + canvas. Dark: four deepseek-400
-    // layers + canvas.
-    expect(tokens).toHaveLength(13)
+    // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
+    // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
+    // ground (night): one canvas. The night anchor refs are counted separately.
+    expect(tokens).toHaveLength(9)
+    expect(css.match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(4)
     // The anchor is DECLARED in every sheet (it is a custom property, unused by
-    // the other four hues) and REFERENCED only by the nightBlue ground.
+    // the other hues) and REFERENCED only by a ground whose hue is `night`.
     expect(css).toContain('--dsh-moonset-night: #2563EB;')
-    expect(skinCss({ hue: 'nightBlue' })).toContain('var(--dsh-moonset-night)')
-    expect(skinCss({ hue: 'accent' })).not.toContain('var(--dsh-moonset-night)')
+    expect(skinCss({ hueDark: 'accent' })).not.toContain('var(--dsh-moonset-night)')
+    expect(skinCss({ hueLight: 'night' }).match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(6)
+    expect(skinCss({ hueDark: 'night' }).match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(4)
     // THE WHITELIST (M5): the sheet may carry exactly TWO hex literals — the two
     // declarations of the night anchor, one per scheme, and nothing else.
     const hexes = [...css.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((match) => match[0])
@@ -601,7 +630,10 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   const GROUND_RULE = /html\[data-moonset-skin\] body \{\n([\s\S]*?)\n\}/
 
   it('paints the ground from tokens only, root-gated, alpha as a literal percentage', () => {
-    const css = skinCss()
+    // The LIGHT rule with its numbers pinned by explicit options (M6 defaults are
+    // soft @ 90, which would make this a test of the default rather than of the
+    // shape).
+    const css = skinCss({ hueLight: 'accent', strengthLight: 100 })
     // Exactly one ground block, and it is the root-gated body rule (P2's gate).
     expect(css.match(/html\[data-moonset-skin\] body \{/g)).toHaveLength(1)
     const block = GROUND_RULE.exec(css)
@@ -650,7 +682,7 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   it('carries BOTH spots: indigo moon halo top-centre, amber warm light bottom-right', () => {
     // The LIGHT block only: the dark override is its own composition (asserted
     // separately below), and mixing the two would count four radials.
-    const css = skinCss()
+    const css = skinCss({ hueLight: 'accent', strengthLight: 100 })
     const light = css.slice(css.indexOf('html[data-moonset-skin] body {'), css.indexOf('/* 0.1.2 ground (dark)'))
     const spots = [
       ...light.matchAll(
@@ -678,8 +710,10 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     expect(MOONSET_DARK[ACCENT]).toBe(board.dark.accent.toUpperCase())
   })
 
-  it('gives the DARK scheme its own ground: ONE indigo hue, three footprints', () => {
-    const css = skinCss()
+  it('gives the DARK scheme its own ground: ONE hue, three footprints', () => {
+    // Explicit `accent` for the dark ground: the default is `night`, whose shape
+    // is asserted in the M6 describe.
+    const css = skinCss({ hueDark: 'accent', strengthDark: 100 })
     // A second ground rule, gated on our root attribute AND the host's own dark
     // marker (`body[data-ds-dark-theme]`, the official design-platform switch),
     // so it only applies to the dark scheme and outranks the light rule there.
@@ -715,23 +749,26 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     // Both schemes ride the same switch: off is the 0.1.1 sheet.
     expect(skinCss({ glow: false })).not.toContain('data-ds-dark-theme')
     // ...and the same strength factor (the dark rows scale too).
-    expect(skinCss({ strength: 200 })).toContain('var(--dsw-static-deepseek-400) 40%, transparent')
+    expect(skinCss({ hueDark: 'accent', strengthDark: 200 })).toContain('var(--dsw-static-deepseek-400) 40%, transparent')
   })
 
-  it('keeps indigo in charge at every strength: the light ratio never drops below 5:1', () => {
-    // The M3 contract in one assertion: whatever the slider does, the amber is a
-    // fraction of the indigo (16:3 at 100% ≈ 5.3:1). The first pass shipped
-    // 16:6 and the user still read the amber as the subject — a warm hue at the
-    // same alpha is brighter on a near-white canvas, so the RATIO is the knob.
-    for (const strength of [GLOW_STRENGTH_MIN, 50, 100, 150, GLOW_STRENGTH_MAX]) {
-      const alphas = glowAlphas(strength)
-      const moon = Number(alphas.moon.replace('%', ''))
-      const warm = Number(alphas.warm.replace('%', ''))
-      if (moon === 0) {
-        expect(warm).toBe(0)
-        continue
+  it('keeps indigo in charge: the amber never approaches the light hue', () => {
+    // The M3 contract, carried into M6's per-scheme hues: whatever the hue and
+    // the strength, the amber glint is a fraction of the hue layer. `accent` /
+    // `night` are 16:3 (≈5.3:1); `soft` halves only the hue side, so its floor is
+    // ≈3:1 — still the glint, never the subject (the user's 橙黄喧宾夺主 report).
+    for (const hue of GLOW_HUES) {
+      const floor = hue === 'soft' ? 2.5 : 5
+      for (const strength of [GLOW_STRENGTH_MIN, 50, 100, 150, GLOW_STRENGTH_MAX]) {
+        const alphas = glowAlphas(strength, hue)
+        const moon = Number(alphas.moon.replace('%', ''))
+        const warm = Number(alphas.warm.replace('%', ''))
+        if (moon === 0) {
+          expect(warm).toBe(0)
+          continue
+        }
+        expect(moon / warm).toBeGreaterThanOrEqual(floor)
       }
-      expect(moon / warm).toBeGreaterThanOrEqual(5)
     }
     // ...and the geometry says the same thing: the amber ellipse dies at 46%
     // while the moon halo runs to 62%, so it cannot reach the middle of the
@@ -742,32 +779,32 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     expect(fades).toEqual([62, 46, 70])
   })
 
-  it('keeps the DARK composition monochrome: one hue, three footprints', () => {
+  it('keeps the DARK composition monochrome at EVERY hue: one colour, three footprints', () => {
     // The violet layer was removed on the user's second pass ("不要紫罗兰那层"),
-    // so a second indigo step in the dark block is a regression, not a style
-    // choice. This test is the guard: only deepseek-400 (and the canvas).
-    const css = skinCss()
-    const groundAt = css.indexOf('/* 0.1.2 ground (dark)')
-    const start = css.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
-    const dark = css.slice(start, css.indexOf('}', start) + 1)
-    expect(dark).not.toContain('amber')
-    expect(dark).not.toContain('deepseek-500')
-    expect(dark).not.toContain('deepseek-600')
-    // Core brighter than halo, halo wider than core: that is the layering.
-    expect(darkGlowAlphas(100).core).toBe('12%')
-    expect(darkGlowAlphas(100).moon).toBe('20%')
-    expect(Number(darkGlowAlphas(100).core.replace('%', '')))
-      .toBeLessThan(Number(darkGlowAlphas(100).moon.replace('%', '')))
-    expect(dark).toContain('circle at 34% 2%')
-    expect(dark).toContain('ellipse at 50% -6%')
-    expect(dark).toContain('ellipse at 50% 104%')
+    // and M6's hue switch must not reintroduce a second colour: whatever the
+    // user picks, the dark ground reads exactly ONE coloured token plus the
+    // canvas, and the amber never appears in it.
+    for (const hue of GLOW_HUES) {
+      const dark = darkGroundRule(skinCss({ hueDark: hue }))
+      // `--dsh-moonset-*` counts too: the `night` hue's token is the skin anchor.
+      const tokens = new Set([...dark.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((match) => match[1]))
+      expect(tokens.size, hue).toBe(2)
+      expect(tokens).toContain('--dsw-alias-bg-base')
+      expect(dark).not.toContain('amber')
+      // Core brighter than halo, halo wider than core: that is the layering.
+      expect(Number(darkGlowAlphas(100, hue).core.replace('%', '')))
+        .toBeLessThan(Number(darkGlowAlphas(100, hue).moon.replace('%', '')))
+      expect(dark).toContain('circle at 34% 2%')
+      expect(dark).toContain('ellipse at 50% -6%')
+      expect(dark).toContain('ellipse at 50% 104%')
+    }
   })
 
   it('drops BOTH grounds — light and dark — when the switch is off', () => {
     // The switch is not a strength: `glow: false` must leave no dark rule, no
     // layer and no scope behind, at any strength (0.1.2 D4's pre-glow screen).
     for (const strength of [GLOW_STRENGTH_MIN, 100, GLOW_STRENGTH_MAX]) {
-      const off = skinCss({ glow: false, strength })
+      const off = skinCss({ glow: false, strengthLight: strength, strengthDark: strength })
       expect(off).toBe(EXPECTED_BASE_CSS)
       expect(off).not.toContain('data-ds-dark-theme')
       expect(off).not.toContain('radial-gradient')
@@ -776,7 +813,7 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   })
 
   it('keeps the wash inside the <= 2/255 horizontal band at 1920x1080', () => {
-    const css = skinCss()
+    const css = skinCss({ hueLight: 'accent', strengthLight: 100 })
     // A 165deg CSS gradient spans L = W·|sin θ| + H·|cos θ|; moving horizontally
     // by dx shifts the gradient position by dx·|sin θ| / L. The wash starts at
     // `alpha` and dies at `fade`, so left vs right edge differ by
@@ -969,10 +1006,10 @@ describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel roo
 })
 
 /* ------------------------------------------------------------------ *
- * M2: 地面范围 (A/B/C) and the strength knob                            *
+ * M2 地面范围 (A/B/C)                                                 *
  * ------------------------------------------------------------------ */
 
-describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
+describe('skinCss — M2 地面范围 (A/B/C)', () => {
   /**
    * The sheet without its comments.
    *
@@ -986,7 +1023,7 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
   }
 
   /** The visibility block of one scope, parsed the way the engine reads it. */
-  function visibilityOf(scope: GlowScope): { selectors: string[]; lines: string[] } {
+  function visibilityOf(scope: GlowScope): { selectors: string[] } {
     const css = skinCss({ scope })
     const start = css.indexOf('/* 0.1.2 visibility')
     const open = css.indexOf('{', start)
@@ -1008,7 +1045,7 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
       current += character
     }
     if (current.trim() !== '') selectors.push(current.trim())
-    return { selectors, lines: raw.split('\n') }
+    return { selectors }
   }
 
   it('nests the three scopes: conversation ⊂ main ⊂ all', () => {
@@ -1028,8 +1065,7 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
       "html[data-moonset-skin] #root :has([data-composer-seat])",
       "html[data-moonset-skin] #root [data-slot='main'] > div",
     ])
-    // C: B plus the sidebar root and the bottom cell — every carrier the M1.5
-    // sheet cleared.
+    // C: B plus the sidebar root and the bottom cell.
     expect(all).toEqual([
       "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
       "html[data-moonset-skin] #root :has([data-composer-seat])",
@@ -1037,8 +1073,7 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
       "html[data-moonset-skin] #root [data-slot='main'] > div",
       "html[data-moonset-skin] #root [data-slot='sidebar'] > div",
     ])
-    // The nesting the buttons promise: every A selector is in B, every B
-    // selector is in C.
+    // The nesting the buttons promise: every A selector is in B, every B in C.
     for (const selector of conversation) expect(main).toContain(selector)
     for (const selector of main) expect(all).toContain(selector)
     // And each sheet NAMES its scope, so a DevTools copy is self-describing.
@@ -1048,95 +1083,19 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
   it('keeps every sheet inside the 60-line budget, for every scope', () => {
     for (const scope of GLOW_SCOPES) {
       const lines = skinCss({ scope }).split('\n')
-      // 60 since M3: the dark scheme is its own four-layer composition.
       expect(lines.length).toBeLessThanOrEqual(60)
       expect(lines.length).toBeGreaterThan(19)
+      expect(withoutComments(skinCss({ scope }))).not.toContain('calc(')
     }
-    // The default sheet is B at 100% since M3: on the user's real machine B was
-    // the coherent one (C stays selectable as the fully transparent mode).
-    expect(skinCss()).toBe(skinCss({ scope: 'main', strength: 100 }))
+    // The default sheet is B — the user's verdict after comparing A/B/C.
+    expect(skinCss()).toBe(skinCss({ scope: 'main' }))
     expect(DEFAULT_GLOW_SCOPE).toBe('main')
-    expect(DEFAULT_GLOW_STRENGTH).toBe(100)
     expect(visibilityOf('main').selectors).toHaveLength(3)
   })
 
-  it('scales the alphas in JS per scheme: 0 / 50 / 100 / 150 / 200 → literals', () => {
-    // The table the slider promises, derived from ONE source of truth. LIGHT is
-    // the M3 rebalance (indigo 16% : amber 6%), DARK is the four-layer
-    // composition (moon 18%, violet 10%, warm 6%, wash 1%).
-    expect(glowAlphas(0)).toEqual({ moon: '0%', warm: '0%', wash: '0%' })
-    expect(glowAlphas(50)).toEqual({ moon: '8%', warm: '1.5%', wash: '0.75%' })
-    expect(glowAlphas(100)).toEqual({ moon: '16%', warm: '3%', wash: '1.5%' })
-    expect(glowAlphas(150)).toEqual({ moon: '24%', warm: '4.5%', wash: '2.25%' })
-    expect(glowAlphas(200)).toEqual({ moon: '32%', warm: '6%', wash: '3%' })
-    // DARK is one hue at three footprints (core / halo / bottom reflection) and
-    // a thinner wash — no amber, no second colour (user: 不要紫罗兰那层).
-    expect(darkGlowAlphas(0)).toEqual({ moon: '0%', core: '0%', floor: '0%', wash: '0%' })
-    expect(darkGlowAlphas(50)).toEqual({ moon: '10%', core: '6%', floor: '2%', wash: '0.5%' })
-    expect(darkGlowAlphas(100)).toEqual({ moon: '20%', core: '12%', floor: '4%', wash: '1%' })
-    expect(darkGlowAlphas(150)).toEqual({ moon: '30%', core: '18%', floor: '6%', wash: '1.5%' })
-    expect(darkGlowAlphas(200)).toEqual({ moon: '40%', core: '24%', floor: '8%', wash: '2%' })
-    // The full-strength rows are exactly what skin.ts multiplies.
-    const light = glowAlphas(100)
-    expect(light).toEqual({
-      moon: GLOW_ALPHA_AT_FULL.light.moon + '%',
-      warm: GLOW_ALPHA_AT_FULL.light.warm + '%',
-      wash: GLOW_ALPHA_AT_FULL.light.wash + '%',
-    })
-    const dark = darkGlowAlphas(100)
-    expect(dark).toEqual({
-      moon: GLOW_ALPHA_AT_FULL.dark.moon + '%',
-      core: GLOW_ALPHA_AT_FULL.dark.core + '%',
-      floor: GLOW_ALPHA_AT_FULL.dark.floor + '%',
-      wash: GLOW_ALPHA_AT_FULL.dark.wash + '%',
-    })
-    // The emitted sheet carries those literals — and never a calc().
-    const doubled = skinCss({ strength: 200 })
-    expect(doubled).toContain('var(--dsw-static-deepseek-500) 32%, transparent')
-    expect(doubled).toContain('var(--dsw-static-amber-500) 6%, transparent')
-    expect(doubled).toContain('var(--dsw-static-deepseek-500) 3%, transparent')
-    expect(doubled).toContain('var(--dsw-static-deepseek-400) 24%, transparent')
-    expect(doubled).toContain('var(--dsw-static-deepseek-400) 40%, transparent')
-    expect(doubled).toContain('var(--dsw-static-deepseek-400) 8%, transparent')
-    expect(doubled).toContain('var(--dsw-static-deepseek-400) 2%, transparent')
-    expect(withoutComments(doubled)).not.toContain('calc(')
-    // Strength 0 leaves the canvas layer and nothing else, still literal.
-    const zero = skinCss({ strength: 0 })
-    expect(zero).toContain('color-mix(in srgb, var(--dsw-static-deepseek-500) 0%, transparent)')
-    expect(withoutComments(zero)).not.toContain('calc(')
-    for (const scope of GLOW_SCOPES) {
-      expect(withoutComments(skinCss({ scope }))).not.toContain('calc(')
-      expect(withoutComments(skinCss({ scope, strength: 200 }))).not.toContain('calc(')
-    }
-  })
-
-  it('clamps an out-of-range or unusable strength instead of refusing the skin', () => {
-    expect(resolveGlowStrength(undefined)).toBe(DEFAULT_GLOW_STRENGTH)
-    expect(resolveGlowStrength(Number.NaN)).toBe(DEFAULT_GLOW_STRENGTH)
-    expect(resolveGlowStrength(-40)).toBe(GLOW_STRENGTH_MIN)
-    expect(resolveGlowStrength(1e6)).toBe(GLOW_STRENGTH_MAX)
-    expect(resolveGlowStrength('150')).toBe(150)
-    expect(resolveGlowStrength(149.6)).toBe(150)
-    // Same for the scope: anything unrecognized falls back to the default.
-    expect(resolveGlowScope(undefined)).toBe(DEFAULT_GLOW_SCOPE)
-    expect(resolveGlowScope('sidebar')).toBe(DEFAULT_GLOW_SCOPE)
-    expect(resolveGlowScope('conversation')).toBe('conversation')
-  })
-
-  it('drops BOTH halves of the 0.1.2 segment when the switch is off, in every scope', () => {
-    // Off is the pre-glow 0.1.1 sheet byte-for-byte: no ground, no clear, no
-    // remnant of the scope or the strength (0.1.2 D4).
-    for (const scope of GLOW_SCOPES) {
-      for (const strength of [0, 100, 200]) {
-        expect(skinCss({ glow: false, scope, strength })).toBe(EXPECTED_BASE_CSS)
-      }
-    }
-    expect(skinCss({ glow: true })).toBe(EXPECTED_CSS)
-  })
-
-  it('clears the composer seat\'s mask band by its IMAGE only (M2 底部白带)', () => {
+  it('clears the composer seat mask band by its IMAGE only', () => {
     // `[data-composer-seat]` is the element the conversation paints its seat on;
-    // in the active phase it carries a `bg-base` mask gradient, which over the
+    // in the active phase it carries a bg-base mask gradient, which over the
     // ground reads as a bright band across the bottom of the column. The fix is
     // the NARROWEST one available: the image goes, the element keeps everything
     // else (its colour is already transparent, and nothing moves).
@@ -1147,15 +1106,10 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
     const rule = css.slice(start, end)
     expect(rule).toContain("html[data-moonset-skin] #root [data-composer-seat] {")
     const declarations = rule.slice(rule.indexOf('{') + 1, -1).split(';').map((part) => part.trim()).filter(Boolean)
-    // ONE declaration, and it is the image longhand: a `background` shorthand
-    // here would also wipe the element's colour and any shadow the host adds.
     expect(declarations).toEqual(['background-image: none'])
-    // It is not a carrier entry: no colour clear on the seat itself.
     expect(rule).not.toContain('background-color')
     // The band belongs to the glow segment, so the switch takes it with it.
     expect(skinCss({ glow: false })).not.toContain('bottom band')
-    expect(skinCss({ glow: false })).not.toContain('background-image')
-    // ...and every scope carries it (the band is inside the conversation).
     for (const scope of GLOW_SCOPES) expect(skinCss({ scope })).toContain('bottom band (M2)')
   })
 
@@ -1164,156 +1118,183 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
     mountSkin(doc)
     expect(doc.attached()).toHaveLength(1)
     const before = doc.attached()[0].textContent
-    expect(updateSkin({ scope: 'conversation', strength: 50 }, doc)).toBe(true)
+    expect(updateSkin({ scope: 'conversation', strengthLight: 50, hueLight: 'accent' }, doc)).toBe(true)
     // Still a singleton, and the rule text moved to the new options.
     expect(doc.attached()).toHaveLength(1)
     const after = doc.attached()[0].textContent
     expect(after).not.toBe(before)
-    expect(after).toBe(skinCss({ scope: 'conversation', strength: 50 }))
+    expect(after).toBe(skinCss({ scope: 'conversation', strengthLight: 50, hueLight: 'accent' }))
     expect(after).toContain('scope: conversation)')
     expect(after).toContain('8%, transparent')
     // A document with no sheet yet is mounted by the same call (convergence).
     const fresh = new StubDocument()
-    expect(updateSkin({ scope: 'main' }, fresh)).toBe(true)
+    expect(updateSkin({ scope: 'all' }, fresh)).toBe(true)
     expect(fresh.attached()).toHaveLength(1)
-    expect(fresh.attached()[0].textContent).toBe(skinCss({ scope: 'main' }))
+    expect(fresh.attached()[0].textContent).toBe(skinCss({ scope: 'all' }))
   })
 })
 
 /* ------------------------------------------------------------------ *
- * M4: 光晕色相 (five hues, one shared control)                        *
+ * M6: 深/浅两套光晕（色相 × 强度）                                     *
  * ------------------------------------------------------------------ */
 
-describe('skinCss — M4 光晕色相', () => {
-  /** The light ground rule of one sheet (the dark override starts after it). */
-  function lightGround(sheet: string): string {
-    return sheet.slice(sheet.indexOf('html[data-moonset-skin] body {'), sheet.indexOf('/* 0.1.2 ground (dark)'))
-  }
-
-  /** The dark GROUND rule of one sheet (the night anchor rule comes first). */
-  function darkGround(sheet: string): string {
-    const groundAt = sheet.indexOf('/* 0.1.2 ground (dark)')
-    const start = sheet.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
-    return sheet.slice(start, sheet.indexOf('}', start) + 1)
-  }
-
-  it('offers five hues and lets each one repaint the indigo family only', () => {
-    expect(GLOW_HUES).toEqual(['accent', 'accentDark', 'accentSoft', 'accentSoftDark', 'nightBlue'])
-    for (const hue of GLOW_HUES) {
-      const form = GLOW_HUE_AT_FULL[hue]
-      const sheet = skinCss({ hue })
-      const light = lightGround(sheet)
-      const dark = darkGround(sheet)
-      // LIGHT: the moon halo and the wash take this hue's light token; the amber
-      // glint keeps its own token and its own 3% — the hue control must not move
-      // it, because amber is a different role, not a different hue.
-      expect(light).toContain(`var(${form.light})`)
-      expect(light).toContain('var(--dsw-static-amber-500) 3%, transparent')
-      // DARK: all THREE indigo footprints plus the wash use this hue's dark token
-      // — one hue, three sizes, whatever the user picked.
-      expect(dark).toContain(`var(${form.dark})`)
-      expect(dark).not.toContain('amber')
-      // No literal colour may enter through the table: the only hexes in any
-      // sheet are the night anchor's two declarations (M5's whitelist).
-      const hexes = [...sheet.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((match) => match[0])
-      expect(hexes).toEqual(['#2563EB', '#60A5FA'])
-      expect(sheet.split('\n').length).toBeLessThanOrEqual(60)
-    }
-    // The two "soft" forms are the SAME tokens at a fraction of the alpha.
-    expect(GLOW_HUE_AT_FULL.accentSoft.light).toBe(GLOW_HUE_AT_FULL.accent.light)
-    expect(GLOW_HUE_AT_FULL.accentSoftDark.light).toBe(GLOW_HUE_AT_FULL.accentDark.light)
-    expect(GLOW_HUE_AT_FULL.accentSoft.factor).toBe(0.56)
-    expect(GLOW_HUE_AT_FULL.accentSoftDark.factor).toBe(0.75)
+describe('skinCss — M6 深/浅两套光晕', () => {
+  it('ships the final defaults: light 柔和 @90, dark 夜空蓝 @100', () => {
+    // The point of the split: the user's best form differs per scheme, so the
+    // defaults do too, and `skinCss()` must emit exactly that.
+    expect(DEFAULT_GLOW_HUE_LIGHT).toBe('soft')
+    expect(DEFAULT_GLOW_STRENGTH_LIGHT).toBe(90)
+    expect(DEFAULT_GLOW_HUE_DARK).toBe('night')
+    expect(DEFAULT_GLOW_STRENGTH_DARK).toBe(100)
+    const css = skinCss()
+    // light: soft @ 90% → 16 × 0.9 × 0.56 = 8.064 → 8.06%; amber 3 × 0.9 = 2.7%.
+    expect(lightGroundRule(css)).toContain('var(--dsw-static-deepseek-500) 8.06%')
+    expect(lightGroundRule(css)).toContain('var(--dsw-static-amber-500) 2.7%')
+    // dark: night @ 100% → the anchor at its full alphas.
+    expect(darkGroundRule(css)).toContain('var(--dsh-moonset-night) 20%')
+    expect(darkGroundRule(css)).toContain('var(--dsh-moonset-night) 12%')
   })
 
-  it('multiplies strength AND the hue factor, then formats a literal percentage', () => {
-    // The combined table: strength (0-200) × hue factor (1 / 1 / 0.56 / 0.75 / 1)
-    // × the full-strength row. Every number is produced in JS, so the sheet only
-    // ever carries literals — never a calc() and never a var() hop.
-    const moonAt = (strength: number, hue: GlowHue): string => glowAlphas(strength, hue).moon
-    for (const strength of [0, 50, 100, 150, 200]) {
-      expect(moonAt(strength, 'accent')).toBe(`${(16 * strength) / 100}%`)
-      expect(moonAt(strength, 'nightBlue')).toBe(`${(16 * strength) / 100}%`)
-      expect(moonAt(strength, 'accentSoft')).toBe(`${Math.round(16 * strength * 0.56) / 100}%`)
-      expect(moonAt(strength, 'accentSoftDark')).toBe(`${Math.round(16 * strength * 0.75) / 100}%`)
-      // The amber is NOT scaled by the hue: it is the same 3% at every hue.
-      for (const hue of GLOW_HUES) {
-        expect(glowAlphas(strength, hue).warm).toBe(`${(3 * strength) / 100}%`)
+  it('offers three hues and repaints only the hue layers', () => {
+    expect(GLOW_HUES).toEqual(['accent', 'soft', 'night'])
+    for (const hue of GLOW_HUES) {
+      const light = lightGroundRule(skinCss({ hueLight: hue, strengthLight: 100 }))
+      const dark = darkGroundRule(skinCss({ hueDark: hue, strengthDark: 100 }))
+      const token = GLOW_HUE_AT_FULL[hue]
+      expect(light).toContain('var(' + token.light + ')')
+      expect(dark).toContain('var(' + token.dark + ')')
+      // The amber glint is a different ROLE: the hue never moves it.
+      expect(light).toContain('var(--dsw-static-amber-500) 3%')
+      expect(dark).not.toContain('amber')
+    }
+    // `soft` is the SAME tokens at 0.56; `night` is the skin anchor.
+    expect(GLOW_HUE_AT_FULL.soft.light).toBe(GLOW_HUE_AT_FULL.accent.light)
+    expect(GLOW_HUE_AT_FULL.soft.dark).toBe(GLOW_HUE_AT_FULL.accent.dark)
+    expect(GLOW_HUE_AT_FULL.soft.factor).toBe(0.56)
+    expect(GLOW_HUE_AT_FULL.night.light).toBe(NIGHT_BLUE_TOKEN)
+    expect(GLOW_HUE_AT_FULL.night.dark).toBe(NIGHT_BLUE_TOKEN)
+  })
+
+  it('scales the full 3 hues × 2 schemes × 5 strengths matrix in JS', () => {
+    // Every cell is `full-strength alpha × strength/100 × hue factor`, formatted
+    // as a literal percentage: no calc(), no var() hop, nothing computed by CSS.
+    const strengths = [0, 50, 100, 150, 200]
+    for (const hue of GLOW_HUES) {
+      const factor = GLOW_HUE_AT_FULL[hue].factor
+      for (const strength of strengths) {
+        const light = glowAlphas(strength, hue)
+        const dark = darkGlowAlphas(strength, hue)
+        const s = strength / 100
+        // LIGHT: hue + wash scale with strength AND hue; amber only with strength.
+        expect(light.moon).toBe(percentOf(16 * s * factor))
+        expect(light.wash).toBe(percentOf(1.5 * s * factor))
+        expect(light.warm).toBe(percentOf(3 * s))
+        // DARK: all three footprints and the wash scale with strength AND hue.
+        expect(dark.moon).toBe(percentOf(20 * s * factor))
+        expect(dark.core).toBe(percentOf(12 * s * factor))
+        expect(dark.floor).toBe(percentOf(4 * s * factor))
+        expect(dark.wash).toBe(percentOf(1 * s * factor))
       }
     }
-    // The card's own numbers, spelled out: accentSoft @100% = 8.96% (≈9%), @50% =
-    // 4.48% (≈4.5%); accentSoftDark @100% = 12%.
-    expect(glowAlphas(100, 'accentSoft').moon).toBe('8.96%')
-    expect(glowAlphas(50, 'accentSoft').moon).toBe('4.48%')
-    expect(glowAlphas(100, 'accentSoftDark')).toEqual({ moon: '12%', warm: '3%', wash: '1.13%' })
-    // DARK scales the same way (core / halo / bottom reflection / wash).
-    expect(darkGlowAlphas(100, 'accentSoft')).toEqual({ moon: '11.2%', core: '6.72%', floor: '2.24%', wash: '0.56%' })
-    expect(darkGlowAlphas(100, 'accentSoftDark')).toEqual({ moon: '15%', core: '9%', floor: '3%', wash: '0.75%' })
-    // ...and the emitted sheet carries those literals.
-    expect(skinCss({ hue: 'accentSoft', strength: 100 })).toContain('deepseek-500) 8.96%, transparent')
-    expect(skinCss({ hue: 'accentSoftDark', strength: 200 })).toContain('deepseek-400) 24%, transparent')
+    // The named cells the user will actually see at the defaults.
+    expect(glowAlphas(90, 'soft')).toEqual({ moon: '8.06%', warm: '2.7%', wash: '0.76%' })
+    expect(darkGlowAlphas(100, 'night')).toEqual({ moon: '20%', core: '12%', floor: '4%', wash: '1%' })
+    expect(glowAlphas(200, 'soft').moon).toBe('17.92%')
+    // ...and the emitted sheets carry those literals, never a calc().
+    const sheet = skinCss({ hueLight: 'soft', strengthLight: 200, hueDark: 'soft', strengthDark: 200 })
+    expect(lightGroundRule(sheet)).toContain('deepseek-500) 17.92%')
+    expect(darkGroundRule(sheet)).toContain('deepseek-400) 22.4%')
+    expect(sheet.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('calc(')
   })
 
-  it('owns the night-blue anchor: declared twice, read by nightBlue only', () => {
-    // The 228-key table has no usable blue (every `blue-*` rung is remapped onto
-    // this palette's indigo): the skin therefore owns ONE literal colour and
-    // registers it in §11.3. It is declared for both schemes and consumed by the
-    // `nightBlue` ground alone.
-    const sheet = skinCss({ hue: 'nightBlue' })
-    const light = lightGround(sheet)
-    const dark = darkGround(sheet)
-    expect(light).toContain(`var(${NIGHT_BLUE_TOKEN})`)
-    expect(dark).toContain(`var(${NIGHT_BLUE_TOKEN})`)
+  it('no longer accepts the two removed hues, anywhere', () => {
+    // M4 shipped five; the two "dark" variants were visually identical to their
+    // light siblings, so M6 removed them. Nothing may resurrect them: not the
+    // union, not the table, not a resolved value.
+    for (const removed of ['accentDark', 'accentSoftDark', 'accentSoft', 'nightBlue']) {
+      expect(GLOW_HUES as readonly string[]).not.toContain(removed)
+      expect(Object.keys(GLOW_HUE_AT_FULL)).not.toContain(removed)
+      expect(resolveGlowHue(removed)).toBe(DEFAULT_GLOW_HUE_LIGHT)
+      expect(resolveGlowHue(removed, 'night')).toBe('night')
+    }
+  })
+
+  it('clamps strength per scheme and falls back to that scheme default', () => {
+    expect(resolveGlowStrength(undefined, DEFAULT_GLOW_STRENGTH_LIGHT)).toBe(90)
+    expect(resolveGlowStrength(undefined, DEFAULT_GLOW_STRENGTH_DARK)).toBe(100)
+    expect(resolveGlowStrength(undefined)).toBe(90)
+    expect(resolveGlowStrength(Number.NaN, 100)).toBe(100)
+    expect(resolveGlowStrength(-40)).toBe(GLOW_STRENGTH_MIN)
+    expect(resolveGlowStrength(1e6)).toBe(GLOW_STRENGTH_MAX)
+    expect(resolveGlowStrength('150')).toBe(150)
+    expect(resolveGlowStrength(149.6)).toBe(150)
+    expect(resolveGlowHue(undefined)).toBe('soft')
+    expect(resolveGlowHue(undefined, 'night')).toBe('night')
+    expect(resolveGlowHue('sidebar')).toBe('soft')
+    expect(resolveGlowHue('night')).toBe('night')
+  })
+
+  it('keeps the two grounds independent: one pair never moves the other', () => {
+    const base0 = skinCss()
+    const lightMoved = skinCss({ hueLight: 'night', strengthLight: 40 })
+    const darkMoved = skinCss({ hueDark: 'soft', strengthDark: 180 })
+    // Moving the LIGHT pair leaves the dark rule byte-identical.
+    expect(darkGroundRule(lightMoved)).toBe(darkGroundRule(base0))
+    expect(lightGroundRule(lightMoved)).not.toBe(lightGroundRule(base0))
+    // ...and the other way round.
+    expect(lightGroundRule(darkMoved)).toBe(lightGroundRule(base0))
+    expect(darkGroundRule(darkMoved)).not.toBe(darkGroundRule(base0))
+    // The anchor declarations belong to neither pair, so they never move.
+    expect(lightMoved).toContain('--dsh-moonset-night: #2563EB;')
+    expect(darkMoved).toContain('--dsh-moonset-night: #60A5FA;')
+  })
+
+  it('never lets one ground read the other scheme hue', () => {
+    // A deliberately crossed configuration: light = night blue, dark = accent.
+    const css = skinCss({ hueLight: 'night', hueDark: 'accent' })
+    const light = lightGroundRule(css)
+    const dark = darkGroundRule(css)
+    expect(light).toContain('var(' + NIGHT_BLUE_TOKEN + ')')
+    expect(light).not.toContain('deepseek-500')
+    expect(dark).toContain('var(--dsw-static-deepseek-400)')
+    expect(dark).not.toContain(NIGHT_BLUE_TOKEN)
+  })
+
+  it('writes the same line count for every hue: only token names change', () => {
+    // The hue control is a repaint, not a re-layout of the sheet: 3 hues × 2
+    // schemes must all emit the same shape, so the budget cannot drift per hue.
+    const reference = skinCss().split('\n').length
+    for (const hue of GLOW_HUES) {
+      const sheet = skinCss({ hueLight: hue, hueDark: hue })
+      expect(sheet.split('\n').length, hue).toBe(reference)
+      expect(sheet.match(/\{/g)).toHaveLength(9)
+    }
+  })
+
+  it('drops the night anchor with the switch, in every scope', () => {
+    for (const scope of GLOW_SCOPES) {
+      const off = skinCss({ glow: false, scope })
+      expect(off).not.toContain(NIGHT_BLUE_TOKEN)
+      expect(off).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+  })
+  it('owns the night anchor: declared twice, read only by the `night` hue', () => {
+    const css = skinCss()
     // One declaration per scheme, and the dark one hangs off the host marker so
     // it can only win in dark mode.
-    expect(sheet).toContain('html[data-moonset-skin] {\n  --dsh-moonset-night: #2563EB;\n}')
-    expect(sheet).toContain('html[data-moonset-skin] body[data-ds-dark-theme] {\n  --dsh-moonset-night: #60A5FA;\n}')
-    // The hex is NEVER used directly in a gradient: every use is the variable.
-    expect(light).not.toContain('#2563EB')
-    expect(dark).not.toContain('#60A5FA')
-    // The other four hues declare the anchor but never read it.
-    for (const hue of GLOW_HUES) {
-      if (hue === 'nightBlue') continue
-      const other = skinCss({ hue })
-      expect(lightGround(other)).not.toContain(`var(${NIGHT_BLUE_TOKEN})`)
-      expect(darkGround(other)).not.toContain(`var(${NIGHT_BLUE_TOKEN})`)
+    expect(css).toContain('html[data-moonset-skin] {\n  --dsh-moonset-night: #2563EB;\n}')
+    expect(css).toContain('html[data-moonset-skin] body[data-ds-dark-theme] {\n  --dsh-moonset-night: #60A5FA;\n}')
+    // The hex is NEVER used directly in a gradient: the ground reads the variable.
+    const nightDark = darkGroundRule(css)
+    expect(nightDark).toContain('var(' + NIGHT_BLUE_TOKEN + ')')
+    expect(nightDark).not.toContain('#60A5FA')
+    // A ground whose hue is not `night` never reads it.
+    for (const hue of ['accent', 'soft'] as const) {
+      expect(lightGroundRule(skinCss({ hueLight: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
+      expect(darkGroundRule(skinCss({ hueDark: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
     }
-  })
-
-  it('ships the night anchor inside the switchable segment, in every scope', () => {
-    // The anchor lives in the ground segment, so `glow: false` takes it (and the
-    // nightBlue option it serves) with it — the pre-glow sheet stays literal-free.
-    const off = skinCss({ glow: false })
-    expect(off).not.toContain(NIGHT_BLUE_TOKEN)
-    expect(off).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
-    for (const scope of GLOW_SCOPES) {
-      const sheet = skinCss({ scope })
-      expect(sheet).toContain('--dsh-moonset-night: #2563EB;')
-      expect(sheet).toContain('--dsh-moonset-night: #60A5FA;')
-    }
-  })
-
-  it('defaults to accent and leaves the 0.1.2 sheet byte-identical', () => {
-    // The control starts on the form the user already approved: `accent` is the
-    // M3 pair (light deepseek-500 / dark deepseek-400), so adding the selector
-    // cannot change a pixel before the user touches it.
-    expect(DEFAULT_GLOW_HUE).toBe('accent')
-    expect(skinCss()).toBe(skinCss({ hue: 'accent' }))
-    expect(skinCss({ hue: 'accent' })).toBe(EXPECTED_CSS)
-    expect(GLOW_HUE_AT_FULL.accent).toEqual({
-      light: '--dsw-static-deepseek-500',
-      dark: '--dsw-static-deepseek-400',
-      factor: 1,
-    })
-    // A value this version does not know falls back to the default, exactly like
-    // the scope and the strength (a hand-edited document must not repaint).
-    expect(resolveGlowHue(undefined)).toBe(DEFAULT_GLOW_HUE)
-    expect(resolveGlowHue('violet')).toBe(DEFAULT_GLOW_HUE)
-    expect(resolveGlowHue(null)).toBe(DEFAULT_GLOW_HUE)
-    expect(resolveGlowHue('nightBlue')).toBe('nightBlue')
   })
 })
-
 /* ------------------------------------------------------------------ *
  * unmount                                                             *
  * ------------------------------------------------------------------ */
@@ -1653,20 +1634,29 @@ describe('apply — the skin follows the stored choice', () => {
       const face = wiring.face() as unknown as {
         onScope(scope: string): void
         onToggleGlow(next: boolean): void
-        onStrength(next: number): void
+        onStrengthLight(next: number): void
+        onHueLight(hue: string): void
+        onStrengthDark(next: number): void
+        onHueDark(hue: string): void
       }
       face.onScope('conversation')
       // Debounced: a fast drag must not re-parse the sheet per step.
       expect(sheetText()).toContain('scope: main)')
       await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
       expect(sheetText()).toContain('scope: conversation)')
-      // The strength lands as a literal alpha, and the switch drops the segment.
-      face.onStrength(200)
+      // M6: the LIGHT pair moves its own rule — a literal alpha from 16 × 2 × 0.56.
+      face.onStrengthLight(200)
       await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
-      expect(sheetText()).toContain('32%, transparent')
+      expect(sheetText()).toContain('deepseek-500) 17.92%, transparent')
+      // ...and the DARK pair its own, independently.
+      face.onHueDark('accent')
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).toContain('deepseek-400) 20%, transparent')
+      // The switch drops the whole segment (both grounds and the anchor).
       face.onToggleGlow(false)
       await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
       expect(sheetText()).not.toContain('radial-gradient')
+      expect(sheetText()).not.toContain(NIGHT_BLUE_TOKEN)
       // Still exactly one sheet, and the durable write is a separate clock.
       expect(wiring.doc.attached()).toHaveLength(1)
       for (const dispose of [...wiring.disposers].reverse()) dispose()

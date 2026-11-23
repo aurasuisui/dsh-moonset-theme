@@ -59,7 +59,7 @@ const GLOW_SCOPE_VALUES = ['conversation', 'main', 'all'] as const
  * client half owns the table (tokens + multipliers), and
  * `tests/settings.spec.ts` cross-checks this union against `GLOW_HUES`.
  */
-const GLOW_HUE_VALUES = ['accent', 'accentDark', 'accentSoft', 'accentSoftDark', 'nightBlue'] as const
+const GLOW_HUE_VALUES = ['accent', 'soft', 'night'] as const
 
 /** The subset of a schemastery node this module probes. */
 interface VolatileCapable {
@@ -105,10 +105,13 @@ export const Config = Schema.object({
   // coherent default — the shell and columns show the ground, the sidebar keeps
   // its own surface. `all` stays selectable as the fully transparent mode.
   glowScope: maybeVolatile(Schema.union([...GLOW_SCOPE_VALUES]).default('main')),
-  glowStrength: maybeVolatile(Schema.number().min(0).max(200).default(100)),
-  // `accent` keeps the 0.1.2 look exactly (light `deepseek-500`, dark
-  // `deepseek-400`); the other four are the colour card's forms.
-  glowHue: maybeVolatile(Schema.union([...GLOW_HUE_VALUES]).default('accent')),
+  // M6: two independent grounds. The user's final colour call is different in
+  // each scheme — light 柔和 @ 90%, dark 夜空蓝 @ 100% — so the hue and the
+  // strength each carry a light and a dark field.
+  glowHueLight: maybeVolatile(Schema.union([...GLOW_HUE_VALUES]).default('soft')),
+  glowStrengthLight: maybeVolatile(Schema.number().min(0).max(200).default(90)),
+  glowHueDark: maybeVolatile(Schema.union([...GLOW_HUE_VALUES]).default('night')),
+  glowStrengthDark: maybeVolatile(Schema.number().min(0).max(200).default(100)),
 })
 
 /**

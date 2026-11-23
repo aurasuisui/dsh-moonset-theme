@@ -14,7 +14,15 @@ import {
   createDurableGlow,
   type MoonsetSettingsSection,
 } from '../src/client/durable'
-import { DEFAULT_GLOW_HUE, DEFAULT_GLOW_SCOPE, DEFAULT_GLOW_STRENGTH, GLOW_HUES, GLOW_SCOPES } from '../src/client/skin'
+import {
+  DEFAULT_GLOW_HUE_DARK,
+  DEFAULT_GLOW_HUE_LIGHT,
+  DEFAULT_GLOW_SCOPE,
+  DEFAULT_GLOW_STRENGTH_DARK,
+  DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLOW_HUES,
+  GLOW_SCOPES,
+} from '../src/client/skin'
 import { apply } from '../src/client/index'
 import { MOONSET_LOCALE_NS, en, zh } from '../src/client/locales'
 import { Config, MOONSET_ENTRY_ID as HOST_ENTRY_ID } from '../src/index'
@@ -658,27 +666,51 @@ describe('host settings contract — the Config the form is projected from', () 
     }).dict
 
     expect(dict.glow.meta).toMatchObject({ default: true, volatile: true })
-    expect(dict.glowStrength.meta).toMatchObject({
-      default: DEFAULT_GLOW_STRENGTH,
+    expect(dict.glowScope.meta).toMatchObject({ default: DEFAULT_GLOW_SCOPE, volatile: true })
+    // M6: the hue and the strength each carry a light and a dark field, with the
+    // user's final per-scheme defaults (浅色 柔和 @90 / 深色 夜空蓝 @100).
+    expect(dict.glowHueLight.meta).toMatchObject({ default: DEFAULT_GLOW_HUE_LIGHT, volatile: true })
+    expect(dict.glowStrengthLight.meta).toMatchObject({
+      default: DEFAULT_GLOW_STRENGTH_LIGHT,
       volatile: true,
     })
-    expect(dict.glowScope.meta).toMatchObject({ default: DEFAULT_GLOW_SCOPE, volatile: true })
-    expect(dict.glowHue.meta).toMatchObject({ default: DEFAULT_GLOW_HUE, volatile: true })
+    expect(dict.glowHueDark.meta).toMatchObject({ default: DEFAULT_GLOW_HUE_DARK, volatile: true })
+    expect(dict.glowStrengthDark.meta).toMatchObject({
+      default: DEFAULT_GLOW_STRENGTH_DARK,
+      volatile: true,
+    })
 
     // The unions are the client's lists, in the same order: a document value
     // the client cannot read is exactly what this check prevents.
     expect((dict.glowScope.list ?? []).map((entry) => entry.value)).toEqual([...GLOW_SCOPES])
-    expect((dict.glowHue.list ?? []).map((entry) => entry.value)).toEqual([...GLOW_HUES])
+    expect((dict.glowHueLight.list ?? []).map((entry) => entry.value)).toEqual([...GLOW_HUES])
+    expect((dict.glowHueDark.list ?? []).map((entry) => entry.value)).toEqual([...GLOW_HUES])
+    // The two M4 hues the user found redundant are gone from the schema too.
+    for (const removed of ['accentDark', 'accentSoftDark']) {
+      expect((dict.glowHueLight.list ?? []).map((entry) => entry.value)).not.toContain(removed)
+      expect((dict.glowHueDark.list ?? []).map((entry) => entry.value)).not.toContain(removed)
+    }
   })
 })
 
-// ── M2: the glow settings store ─────────────────────────────────────────────
+// ── M2/M6: the glow settings store ──────────────────────────────────────────
 
-describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强度)', () => {
+describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅两套色相+强度)', () => {
+  /** The defaults, spelled once so every assertion derives from them. */
+  const DEFAULTS = {
+    glow: true,
+    scope: DEFAULT_GLOW_SCOPE,
+    hueLight: DEFAULT_GLOW_HUE_LIGHT,
+    strengthLight: DEFAULT_GLOW_STRENGTH_LIGHT,
+    hueDark: DEFAULT_GLOW_HUE_DARK,
+    strengthDark: DEFAULT_GLOW_STRENGTH_DARK,
+  }
+
   it('answers the shipped defaults before any form has spoken', () => {
     const harness = makeContext()
     const glow = createDurableGlow(harness.ctx)
-    expect(glow.read()).toEqual({ glow: true, scope: DEFAULT_GLOW_SCOPE, strength: 100, hue: DEFAULT_GLOW_HUE })
+    // M6's defaults: 浅色 柔和 @90, 深色 夜空蓝 @100.
+    expect(glow.read()).toEqual(DEFAULTS)
     // A host with no form still lets the session switch: the value is answered
     // locally (it just cannot be persisted), and the failure is a WARNING at the
     // flush — never a throw, and never a diary of every pointer move.
@@ -695,12 +727,26 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
     }
   })
 
-  it('reads a document that already carries the three fields', () => {
-    const form = new FakeForm({ glow: false, glowScope: 'main', glowStrength: 40 })
+  it('reads a document that already carries the four M6 fields', () => {
+    const form = new FakeForm({
+      glow: false,
+      glowScope: 'main',
+      glowHueLight: 'night',
+      glowStrengthLight: 40,
+      glowHueDark: 'accent',
+      glowStrengthDark: 150,
+    })
     const harness = makeContext({ forms: form })
     const glow = createDurableGlow(harness.ctx)
     try {
-      expect(glow.read()).toEqual({ glow: false, scope: 'main', strength: 40, hue: DEFAULT_GLOW_HUE })
+      expect(glow.read()).toEqual({
+        glow: false,
+        scope: 'main',
+        hueLight: 'night',
+        strengthLight: 40,
+        hueDark: 'accent',
+        strengthDark: 150,
+      })
     } finally {
       glow.dispose()
     }
@@ -713,67 +759,91 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
       const harness = makeContext({ forms: form })
       const glow = createDurableGlow(harness.ctx)
       glow.write({ scope: 'conversation' })
-      glow.write({ strength: 10 })
-      glow.write({ strength: 180 })
+      glow.write({ strengthLight: 10 })
+      glow.write({ strengthLight: 180 })
       // The local answer is immediate (the sheet follows at 150 ms, the write at
       // 300 ms), and nothing has reached the document yet.
-      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180, hue: DEFAULT_GLOW_HUE })
+      expect(glow.read()).toEqual({ ...DEFAULTS, scope: 'conversation', strengthLight: 180 })
       expect(form.sets).toEqual([])
       await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
       expect(form.sets).toEqual([
         { field: 'glowScope', value: 'conversation' },
-        { field: 'glowStrength', value: 180 },
+        { field: 'glowStrengthLight', value: 180 },
       ])
       // The echo confirms what was already answered.
       await Promise.resolve()
-      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180, hue: DEFAULT_GLOW_HUE })
+      expect(glow.read()).toEqual({ ...DEFAULTS, scope: 'conversation', strengthLight: 180 })
       expect(glow.writes).toBe(2)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('near-simultaneous changes to all three fields land in one flush', async () => {
+  it('lands the two schemes independently: four fields in one flush', async () => {
     vi.useFakeTimers()
     try {
       const form = new FakeForm({})
       const harness = makeContext({ forms: form })
       const glow = createDurableGlow(harness.ctx)
-      glow.write({ glow: false })
-      glow.write({ scope: 'main' })
-      glow.write({ strength: 200 })
+      glow.write({ hueLight: 'night', strengthLight: 70 })
+      glow.write({ hueDark: 'accent', strengthDark: 200 })
       await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
       expect(form.sets).toEqual([
-        { field: 'glow', value: false },
-        { field: 'glowScope', value: 'main' },
-        { field: 'glowStrength', value: 200 },
+        { field: 'glowHueLight', value: 'night' },
+        { field: 'glowStrengthLight', value: 70 },
+        { field: 'glowHueDark', value: 'accent' },
+        { field: 'glowStrengthDark', value: 200 },
+      ])
+      expect(glow.read()).toEqual({
+        glow: true,
+        scope: DEFAULT_GLOW_SCOPE,
+        hueLight: 'night',
+        strengthLight: 70,
+        hueDark: 'accent',
+        strengthDark: 200,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('narrows a removed or unknown hue to that scheme default', async () => {
+    vi.useFakeTimers()
+    try {
+      const form = new FakeForm({})
+      const harness = makeContext({ forms: form })
+      const glow = createDurableGlow(harness.ctx)
+      // M4's removed variants must never reach the document again.
+      glow.write({ hueLight: 'accentSoftDark' as unknown as 'soft' })
+      glow.write({ hueDark: 'nightBlue' as unknown as 'night' })
+      expect(glow.read().hueLight).toBe(DEFAULT_GLOW_HUE_LIGHT)
+      expect(glow.read().hueDark).toBe(DEFAULT_GLOW_HUE_DARK)
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
+      expect(form.sets).toEqual([
+        { field: 'glowHueLight', value: DEFAULT_GLOW_HUE_LIGHT },
+        { field: 'glowHueDark', value: DEFAULT_GLOW_HUE_DARK },
       ])
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('persists the M4 hue like the other fields, and reads it back', async () => {
-    vi.useFakeTimers()
+  it('falls back per scheme when the document carries only one side', () => {
+    // A half-edited document (an older build, a partial write) must not drag the
+    // OTHER scheme to the light default: each field answers its own scheme.
+    const form = new FakeForm({ glowHueLight: 'night', glowStrengthLight: 30 })
+    const harness = makeContext({ forms: form })
+    const glow = createDurableGlow(harness.ctx)
     try {
-      const form = new FakeForm({})
-      const harness = makeContext({ forms: form })
-      const glow = createDurableGlow(harness.ctx)
-      expect(glow.read().hue).toBe(DEFAULT_GLOW_HUE)
-      glow.write({ hue: 'nightBlue' })
-      // The local answer is immediate; the document follows the 300 ms window.
-      expect(glow.read().hue).toBe('nightBlue')
-      expect(form.sets).toEqual([])
-      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
-      expect(form.sets).toEqual([{ field: 'glowHue', value: 'nightBlue' }])
-      await Promise.resolve()
-      expect(glow.read().hue).toBe('nightBlue')
-      // A value this build does not know is narrowed before it can reach the
-      // sheet (a hand-edited document must not repaint the ground).
-      glow.write({ hue: 'violet' as unknown as 'accent' })
-      expect(glow.read().hue).toBe(DEFAULT_GLOW_HUE)
+      const read = glow.read()
+      expect(read.hueLight).toBe('night')
+      expect(read.strengthLight).toBe(30)
+      // ...and the dark side keeps ITS defaults (夜空蓝 @100), not the light ones.
+      expect(read.hueDark).toBe(DEFAULT_GLOW_HUE_DARK)
+      expect(read.strengthDark).toBe(DEFAULT_GLOW_STRENGTH_DARK)
+      expect(read.scope).toBe(DEFAULT_GLOW_SCOPE)
     } finally {
-      vi.useRealTimers()
+      glow.dispose()
     }
   })
 

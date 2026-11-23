@@ -85,9 +85,11 @@ export interface MoonsetSectionLabels {
   readonly scopeOptions: readonly MoonsetScopeLabel[]
   /** M2: the strength row's label (the value is appended as a percentage). */
   readonly strengthTitle: string
-  /** M4: the 光晕色相 row heading. */
-  readonly hueTitle: string
-  /** M4: the five hue buttons, in display order. */
+  /** M6: the LIGHT ground group's heading. */
+  readonly lightTitle: string
+  /** M6: the DARK ground group's heading. */
+  readonly darkTitle: string
+  /** M6: the three hue buttons (shared by both groups), in display order. */
   readonly hueOptions: readonly MoonsetHueLabel[]
   /** M2: one line explaining what the scope changes. */
   readonly hint: string
@@ -107,10 +109,14 @@ export interface MoonsetSectionView {
   readonly glowScope: GlowScope
   /** M2: whether the environment glow is on. */
   readonly glow: boolean
-  /** M2: the glow strength in percent (0-200). */
-  readonly glowStrength: number
-  /** M4: the hue the ground mixes from. */
-  readonly glowHue: GlowHue
+  /** M6: the LIGHT ground's strength in percent (0-200). */
+  readonly glowStrengthLight: number
+  /** M6: the LIGHT ground's hue. */
+  readonly glowHueLight: GlowHue
+  /** M6: the DARK ground's strength in percent (0-200). */
+  readonly glowStrengthDark: number
+  /** M6: the DARK ground's hue. */
+  readonly glowHueDark: GlowHue
 }
 
 /** The props this component takes — nothing else is wired to it. */
@@ -121,10 +127,14 @@ export interface MoonsetSectionProps {
   readonly onScope: (scope: GlowScope) => void
   /** M2: flip the environment glow. */
   readonly onToggleGlow: (next: boolean) => void
-  /** M2: set the glow strength (0-200). */
-  readonly onStrength: (next: number) => void
-  /** M4: persist one 光晕色相 pick. */
-  readonly onHue: (hue: GlowHue) => void
+  /** M6: the LIGHT ground's hue pick. */
+  readonly onHueLight: (hue: GlowHue) => void
+  /** M6: the LIGHT ground's strength (0-200). */
+  readonly onStrengthLight: (next: number) => void
+  /** M6: the DARK ground's hue pick. */
+  readonly onHueDark: (hue: GlowHue) => void
+  /** M6: the DARK ground's strength (0-200). */
+  readonly onStrengthDark: (next: number) => void
   /** Localized copy. */
   readonly labels: MoonsetSectionLabels
   /**
@@ -266,6 +276,21 @@ const VALUE_STYLE: Readonly<Record<string, string>> = {
   textAlign: 'right',
   color: 'var(--dsw-alias-label-secondary)',
 }
+// M6: one bordered block per ground (浅色 / 深色), so the two independent
+// pairs read as two rows of controls rather than six loose buttons.
+const GROUP_STYLE: Readonly<Record<string, string>> = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+  paddingTop: '8px',
+  borderTop: '1px dashed var(--dsw-alias-border-l1)',
+}
+const GROUP_TITLE_STYLE: Readonly<Record<string, string>> = {
+  fontSize: '12px',
+  fontWeight: '500',
+  lineHeight: '1.4',
+  color: 'var(--dsw-alias-label-primary)',
+}
 const HINT_STYLE: Readonly<Record<string, string>> = {
   margin: '0',
   fontSize: '11px',
@@ -290,8 +315,10 @@ export function MoonsetSection({
   onPick,
   onScope,
   onToggleGlow,
-  onStrength,
-  onHue,
+  onHueLight,
+  onStrengthLight,
+  onHueDark,
+  onStrengthDark,
   labels,
   subscribe,
   read,
@@ -336,27 +363,100 @@ export function MoonsetSection({
     onToggleGlow(next)
   }
 
-  /** M4: the hue row, same optimistic shape as the scope row. */
-  const pickHue = (next: GlowHue): void => {
-    setView({ ...read(), glowHue: next })
-    onHue(next)
+  /**
+   * M6: one ground group's two controls, each optimistic like the scope row.
+   *
+   * The light and dark grounds are independent (the user's final call is 柔和 @90
+   * in light and 夜空蓝 @100 in dark), so each group writes only its own pair of
+   * fields and the patch shape stays a partial view.
+   */
+  const pickHueLight = (next: GlowHue): void => {
+    setView({ ...read(), glowHueLight: next })
+    onHueLight(next)
+  }
+
+  const pickHueDark = (next: GlowHue): void => {
+    setView({ ...read(), glowHueDark: next })
+    onHueDark(next)
   }
 
   /**
-   * Read the slider's own value and hand it over.
+   * Read one slider's own value and hand it over.
    *
    * The element is reached structurally: this file carries no DOM types (no
-   * `lib.dom` in the client program — see the header), and the value is the
-   * only thing the handler needs.
+   * `lib.dom` in the client program — see the header), and the value is the only
+   * thing the handler needs.
    * @param event - the input's change event.
+   * @param apply - the setter for the group that owns the slider.
    */
-  const changeStrength = (event: unknown): void => {
+  const readSlider = (event: unknown): number | undefined => {
     const value = (event as { currentTarget?: { value?: unknown } }).currentTarget?.value
     const next = Number(value)
-    if (!Number.isFinite(next)) return
-    setView({ ...read(), glowStrength: next })
-    onStrength(next)
+    return Number.isFinite(next) ? next : undefined
   }
+
+  const setStrengthLight = (next: number): void => {
+    setView({ ...read(), glowStrengthLight: next })
+    onStrengthLight(next)
+  }
+
+  const setStrengthDark = (next: number): void => {
+    setView({ ...read(), glowStrengthDark: next })
+    onStrengthDark(next)
+  }
+
+  /**
+   * One ground group: heading, the shared three hue buttons, a slider + value.
+   * @param spec - the group's own copy, hue, strength and the two callbacks.
+   * @returns the rendered group.
+   */
+  const groundGroup = (spec: {
+    readonly title: string
+    readonly hue: GlowHue
+    readonly strength: number
+    readonly onPick: (hue: GlowHue) => void
+    readonly onStrength: (next: number) => void
+  }): unknown => React.createElement(
+    'div',
+    { style: GROUP_STYLE },
+    React.createElement('div', { style: GROUP_TITLE_STYLE }, spec.title),
+    React.createElement(
+      'div',
+      { style: ROW_STYLE, role: 'group', 'aria-label': spec.title },
+      ...labels.hueOptions.map((option) => React.createElement(
+        'button',
+        {
+          key: option.value,
+          type: 'button',
+          'aria-pressed': option.value === spec.hue,
+          onClick: () => { spec.onPick(option.value) },
+          style: option.value === spec.hue ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
+        },
+        option.label,
+      )),
+    ),
+    React.createElement(
+      'div',
+      { style: STRENGTH_ROW_STYLE },
+      React.createElement('span', { style: ROW_LABEL_STYLE }, labels.strengthTitle),
+      React.createElement('input', {
+        type: 'range',
+        min: GLOW_STRENGTH_MIN,
+        max: GLOW_STRENGTH_MAX,
+        step: 10,
+        value: spec.strength,
+        'aria-label': spec.title + ' ' + labels.strengthTitle,
+        onChange: (event: unknown) => {
+          const next = readSlider(event)
+          if (next !== undefined) spec.onStrength(next)
+        },
+        style: SLIDER_STYLE,
+      }),
+      React.createElement('span', { style: VALUE_STYLE }, `${spec.strength}%`),
+    ),
+  )
+
+
 
   return React.createElement(
     'div',
@@ -415,39 +515,21 @@ export function MoonsetSection({
           option.label,
         )),
       ),
-      // ── M4: the hue ───────────────────────────────────────────────────────
-      React.createElement('div', { style: ROW_LABEL_STYLE }, labels.hueTitle),
-      React.createElement(
-        'div',
-        { style: ROW_STYLE, role: 'group', 'aria-label': labels.hueTitle },
-        ...labels.hueOptions.map((option) => React.createElement(
-          'button',
-          {
-            key: option.value,
-            type: 'button',
-            'aria-pressed': option.value === view.glowHue,
-            onClick: () => { pickHue(option.value) },
-            style: option.value === view.glowHue ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
-          },
-          option.label,
-        )),
-      ),
-      React.createElement(
-        'div',
-        { style: STRENGTH_ROW_STYLE },
-        React.createElement('span', { style: ROW_LABEL_STYLE }, labels.strengthTitle),
-        React.createElement('input', {
-          type: 'range',
-          min: GLOW_STRENGTH_MIN,
-          max: GLOW_STRENGTH_MAX,
-          step: 10,
-          value: view.glowStrength,
-          'aria-label': labels.strengthTitle,
-          onChange: (event: unknown) => { changeStrength(event) },
-          style: SLIDER_STYLE,
-        }),
-        React.createElement('span', { style: VALUE_STYLE }, `${view.glowStrength}%`),
-      ),
+      // ── M6: the two grounds, each with its own hue and strength ─────────────
+      groundGroup({
+        title: labels.lightTitle,
+        hue: view.glowHueLight,
+        strength: view.glowStrengthLight,
+        onPick: (hue) => { pickHueLight(hue) },
+        onStrength: (next) => { setStrengthLight(next) },
+      }),
+      groundGroup({
+        title: labels.darkTitle,
+        hue: view.glowHueDark,
+        strength: view.glowStrengthDark,
+        onPick: (hue) => { pickHueDark(hue) },
+        onStrength: (next) => { setStrengthDark(next) },
+      }),
       React.createElement('p', { style: HINT_STYLE }, labels.hint),
     ),
   )

@@ -53,9 +53,11 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveChoice, type MoonsetChoice } from './choice.ts'
 import {
-  DEFAULT_GLOW_HUE,
+  DEFAULT_GLOW_HUE_DARK,
+  DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
-  DEFAULT_GLOW_STRENGTH,
+  DEFAULT_GLOW_STRENGTH_DARK,
+  DEFAULT_GLOW_STRENGTH_LIGHT,
   resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
@@ -106,10 +108,14 @@ export interface MoonsetSettingsSection {
   glow?: unknown
   /** M2 地面范围: one of `GLOW_SCOPES` when the document carries it. */
   glowScope?: unknown
-  /** M2 强度: 0-200 when the document carries it. */
-  glowStrength?: unknown
-  /** M4 光晕色相: one of `GLOW_HUES` when the document carries it. */
-  glowHue?: unknown
+  /** M6: the LIGHT ground's hue (one of `GLOW_HUES`). */
+  glowHueLight?: unknown
+  /** M6: the LIGHT ground's strength (0-200). */
+  glowStrengthLight?: unknown
+  /** M6: the DARK ground's hue (one of `GLOW_HUES`). */
+  glowHueDark?: unknown
+  /** M6: the DARK ground's strength (0-200). */
+  glowStrengthDark?: unknown
 }
 
 /** The small durable surface the settings section and the boot path consume. */
@@ -494,10 +500,14 @@ export interface MoonsetGlow {
   readonly glow: boolean
   /** Which carrier layers give up their background. */
   readonly scope: GlowScope
-  /** The glow strength in percent (0-200). */
-  readonly strength: number
-  /** The hue the ground mixes from (M4). */
-  readonly hue: GlowHue
+  /** The LIGHT ground's strength in percent (0-200). */
+  readonly strengthLight: number
+  /** The LIGHT ground's hue. */
+  readonly hueLight: GlowHue
+  /** The DARK ground's strength in percent (0-200). */
+  readonly strengthDark: number
+  /** The DARK ground's hue. */
+  readonly hueDark: GlowHue
 }
 
 /** The small durable surface the skin rebuild and the settings section consume. */
@@ -520,8 +530,10 @@ export interface DurableGlow {
 const DEFAULT_GLOW: MoonsetGlow = {
   glow: true,
   scope: DEFAULT_GLOW_SCOPE,
-  strength: DEFAULT_GLOW_STRENGTH,
-  hue: DEFAULT_GLOW_HUE,
+  strengthLight: DEFAULT_GLOW_STRENGTH_LIGHT,
+  hueLight: DEFAULT_GLOW_HUE_LIGHT,
+  strengthDark: DEFAULT_GLOW_STRENGTH_DARK,
+  hueDark: DEFAULT_GLOW_HUE_DARK,
 }
 
 /**
@@ -537,8 +549,12 @@ function resolveGlow(section: MoonsetSettingsSection | undefined): MoonsetGlow {
   return {
     glow: typeof section?.glow === 'boolean' ? section.glow : DEFAULT_GLOW.glow,
     scope: resolveGlowScope(section?.glowScope),
-    strength: resolveGlowStrength(section?.glowStrength),
-    hue: resolveGlowHue(section?.glowHue),
+    // Per-scheme fallbacks: a light field that is missing answers the LIGHT
+    // default (soft / 90), a dark one the DARK default (night / 100).
+    strengthLight: resolveGlowStrength(section?.glowStrengthLight, DEFAULT_GLOW_STRENGTH_LIGHT),
+    hueLight: resolveGlowHue(section?.glowHueLight, DEFAULT_GLOW_HUE_LIGHT),
+    strengthDark: resolveGlowStrength(section?.glowStrengthDark, DEFAULT_GLOW_STRENGTH_DARK),
+    hueDark: resolveGlowHue(section?.glowHueDark, DEFAULT_GLOW_HUE_DARK),
   }
 }
 
@@ -549,7 +565,12 @@ function resolveGlow(section: MoonsetSettingsSection | undefined): MoonsetGlow {
  * @returns whether every field agrees.
  */
 function sameGlow(a: MoonsetGlow, b: MoonsetGlow): boolean {
-  return a.glow === b.glow && a.scope === b.scope && a.strength === b.strength && a.hue === b.hue
+  return a.glow === b.glow
+    && a.scope === b.scope
+    && a.strengthLight === b.strengthLight
+    && a.hueLight === b.hueLight
+    && a.strengthDark === b.strengthDark
+    && a.hueDark === b.hueDark
 }
 
 /**
@@ -644,8 +665,12 @@ export function createDurableGlow(ctx: ClientContext): DurableGlow {
     const fields: [string, unknown][] = []
     if (patch.glow !== undefined) fields.push(['glow', patch.glow])
     if (patch.scope !== undefined) fields.push(['glowScope', patch.scope])
-    if (patch.strength !== undefined) fields.push(['glowStrength', patch.strength])
-    if (patch.hue !== undefined) fields.push(['glowHue', patch.hue])
+    // Per scheme, hue then strength: the same order the two groups render in,
+    // so a document diff reads like the panel.
+    if (patch.hueLight !== undefined) fields.push(['glowHueLight', patch.hueLight])
+    if (patch.strengthLight !== undefined) fields.push(['glowStrengthLight', patch.strengthLight])
+    if (patch.hueDark !== undefined) fields.push(['glowHueDark', patch.hueDark])
+    if (patch.strengthDark !== undefined) fields.push(['glowStrengthDark', patch.strengthDark])
     for (const [field, value] of fields) {
       writes += 1
       try {
@@ -708,11 +733,20 @@ export function createDurableGlow(ctx: ClientContext): DurableGlow {
       if (disposed) return
       // A mutable local: MoonsetGlow's fields are readonly for the CONSUMER, and
       // the patch being built here is exactly the writable half.
-      const next: { glow?: boolean; scope?: GlowScope; strength?: number; hue?: GlowHue } = {}
+      const next: {
+        glow?: boolean
+        scope?: GlowScope
+        strengthLight?: number
+        hueLight?: GlowHue
+        strengthDark?: number
+        hueDark?: GlowHue
+      } = {}
       if (patch.glow !== undefined) next.glow = patch.glow
       if (patch.scope !== undefined) next.scope = resolveGlowScope(patch.scope)
-      if (patch.strength !== undefined) next.strength = resolveGlowStrength(patch.strength)
-      if (patch.hue !== undefined) next.hue = resolveGlowHue(patch.hue)
+      if (patch.strengthLight !== undefined) next.strengthLight = resolveGlowStrength(patch.strengthLight, DEFAULT_GLOW_STRENGTH_LIGHT)
+      if (patch.hueLight !== undefined) next.hueLight = resolveGlowHue(patch.hueLight, DEFAULT_GLOW_HUE_LIGHT)
+      if (patch.strengthDark !== undefined) next.strengthDark = resolveGlowStrength(patch.strengthDark, DEFAULT_GLOW_STRENGTH_DARK)
+      if (patch.hueDark !== undefined) next.hueDark = resolveGlowHue(patch.hueDark, DEFAULT_GLOW_HUE_DARK)
       if (Object.keys(next).length === 0) return
       pending = { ...pending, ...next }
       if (timer !== undefined) clearTimeout(timer)

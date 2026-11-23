@@ -153,9 +153,11 @@ export type {
   MoonsetSectionView,
 } from './settings-section.tsx'
 export {
-  DEFAULT_GLOW_HUE,
+  DEFAULT_GLOW_HUE_DARK,
+  DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
-  DEFAULT_GLOW_STRENGTH,
+  DEFAULT_GLOW_STRENGTH_DARK,
+  DEFAULT_GLOW_STRENGTH_LIGHT,
   GLOW_ALPHA_AT_FULL,
   GLOW_HUES,
   GLOW_HUE_AT_FULL,
@@ -251,17 +253,15 @@ function sectionLabels(t: SectionTranslate): MoonsetSectionLabels {
       label: t(scope === 'conversation' ? 'glow.scope.conversation' : scope === 'main' ? 'glow.scope.main' : 'glow.scope.all'),
     })),
     strengthTitle: t('glow.strength'),
-    // M4 光晕色相: derived from GLOW_HUES for the same reason the scopes are — a
-    // sixth hue would be a type error, not a missing button.
-    hueTitle: t('glow.hue.title'),
+    // M6 光晕: two groups (light / dark), each with the three surviving hues.
+    // The buttons are derived from GLOW_HUES, so a fourth hue would be a type
+    // error, not a missing button.
     hueOptions: GLOW_HUES.map((hue) => ({
       value: hue,
-      label: t(hue === 'accent' ? 'glow.hue.accent'
-        : hue === 'accentDark' ? 'glow.hue.accentDark'
-        : hue === 'accentSoft' ? 'glow.hue.accentSoft'
-        : hue === 'accentSoftDark' ? 'glow.hue.accentSoftDark'
-        : 'glow.hue.nightBlue'),
+      label: t(hue === 'accent' ? 'glow.hue.accent' : hue === 'soft' ? 'glow.hue.soft' : 'glow.hue.night'),
     })),
+    lightTitle: t('glow.light.title'),
+    darkTitle: t('glow.dark.title'),
     hint: t('glow.hint'),
   }
 }
@@ -328,8 +328,10 @@ function wireSettings(ctx: ClientContext): void {
     return {
       glow: current.glow,
       scope: current.scope,
-      strength: current.strength,
-      hue: current.hue,
+      hueLight: current.hueLight,
+      strengthLight: current.strengthLight,
+      hueDark: current.hueDark,
+      strengthDark: current.strengthDark,
     }
   }
   /** The pending sheet rebuild (cleared by the teardown). */
@@ -371,16 +373,28 @@ function wireSettings(ctx: ClientContext): void {
     notifyView()
   }
 
-  /** Set the glow strength (0-200, the slider's own bounds). */
-  const setStrength = (next: number): void => {
-    glow.write({ strength: next })
+  /** M6: the LIGHT ground's controls (its own hue and strength). */
+  const setHueLight = (hue: GlowHue): void => {
+    glow.write({ hueLight: hue })
     scheduleSkinRebuild()
     notifyView()
   }
 
-  /** Set the glow hue (M4). The amber glint is not affected by this control. */
-  const setHue = (hue: GlowHue): void => {
-    glow.write({ hue })
+  const setStrengthLight = (next: number): void => {
+    glow.write({ strengthLight: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  /** M6: the DARK ground's controls. */
+  const setHueDark = (hue: GlowHue): void => {
+    glow.write({ hueDark: hue })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  const setStrengthDark = (next: number): void => {
+    glow.write({ strengthDark: next })
     scheduleSkinRebuild()
     notifyView()
   }
@@ -818,8 +832,10 @@ function wireSettings(ctx: ClientContext): void {
       }),
       glowScope: current.scope,
       glow: current.glow,
-      glowStrength: current.strength,
-      glowHue: current.hue,
+      glowHueLight: current.hueLight,
+      glowStrengthLight: current.strengthLight,
+      glowHueDark: current.hueDark,
+      glowStrengthDark: current.strengthDark,
     }
   }
 
@@ -830,8 +846,10 @@ function wireSettings(ctx: ClientContext): void {
     onPick: pick,
     onScope: setScope,
     onToggleGlow: setGlowOn,
-    onStrength: setStrength,
-    onHue: setHue,
+    onHueLight: setHueLight,
+    onStrengthLight: setStrengthLight,
+    onHueDark: setHueDark,
+    onStrengthDark: setStrengthDark,
     labels: sectionLabels(t),
     subscribe,
     read,

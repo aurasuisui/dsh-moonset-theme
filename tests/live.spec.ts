@@ -534,7 +534,8 @@ const LABELS: MoonsetSectionProps['labels'] = {
     label: zh[`glow.scope.${scope}` as MoonsetLocaleKey],
   })),
   strengthTitle: zh['glow.strength'],
-  hueTitle: zh['glow.hue.title'],
+  lightTitle: zh['glow.light.title'],
+  darkTitle: zh['glow.dark.title'],
   hueOptions: GLOW_HUES.map((hue) => ({
     value: hue,
     label: zh[`glow.hue.${hue}` as MoonsetLocaleKey],
@@ -543,11 +544,16 @@ const LABELS: MoonsetSectionProps['labels'] = {
 }
 
 /** The three M2 fields a view carries, at their contract defaults (M3: B `main`). */
-const GLOW_FIELDS: Pick<MoonsetSectionView, 'glowScope' | 'glow' | 'glowStrength' | 'glowHue'> = {
+const GLOW_FIELDS: Pick<
+  MoonsetSectionView,
+  'glowScope' | 'glow' | 'glowHueLight' | 'glowStrengthLight' | 'glowHueDark' | 'glowStrengthDark'
+> = {
   glowScope: 'main',
   glow: true,
-  glowStrength: 100,
-  glowHue: 'accent',
+  glowHueLight: 'soft',
+  glowStrengthLight: 90,
+  glowHueDark: 'night',
+  glowStrengthDark: 100,
 }
 
 /**
@@ -560,16 +566,20 @@ function mountSection(spec: {
   readonly onPick?: (choice: MoonsetChoice) => void
   readonly onScope?: (scope: GlowScope) => void
   readonly onToggleGlow?: (next: boolean) => void
-  readonly onStrength?: (next: number) => void
-  readonly onHue?: (hue: GlowHue) => void
+  readonly onHueLight?: (hue: GlowHue) => void
+  readonly onStrengthLight?: (next: number) => void
+  readonly onHueDark?: (hue: GlowHue) => void
+  readonly onStrengthDark?: (next: number) => void
 }): { mount: HookMount; listeners: Set<() => void> } {
   const listeners = new Set<() => void>()
   const props: MoonsetSectionProps = {
     onPick: spec.onPick ?? (() => {}),
     onScope: spec.onScope ?? (() => {}),
     onToggleGlow: spec.onToggleGlow ?? (() => {}),
-    onStrength: spec.onStrength ?? (() => {}),
-    onHue: spec.onHue ?? (() => {}),
+    onHueLight: spec.onHueLight ?? (() => {}),
+    onStrengthLight: spec.onStrengthLight ?? (() => {}),
+    onHueDark: spec.onHueDark ?? (() => {}),
+    onStrengthDark: spec.onStrengthDark ?? (() => {}),
     labels: LABELS,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
@@ -859,43 +869,133 @@ describe('M5.3 跟随自愈 — 覆盖层与偏好各修一处', () => {
   })
 })
 
-// ── M4: 光晕色相 ────────────────────────────────────────────────────────────
+// ── M6: 浅色 / 深色两组光晕 ─────────────────────────────────────────────────
 
-describe('M4 设置区 — 光晕色相按钮组', () => {
-  /** The hue buttons, in document order. */
+describe('M6 设置区 — 浅色 / 深色两组光晕', () => {
+  /** The two group headings, in document order. */
+  function groupTitles(tree: unknown): string[] {
+    return elementsUnder(tree)
+      .filter((node) => node.type === 'div')
+      .map((node) => textOf(node))
+      .filter((text): text is string => text === LABELS.lightTitle || text === LABELS.darkTitle)
+  }
+
+  /** The six hue buttons, in document order (light group, then dark group). */
   function hueButtons(tree: unknown): FakeElement[] {
     return elementsUnder(tree).filter((node) => node.type === 'button'
       && LABELS.hueOptions.some((option) => textOf(node) === option.label))
   }
 
-  it('renders one button per hue, with the current one pressed', () => {
-    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS, glowHue: 'nightBlue' }
+  /** Both strength sliders, in document order. */
+  function sliders(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'input' && node.props.type === 'range')
+  }
+
+  it('renders two groups, each with three hue buttons and a slider', () => {
+    const view: MoonsetSectionView = {
+      choice: 'light',
+      status: 'mock',
+      ...GLOW_FIELDS,
+      glowStrengthLight: 150,
+      glowHueDark: 'accent',
+    }
     const { mount } = mountSection({ view: () => view })
     const tree = mount.mount()
     try {
-      const buttons = hueButtons(tree)
-      expect(buttons.map((button) => textOf(button))).toEqual(LABELS.hueOptions.map((option) => option.label))
-      // Exactly one pressed, and it is the live hue — not the default.
-      expect(buttons.map((button) => button.props['aria-pressed'])).toEqual([false, false, false, false, true])
+      // A heading per group, in the order the panel shows them.
+      expect(groupTitles(tree)).toEqual([LABELS.lightTitle, LABELS.darkTitle])
+      // Three hues per group, in GLOW_HUES order, twice.
+      expect(hueButtons(tree).map((button) => textOf(button))).toEqual([
+        ...LABELS.hueOptions.map((option) => option.label),
+        ...LABELS.hueOptions.map((option) => option.label),
+      ])
+      // The pressed state is per GROUP: light 柔和 (index 1), dark 强调 (index 3).
+      expect(hueButtons(tree).map((button) => button.props['aria-pressed'])).toEqual([
+        false, true, false,
+        true, false, false,
+      ])
+      // One slider per group, each carrying its own value and the shared bounds.
+      expect(sliders(tree)).toHaveLength(2)
+      expect(sliders(tree).map((input) => input.props.value)).toEqual([150, 100])
+      for (const input of sliders(tree)) {
+        expect(input.props).toMatchObject({ min: 0, max: 200, step: 10 })
+      }
+      // ...and the live percentage beside each one.
+      expect(elementsUnder(tree).some((node) => node.type === 'span' && textOf(node) === '150%')).toBe(true)
+      expect(elementsUnder(tree).some((node) => node.type === 'span' && textOf(node) === '100%')).toBe(true)
     } finally {
       mount.unmount()
     }
   })
 
-  it('calls onHue and moves the pressed state in the same render', () => {
-    let view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
-    const hues: GlowHue[] = []
-    const { mount } = mountSection({ view: () => view, onHue: (hue) => { hues.push(hue) } })
+  it('keeps each group\'s controls inside that group\'s own block', () => {
+    // The grouping is structural, not just two headings over one flat row: each
+    // block must own exactly three hue buttons and one slider.
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const { mount } = mountSection({ view: () => view })
     const tree = mount.mount()
     try {
-      expect(hueButtons(tree).map((button) => button.props['aria-pressed'])).toEqual([true, false, false, false, false])
-      press(tree, zh['glow.hue.accentSoft'])
-      expect(hues).toEqual(['accentSoft'])
-      // The store has not moved (the view is optimistic by design, like the
-      // scope buttons); the pressed state already has.
-      expect(view.glowHue).toBe('accent')
-      const pressed = hueButtons(mount.update()).filter((button) => button.props['aria-pressed'] === true)
-      expect(pressed.map((button) => textOf(button))).toEqual([zh['glow.hue.accentSoft']])
+      // The GROUP block is the smallest div that owns exactly one slider and the
+      // three hue buttons (the outer column owns two sliders; a button row owns
+      // no slider at all).
+      const blocks = elementsUnder(tree).filter((node) => {
+        if (node.type !== 'div') return false
+        const inside = elementsUnder(node)
+        return inside.filter((child) => child.type === 'input' && child.props.type === 'range').length === 1
+          && inside.filter((child) => child.type === 'button').length === LABELS.hueOptions.length
+      })
+      expect(blocks).toHaveLength(2)
+      // Light first, dark second — each with its OWN value and accessible name.
+      const sliderValues = blocks.map((block) => elementsUnder(block)
+        .find((node) => node.type === 'input' && node.props.type === 'range')?.props.value)
+      expect(sliderValues).toEqual([90, 100])
+      for (let index = 0; index < blocks.length; index += 1) {
+        const slider = elementsUnder(blocks[index])
+          .find((node) => node.type === 'input' && node.props.type === 'range')
+        const title = index === 0 ? LABELS.lightTitle : LABELS.darkTitle
+        expect(slider?.props['aria-label']).toBe(title + ' ' + LABELS.strengthTitle)
+        // ...and the group's heading really is inside its own block.
+        const texts = elementsUnder(blocks[index]).map((node) => textOf(node))
+        expect(texts).toContain(title)
+      }
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('calls the group\'s own callbacks and moves only that group', () => {
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const huesLight: GlowHue[] = []
+    const huesDark: GlowHue[] = []
+    const strengthsLight: number[] = []
+    const strengthsDark: number[] = []
+    const { mount } = mountSection({
+      view: () => view,
+      onHueLight: (hue) => { huesLight.push(hue) },
+      onHueDark: (hue) => { huesDark.push(hue) },
+      onStrengthLight: (next) => { strengthsLight.push(next) },
+      onStrengthDark: (next) => { strengthsDark.push(next) },
+    })
+    const tree = mount.mount()
+    try {
+      // The LIGHT group is soft (1); clicking 夜空蓝 there only touches light.
+      const lightNight = hueButtons(tree)[2]
+      ;(lightNight.props.onClick as () => void)()
+      expect(huesLight).toEqual(['night'])
+      expect(huesDark).toEqual([])
+      // Light moved to 夜空蓝 (index 2); dark is untouched (its own GLOW_FIELDS
+      // hue is `night`, also index 2 of that group).
+      const pressed = hueButtons(mount.update()).map((button) => button.props['aria-pressed'])
+      expect(pressed).toEqual([false, false, true, false, false, true])
+      // ...and a dark slider only touches the dark pair (never a string).
+      const darkSlider = sliders(mount.update())[1]
+      const onChange = darkSlider.props.onChange
+      if (typeof onChange !== 'function') throw new Error('the dark slider has no onChange')
+      onChange({ currentTarget: { value: '200' } })
+      expect(strengthsDark).toEqual([200])
+      expect(strengthsLight).toEqual([])
+      expect(view.glowStrengthDark).toBe(100)
+      expect(view.glowStrengthLight).toBe(90)
     } finally {
       mount.unmount()
     }
@@ -919,7 +1019,7 @@ describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
   }
 
   it('renders the three scope buttons, the switch and the slider from read()', () => {
-    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS, glowStrength: 150 }
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS, glowStrengthLight: 150 }
     const { mount } = mountSection({ view: () => view })
     const tree = mount.mount()
     try {
@@ -940,7 +1040,7 @@ describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
     }
   })
 
-  it('calls onScope / onToggleGlow / onStrength and moves its own view at once', () => {
+  it('calls onScope / onToggleGlow / onStrengthLight and moves its own view at once', () => {
     let view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
     const scopes: GlowScope[] = []
     const toggles: boolean[] = []
@@ -949,7 +1049,7 @@ describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
       view: () => view,
       onScope: (scope) => { scopes.push(scope) },
       onToggleGlow: (next) => { toggles.push(next) },
-      onStrength: (next) => { strengths.push(next) },
+      onStrengthLight: (next) => { strengths.push(next) },
     })
     const tree = mount.mount()
     try {

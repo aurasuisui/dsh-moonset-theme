@@ -414,10 +414,10 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **选中项文字色** | 稳定属性钩子上的 `color`（见下表） | 宿主把选中容器的文字色直接写成 `--dsw-alias-label-primary`，值内联在规则里，**不能从一个 token 重新指向** | 0.1.1 |
 | **地面渐变** | `html[data-moonset-skin] body { background: … }`（浅色三层）+ `… body[data-ds-dark-theme] { background: … }`（暗色四层，同一靛蓝色相） | 多层图层 + 视口固定 + 两套方案，单 token 装不下 | 0.1.2 / M3 |
 | **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
-| **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `nightBlue` 读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
+| **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `night` 色相读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.2 + M1.5…M5，全表九条规则，55 行 / C 档 57 行）：
+当前登记（0.1.2 + M1.5…M6，全表九条规则，55 行 / C 档 57 行）：
 
 ```css
 /* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
@@ -440,7 +440,7 @@ html[data-moonset-skin] body [data-active='true']::after {
   background: var(--dsw-static-deepseek-500);
 }
 /* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the
-   skin owns exactly ONE literal colour, used by the nightBlue option. */
+   skin owns exactly ONE literal colour, read by the `night` hue. */
 html[data-moonset-skin] {
   --dsh-moonset-night: #2563EB;
 }
@@ -451,18 +451,18 @@ html[data-moonset-skin] body[data-ds-dark-theme] {
    strength is resolved in JS, so every alpha below is a LITERAL percentage. */
 html[data-moonset-skin] body {
   background:
-    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, transparent) 0%, transparent 62%),
-    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) 3%, transparent) 0%, transparent 46%),
-    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 1.5%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
+    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 8.06%, transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) 2.7%, transparent) 0%, transparent 46%),
+    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 0.76%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
 }
 /* 0.1.2 ground (dark): ONE indigo hue at three footprints (core, halo,
    bottom reflection) plus a thinner wash — depth without a second colour. */
 html[data-moonset-skin] body[data-ds-dark-theme] {
   background:
-    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsw-static-deepseek-400) 12%, transparent) 0%, transparent 26%),
-    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsw-static-deepseek-400) 20%, transparent) 0%, transparent 70%),
-    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsw-static-deepseek-400) 4%, transparent) 0%, transparent 55%),
-    linear-gradient(160deg, color-mix(in srgb, var(--dsw-static-deepseek-400) 1%, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);
+    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsh-moonset-night) 12%, transparent) 0%, transparent 26%),
+    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsh-moonset-night) 20%, transparent) 0%, transparent 70%),
+    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsh-moonset-night) 4%, transparent) 0%, transparent 55%),
+    linear-gradient(160deg, color-mix(in srgb, var(--dsh-moonset-night) 1%, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);
 }
 /* 0.1.2 visibility (scope: main): the host paints bg-base on these
    carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */
@@ -527,10 +527,10 @@ Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength,
 | B `main`（默认，M3 起） | 外壳与三列（`:has([main, sidebar, rightbar])`） | 保留 `sidebar-fill` 内层 | 保留 |
 | C `all` | B + 侧栏内层 + 底部单元 | 透出地面 | 透出地面 |
 
-**强度在 JS 里算，CSS 只收字面百分比**：`glowAlphas(strength)` / `darkGlowAlphas(strength)`
-把 100% 那一行乘上系数再格式化成 `24%` / `2.25%` 这样的字面百分比，所以表里永远没有 `calc()`、
-也没有「藏在中间 custom property 里」的值（0.1.2 D2 的教训）。开关关闭时整段（两套地面 + 清理 +
-底部遮罩）一起消失，仍是 0.1.1 那张 19 行的表。
+**强度在 JS 里算，CSS 只收字面百分比**：`glowAlphas(strength, hue)` / `darkGlowAlphas(strength, hue)`
+把 100% 那一行乘上系数（强度 × 色相乘数）再格式化成 `24%` / `2.25%` 这样的字面百分比，所以表里
+永远没有 `calc()`、也没有「藏在中间 custom property 里」的值（0.1.2 D2 的教训）。开关关闭时整段
+（两套地面 + 清理 + 底部遮罩 + 锚点）一起消失，仍是 0.1.1 那张 19 行的表。
 
 **M3：重新配比 + 暗色独立一套**。真机两轮反馈逼出来的三处改动：
 
@@ -551,24 +551,33 @@ Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength,
 0/1.5/3/4.5/6、wash 0/0.75/1.5/2.25/3；暗色 → 月晕 0/10/20/30/40、核心 0/6/12/18/24、反光 0/2/4/6/8、
 wash 0/0.5/1/1.5/2。
 
-**M4：光晕色相（5 档，浅色与深色共用一个选择）**：`glowHue` 是第四个 volatile 字段，
-默认 `accent`——它就是 0.1.2 已批准的那一对（浅 `deepseek-500` / 暗 `deepseek-400`），所以
-加控件**不改变任何一个像素**，用户自己切。每一项给**每个方案各一个 token** 加一个 alpha 乘数：
-乘数与 `glowStrength` 相乘后再在 JS 里格式化成字面百分比（`accentSoft` @100% = 8.96%，
-@50% = 4.48%，取两位小数）。
+**M6：深/浅两套光晕（当前形态）**。真机最终结论：**浅色 = 柔和 @ 90%**、**深色 = 夜空蓝 @ 100%**。
+用户在同一套色相的两个方案之间看不出区别，所以色相与强度都拆成浅/深各一个 volatile 字段：
 
-| 值 | 按钮文案 | 浅色 token | 暗色 token | 乘数 |
+| 字段 | 取值 | 默认 |
+|---|---|---|
+| `glowHueLight` | `accent` / `soft` / `night` | **`soft`** |
+| `glowStrengthLight` | 0–200 | **90** |
+| `glowHueDark` | `accent` / `soft` / `night` | **`night`** |
+| `glowStrengthDark` | 0–200 | **100** |
+
+**三档色相**（M4 的五档删掉两档：`accentDark` / `accentSoftDark` 在两个方案里像素级重复，
+用户判为冗余）：
+
+| 值 | 按钮文案 | 浅色 token | 暗色 token | alpha 乘数 |
 |---|---|---|---|---|
-| `accent`（默认） | 强调 · 浅 | `--dsw-static-deepseek-500` | `--dsw-static-deepseek-400` | 1 |
-| `accentDark` | 强调 · 深 | `--dsw-static-deepseek-400` | `--dsw-static-deepseek-400` | 1 |
-| `accentSoft` | 柔和 · 浅 | 同 `accent` | 同 `accent` | **0.56** |
-| `accentSoftDark` | 柔和 · 深 | 同 `accentDark` | 同 `accentDark` | **0.75** |
-| `nightBlue` | 夜空蓝 | `var(--dsh-moonset-night)` = `#2563EB` | `var(--dsh-moonset-night)` = `#60A5FA` | 1 |
+| `accent` | 强调 | `--dsw-static-deepseek-500` | `--dsw-static-deepseek-400` | 1 |
+| `soft` | 柔和 | 同 `accent` | 同 `accent` | **0.56** |
+| `night` | 夜空蓝 | `var(--dsh-moonset-night)` = `#2563EB` | `var(--dsh-moonset-night)` = `#60A5FA` | 1 |
 
-暗色的三层（核心 / 月晕 / 反光）与 wash 一起换成所选 token，保持「**单色相多层**」；浅色只换
-月晕与 wash，**右下角琥珀恒 3% 不受色相影响**（它是另一个角色，不是另一种色相）。
+**渲染规则**：浅色地面 = `glowHueLight × glowStrengthLight`（100% 基准：月晕 16%（M3 起）、wash 1.5%、
+琥珀 3%）；深色地面 = `glowHueDark × glowStrengthDark`（100% 基准：月核 12 / 月晕 20 / 底部反光 4 /
+wash 1）。两套**完全独立**：动其中一套的任何一个旋钮，另一套的规则文本一个字都不变（有测试逐字
+比对）。琥珀只出现在浅色、只随 `glowStrengthLight` 缩放；色相乘数只作用于色相层（浅色月晕 + wash、
+暗色三层 + wash）。设置区是两行分组（浅色光晕 / 深色光晕），每组三个色相按钮 + 一个 0–200 的滑块
+（step 10，右侧百分比）。行数仍是 55（只换 token 名与 alpha 字面量）。
 
-**`nightBlue` 为什么自带一个字面色（M5，§11.3 第五类）**：这张 228 键表里没有任何一处能当
+**`night` 为什么自带一个字面色（M5，§11.3 第五类）**：这张 228 键表里没有任何一处能当
 「夜空蓝」用——`--dsw-static-blue-500` = `#4F46E5`（浅）/ `#818CF8`（暗）、`blue-600` =
 `#413BB9` / `#6B74CE`，**全是靛**（官方阶梯被本调色板重新映射过）；`deepseek-*` 就是强调色
 本身；`violet-400` 更紫；`sky` / `cyan` 家族在表里根本不存在。所以皮肤层自己带一个锚点：
@@ -578,10 +587,9 @@ html[data-moonset-skin] { --dsh-moonset-night: #2563EB; }
 html[data-moonset-skin] body[data-ds-dark-theme] { --dsh-moonset-night: #60A5FA; }
 ```
 
-这是**整张皮肤表里唯一的两个字面色**，且**只被 `nightBlue` 消费**：两处声明之外，规则里出现
-的任何颜色都必须是 token（`tests/skin.spec.ts` 的白名单断言：整张表恰好两个 `#` 字面量，
-而且梯度里不许直接写它们）。锚点放在可关闭的地面段里，所以 `glow: false` 会连同它一起消失。
-行数 47 → 55（两条 3 行的声明 + 2 行注释 + 空白），仍 ≤60。
+这是**整张皮肤表里唯一的两个字面色**，且**只被 `night` 消费**：两处声明之外，规则里出现的任何
+颜色都必须是 token（`tests/skin.spec.ts` 的白名单断言：整张表恰好两个 `#` 字面量，梯度里不许
+直接写它们）。锚点放在可关闭的地面段里，所以 `glow: false` 会连同它一起消失。
 
 **底部白带（M2 修）**：用户报 C 模式底部有一条亮带。定位到宿主在会话列底部画的遮罩带：
 `ConversationRoot.module.css` 的 `.root[data-phase='active'] .composerSeat` 用
@@ -706,7 +714,7 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（51 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（53 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
 `src/client/index.ts` 的
