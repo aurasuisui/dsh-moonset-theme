@@ -39,6 +39,7 @@
  * elements it renders carry a `style` attribute, never the document root.
  */
 import type { MoonsetChoice } from './choice.ts'
+import { GLOW_STRENGTH_MAX, GLOW_STRENGTH_MIN, type GlowHue, type GlowScope } from './skin.ts'
 
 /** One option the section renders: the value it applies and its localized label. */
 export interface MoonsetOptionLabel {
@@ -48,14 +49,50 @@ export interface MoonsetOptionLabel {
   readonly label: string
 }
 
+/** One 地面范围 button (M2): the scope it applies and its localized label. */
+export interface MoonsetScopeLabel {
+  /** The scope this button applies. */
+  readonly value: GlowScope
+  /** Localized button text. */
+  readonly label: string
+}
+
+/** One 光晕色相 button (M4): the hue it applies and its localized label. */
+export interface MoonsetHueLabel {
+  /** The hue this button applies. */
+  readonly value: GlowHue
+  /** Localized button text. */
+  readonly label: string
+}
+
 /** Every piece of copy the section renders (built from the locale binding). */
 export interface MoonsetSectionLabels {
   /** Section heading. */
   readonly title: string
-  /** One explanatory line under the buttons. */
+  /** One explanatory line under the theme buttons. */
   readonly description: string
-  /** The buttons, in display order. */
+  /** The theme buttons, in display order. */
   readonly options: readonly MoonsetOptionLabel[]
+  /** M2: the glow block's own heading (the switch rides its button text). */
+  readonly glowTitle: string
+  /** M2: the switch's ON word. */
+  readonly glowOn: string
+  /** M2: the switch's OFF word. */
+  readonly glowOff: string
+  /** M2: the ground-scope row heading. */
+  readonly scopeTitle: string
+  /** M2: the three 地面范围 buttons, in display order. */
+  readonly scopeOptions: readonly MoonsetScopeLabel[]
+  /** M2: the strength row's label (the value is appended as a percentage). */
+  readonly strengthTitle: string
+  /** M6: the LIGHT ground group's heading. */
+  readonly lightTitle: string
+  /** M6: the DARK ground group's heading. */
+  readonly darkTitle: string
+  /** M6: the three hue buttons (shared by both groups), in display order. */
+  readonly hueOptions: readonly MoonsetHueLabel[]
+  /** M2: one line explaining what the scope changes. */
+  readonly hint: string
 }
 
 /**
@@ -68,12 +105,36 @@ export interface MoonsetSectionView {
   readonly choice: MoonsetChoice
   /** `describeState`'s one-line summary of the live state. */
   readonly status: string
+  /** M2: the ground scope the carrier clear uses. */
+  readonly glowScope: GlowScope
+  /** M2: whether the environment glow is on. */
+  readonly glow: boolean
+  /** M6: the LIGHT ground's strength in percent (0-200). */
+  readonly glowStrengthLight: number
+  /** M6: the LIGHT ground's hue. */
+  readonly glowHueLight: GlowHue
+  /** M6: the DARK ground's strength in percent (0-200). */
+  readonly glowStrengthDark: number
+  /** M6: the DARK ground's hue. */
+  readonly glowHueDark: GlowHue
 }
 
 /** The props this component takes — nothing else is wired to it. */
 export interface MoonsetSectionProps {
   /** Persist and apply one pick (owned by the plugin entry, not by this file). */
   readonly onPick: (choice: MoonsetChoice) => void
+  /** M2: persist one 地面范围 pick. */
+  readonly onScope: (scope: GlowScope) => void
+  /** M2: flip the environment glow. */
+  readonly onToggleGlow: (next: boolean) => void
+  /** M6: the LIGHT ground's hue pick. */
+  readonly onHueLight: (hue: GlowHue) => void
+  /** M6: the LIGHT ground's strength (0-200). */
+  readonly onStrengthLight: (next: number) => void
+  /** M6: the DARK ground's hue pick. */
+  readonly onHueDark: (hue: GlowHue) => void
+  /** M6: the DARK ground's strength (0-200). */
+  readonly onStrengthDark: (next: number) => void
   /** Localized copy. */
   readonly labels: MoonsetSectionLabels
   /**
@@ -184,6 +245,58 @@ const DESCRIPTION_STYLE: Readonly<Record<string, string>> = {
   lineHeight: '1.6',
   color: 'var(--dsw-alias-label-tertiary)',
 }
+// ── M2: the glow block ──────────────────────────────────────────────────────
+// A hairline separates the theme buttons from the ground controls: they are
+// two different kinds of setting, and the section is one column.
+const GLOW_BLOCK_STYLE: Readonly<Record<string, string>> = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+  paddingTop: '10px',
+  borderTop: '1px solid var(--dsw-alias-border-l1)',
+}
+const ROW_LABEL_STYLE: Readonly<Record<string, string>> = {
+  fontSize: '12px',
+  lineHeight: '1.4',
+  color: 'var(--dsw-alias-label-secondary)',
+}
+const STRENGTH_ROW_STYLE: Readonly<Record<string, string>> = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '10px',
+}
+const SLIDER_STYLE: Readonly<Record<string, string>> = {
+  flex: '1',
+  minWidth: '80px',
+  accentColor: 'var(--dsw-alias-brand-primary)',
+}
+const VALUE_STYLE: Readonly<Record<string, string>> = {
+  fontSize: '12px',
+  minWidth: '44px',
+  textAlign: 'right',
+  color: 'var(--dsw-alias-label-secondary)',
+}
+// M6: one bordered block per ground (浅色 / 深色), so the two independent
+// pairs read as two rows of controls rather than six loose buttons.
+const GROUP_STYLE: Readonly<Record<string, string>> = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+  paddingTop: '8px',
+  borderTop: '1px dashed var(--dsw-alias-border-l1)',
+}
+const GROUP_TITLE_STYLE: Readonly<Record<string, string>> = {
+  fontSize: '12px',
+  fontWeight: '500',
+  lineHeight: '1.4',
+  color: 'var(--dsw-alias-label-primary)',
+}
+const HINT_STYLE: Readonly<Record<string, string>> = {
+  margin: '0',
+  fontSize: '11px',
+  lineHeight: '1.6',
+  color: 'var(--dsw-alias-label-tertiary)',
+}
 
 /**
  * Render the Moonset section: a heading, one button per choice, the status
@@ -198,7 +311,18 @@ const DESCRIPTION_STYLE: Readonly<Record<string, string>> = {
  *   subscription.
  * @returns the section element tree.
  */
-export function MoonsetSection({ onPick, labels, subscribe, read }: MoonsetSectionProps): unknown {
+export function MoonsetSection({
+  onPick,
+  onScope,
+  onToggleGlow,
+  onHueLight,
+  onStrengthLight,
+  onHueDark,
+  onStrengthDark,
+  labels,
+  subscribe,
+  read,
+}: MoonsetSectionProps): unknown {
   const React = react()
   // Seeded from `read()`, never from a prop mirror: the durable store already
   // answers with a QUEUED intent (M5.1), so a remount caused by the settings
@@ -220,6 +344,119 @@ export function MoonsetSection({ onPick, labels, subscribe, read }: MoonsetSecti
     setView({ ...read(), choice: next })
     onPick(next)
   }
+
+  /**
+   * M2: the same optimistic shape for the three glow controls.
+   *
+   * Each one moves its own field in THIS render (the store cannot have the new
+   * value yet) and hands the change to the plugin entry, which persists it
+   * (300 ms debounce) and schedules the sheet rebuild (150 ms).
+   */
+  const pickScope = (next: GlowScope): void => {
+    setView({ ...read(), glowScope: next })
+    onScope(next)
+  }
+
+  const toggleGlow = (): void => {
+    const next = !read().glow
+    setView({ ...read(), glow: next })
+    onToggleGlow(next)
+  }
+
+  /**
+   * M6: one ground group's two controls, each optimistic like the scope row.
+   *
+   * The light and dark grounds are independent (the user's final call is 柔和 @90
+   * in light and 夜空蓝 @100 in dark), so each group writes only its own pair of
+   * fields and the patch shape stays a partial view.
+   */
+  const pickHueLight = (next: GlowHue): void => {
+    setView({ ...read(), glowHueLight: next })
+    onHueLight(next)
+  }
+
+  const pickHueDark = (next: GlowHue): void => {
+    setView({ ...read(), glowHueDark: next })
+    onHueDark(next)
+  }
+
+  /**
+   * Read one slider's own value and hand it over.
+   *
+   * The element is reached structurally: this file carries no DOM types (no
+   * `lib.dom` in the client program — see the header), and the value is the only
+   * thing the handler needs.
+   * @param event - the input's change event.
+   * @param apply - the setter for the group that owns the slider.
+   */
+  const readSlider = (event: unknown): number | undefined => {
+    const value = (event as { currentTarget?: { value?: unknown } }).currentTarget?.value
+    const next = Number(value)
+    return Number.isFinite(next) ? next : undefined
+  }
+
+  const setStrengthLight = (next: number): void => {
+    setView({ ...read(), glowStrengthLight: next })
+    onStrengthLight(next)
+  }
+
+  const setStrengthDark = (next: number): void => {
+    setView({ ...read(), glowStrengthDark: next })
+    onStrengthDark(next)
+  }
+
+  /**
+   * One ground group: heading, the shared three hue buttons, a slider + value.
+   * @param spec - the group's own copy, hue, strength and the two callbacks.
+   * @returns the rendered group.
+   */
+  const groundGroup = (spec: {
+    readonly title: string
+    readonly hue: GlowHue
+    readonly strength: number
+    readonly onPick: (hue: GlowHue) => void
+    readonly onStrength: (next: number) => void
+  }): unknown => React.createElement(
+    'div',
+    { style: GROUP_STYLE },
+    React.createElement('div', { style: GROUP_TITLE_STYLE }, spec.title),
+    React.createElement(
+      'div',
+      { style: ROW_STYLE, role: 'group', 'aria-label': spec.title },
+      ...labels.hueOptions.map((option) => React.createElement(
+        'button',
+        {
+          key: option.value,
+          type: 'button',
+          'aria-pressed': option.value === spec.hue,
+          onClick: () => { spec.onPick(option.value) },
+          style: option.value === spec.hue ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
+        },
+        option.label,
+      )),
+    ),
+    React.createElement(
+      'div',
+      { style: STRENGTH_ROW_STYLE },
+      React.createElement('span', { style: ROW_LABEL_STYLE }, labels.strengthTitle),
+      React.createElement('input', {
+        type: 'range',
+        min: GLOW_STRENGTH_MIN,
+        max: GLOW_STRENGTH_MAX,
+        step: 10,
+        value: spec.strength,
+        'aria-label': spec.title + ' ' + labels.strengthTitle,
+        onChange: (event: unknown) => {
+          const next = readSlider(event)
+          if (next !== undefined) spec.onStrength(next)
+        },
+        style: SLIDER_STYLE,
+      }),
+      React.createElement('span', { style: VALUE_STYLE }, `${spec.strength}%`),
+    ),
+  )
+
+
 
   return React.createElement(
     'div',
@@ -244,5 +481,56 @@ export function MoonsetSection({ onPick, labels, subscribe, read }: MoonsetSecti
     // without stealing focus from the button the user just pressed.
     React.createElement('p', { style: STATUS_STYLE, role: 'status' }, view.status),
     React.createElement('p', { style: DESCRIPTION_STYLE }, labels.description),
+    // ── M2: the environment glow ────────────────────────────────────────────
+    React.createElement(
+      'div',
+      { style: GLOW_BLOCK_STYLE },
+      React.createElement(
+        'div',
+        { style: ROW_STYLE },
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            'aria-pressed': view.glow,
+            onClick: () => { toggleGlow() },
+            style: view.glow ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
+          },
+          `${labels.glowTitle} ${view.glow ? labels.glowOn : labels.glowOff}`,
+        ),
+      ),
+      React.createElement('div', { style: ROW_LABEL_STYLE }, labels.scopeTitle),
+      React.createElement(
+        'div',
+        { style: ROW_STYLE, role: 'group', 'aria-label': labels.scopeTitle },
+        ...labels.scopeOptions.map((option) => React.createElement(
+          'button',
+          {
+            key: option.value,
+            type: 'button',
+            'aria-pressed': option.value === view.glowScope,
+            onClick: () => { pickScope(option.value) },
+            style: option.value === view.glowScope ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
+          },
+          option.label,
+        )),
+      ),
+      // ── M6: the two grounds, each with its own hue and strength ─────────────
+      groundGroup({
+        title: labels.lightTitle,
+        hue: view.glowHueLight,
+        strength: view.glowStrengthLight,
+        onPick: (hue) => { pickHueLight(hue) },
+        onStrength: (next) => { setStrengthLight(next) },
+      }),
+      groundGroup({
+        title: labels.darkTitle,
+        hue: view.glowHueDark,
+        strength: view.glowStrengthDark,
+        onPick: (hue) => { pickHueDark(hue) },
+        onStrength: (next) => { setStrengthDark(next) },
+      }),
+      React.createElement('p', { style: HINT_STYLE }, labels.hint),
+    ),
   )
 }

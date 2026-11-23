@@ -28,7 +28,7 @@
 | `warning` | `#D97706` | `#FBBF24` | 警告（amber-600 / 400） |
 | `danger` | `#E11D48` | `#FB7185` | 危险（rose-600 / 400） |
 | `info` | `#0284C7` | `#38BDF8` | 信息（sky-600 / 400） |
-| `moon` | `#F59E0B` | `#F59E0B` | 琥珀月光；0.1.0 只作为 `amber-500` 的锚点，**没有光晕**（见 [backlog](backlog-v0.2.md)） |
+| `moon` | `#F59E0B` | `#F59E0B` | 琥珀月光；`amber-500` 的锚点，0.1.2 起也是右下暖光的色相来源（M3 起只作浅色右下角点缀） |
 
 两点容易误会：
 
@@ -38,6 +38,19 @@
 - `moon` 不是一个独立 token 族：它被钉在 `--dsw-static-amber-500` 上，因为官方
   自己也把 amber-500 用在月光/警告的共享位置上。它和官方同值 `#F59E0B` 属于
   **A 类锚点恰好同色**，不是 B3 回落（见 §2 的判定）。
+
+0.1.2 的地面光晕不新增色源：靛蓝月晕混自 `--dsw-static-deepseek-500`（= `accent`），
+右下琥珀暖光混自 `--dsw-static-amber-500`（= `moon`），两者都以固定百分比与
+`transparent` 混出。**M3 起琥珀只是点缀**（16% : 3%，且椭圆收到右下角 46%），
+**暗色则只用一种靛蓝**：三层同色 `--dsw-static-deepseek-400`（深一档）加一条更薄的 wash，
+不再引入紫罗兰或琥珀——层次靠半径/位置/α 做，不靠加色相。**M6 起浅色与深色各有一套色相 +
+强度**（三档色相：`accent` 强调 / `soft` 柔和 ×0.56 / `night` 夜空蓝；默认浅色 `soft` @90、
+深色 `night` @100）：浅色换月晕与 wash、深色换三层 + wash，**琥珀只出现在浅色且恒 3%**、不跟着
+色相变。**`night` 是唯一带字面色的一项**：本表里没有能当夜空蓝用的键（blue-500/600 全是靛、
+`sky`/`cyan` 家族不存在），所以皮肤层自带 `--dsh-moonset-night`（浅 `#2563EB` / 暗 `#60A5FA`），
+只给这一项用，登记在 architecture §11.3 第五类「色相锚点」。
+规则形状与 alpha 数字见
+[architecture §11](architecture.md#11-css-注入白名单p5-例外登记)。
 
 **证据**：`themes/moonset-palette.json`；`tests/palettes.spec.ts` 的
 「shapes … as 16 hex roles per scheme」与「pins every family 500 rung to its board anchor colour」。

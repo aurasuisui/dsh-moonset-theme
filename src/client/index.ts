@@ -86,7 +86,13 @@ import {
   type ChoiceDeps,
   type MoonsetChoice,
 } from './choice.ts'
-import { MOONSET_ENTRY_ID, RESTORE_WINDOW_MS, createDurableChoice } from './durable.ts'
+import {
+  MOONSET_ENTRY_ID,
+  RESTORE_WINDOW_MS,
+  createDurableChoice,
+  createDurableGlow,
+} from './durable.ts'
+import type { DurableGlow } from './durable.ts'
 import { MOONSET_LOCALE_NS, en, zh, type MoonsetLocaleKey } from './locales.ts'
 import {
   MoonsetSection,
@@ -94,7 +100,8 @@ import {
   type MoonsetSectionLabels,
   type MoonsetSectionView,
 } from './settings-section.tsx'
-import { mountSkin, syncSkin, unmountSkin } from './skin.ts'
+import { GLOW_HUES, GLOW_SCOPES, mountSkin, syncSkin, unmountSkin, updateSkin } from './skin.ts'
+import type { GlowHue, GlowScope, SkinOptions } from './skin.ts'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
 import { tolerantRegistration } from './registration-tolerance.ts'
 
@@ -131,28 +138,47 @@ export {
   shouldMirrorOfficialPick,
 } from './choice.ts'
 export type { ChoiceDeps, MoonsetChoice, MoonsetSectionOption } from './choice.ts'
-export { MOONSET_ENTRY_ID, createDurableChoice } from './durable.ts'
-export type { DurableChoice, MoonsetSettingsSection } from './durable.ts'
+export { MOONSET_ENTRY_ID, createDurableChoice, createDurableGlow } from './durable.ts'
+export type { DurableChoice, DurableGlow, MoonsetGlow, MoonsetSettingsSection } from './durable.ts'
 export { MOONSET_LOCALE_NS, en, zh } from './locales.ts'
 export type { MoonsetLocaleKey } from './locales.ts'
 export { MoonsetSection } from './settings-section.tsx'
 export type {
+  MoonsetHueLabel,
   MoonsetOptionLabel,
+  MoonsetScopeLabel,
   MoonsetSectionFace,
   MoonsetSectionLabels,
   MoonsetSectionProps,
   MoonsetSectionView,
 } from './settings-section.tsx'
 export {
+  DEFAULT_GLOW_HUE_DARK,
+  DEFAULT_GLOW_HUE_LIGHT,
+  DEFAULT_GLOW_SCOPE,
+  DEFAULT_GLOW_STRENGTH_DARK,
+  DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLOW_ALPHA_AT_FULL,
+  GLOW_HUES,
+  GLOW_HUE_AT_FULL,
+  GLOW_SCOPES,
+  GLOW_STRENGTH_MAX,
+  GLOW_STRENGTH_MIN,
   SKIN_ATTR,
   SKIN_SHEET_ATTR,
   SKIN_SHEET_SELECTOR,
+  darkGlowAlphas,
+  glowAlphas,
   mountSkin,
+  resolveGlowHue,
+  resolveGlowScope,
+  resolveGlowStrength,
   skinCss,
   syncSkin,
   unmountSkin,
+  updateSkin,
 } from './skin.ts'
-export type { SkinRoot, SkinSheetElement } from './skin.ts'
+export type { GlowHue, GlowScope, SkinOptions, SkinRoot, SkinSheetElement } from './skin.ts'
 
 /** The locale namespace as a literal type (interface keys cannot be computed). */
 type MoonsetNamespace = 'settings.moonset'
@@ -189,6 +215,17 @@ export const inject = ['theme', 'slots', 'locale']
 export const REASSERT_LIMIT = 3
 
 /**
+ * How long a control change waits before the sheet is rebuilt (M2).
+ *
+ * The durable write is debounced at {@link WRITE_DEBOUNCE_MS} (300 ms) because
+ * it crosses into the settings document; the sheet is local paint, so it can
+ * follow a quarter-second sooner — long enough that a slider drag emits ONE
+ * rebuild, short enough that the knob feels attached. Exported so the tests
+ * advance exactly this window.
+ */
+export const SKIN_REBUILD_MS = 150
+
+/**
  * Build the section's copy from the namespace binding.
  *
  * Called per render through the injected face, so switching the interface
@@ -204,6 +241,28 @@ function sectionLabels(t: SectionTranslate): MoonsetSectionLabels {
       value: option.value,
       label: t(option.localeKey),
     })),
+    // M2 地面范围 / 环境光晕 / 强度: three more controls. The scope buttons are
+    // DERIVED from GLOW_SCOPES so a fourth scope would be a type error, not a
+    // missing button.
+    glowTitle: t('glow.title'),
+    glowOn: t('glow.on'),
+    glowOff: t('glow.off'),
+    scopeTitle: t('glow.scope.title'),
+    scopeOptions: GLOW_SCOPES.map((scope) => ({
+      value: scope,
+      label: t(scope === 'conversation' ? 'glow.scope.conversation' : scope === 'main' ? 'glow.scope.main' : 'glow.scope.all'),
+    })),
+    strengthTitle: t('glow.strength'),
+    // M6 光晕: two groups (light / dark), each with the three surviving hues.
+    // The buttons are derived from GLOW_HUES, so a fourth hue would be a type
+    // error, not a missing button.
+    hueOptions: GLOW_HUES.map((hue) => ({
+      value: hue,
+      label: t(hue === 'accent' ? 'glow.hue.accent' : hue === 'soft' ? 'glow.hue.soft' : 'glow.hue.night'),
+    })),
+    lightTitle: t('glow.light.title'),
+    darkTitle: t('glow.dark.title'),
+    hint: t('glow.hint'),
   }
 }
 
@@ -255,6 +314,90 @@ function wireSettings(ctx: ClientContext): void {
 
   const follow = createFollowLayer(ctx.theme)
   const durable = createDurableChoice(ctx)
+  const glow = createDurableGlow(ctx)
+
+  // ── M2: the glow → sheet bridge ────────────────────────────────────────────
+  //
+  // Two clocks, on purpose: the durable write lands at 300 ms (the settings
+  // document is the slow half), the sheet rebuild at 150 ms (it is local
+  // paint). Both are DEBOUNCED — a slider drag emits a change per step, and
+  // rebuilding the sheet on every step would re-parse it on each pointer move.
+  /** The options the sheet is built from, read live from the durable store. */
+  const skinOptions = (): SkinOptions => {
+    const current = glow.read()
+    return {
+      glow: current.glow,
+      scope: current.scope,
+      hueLight: current.hueLight,
+      strengthLight: current.strengthLight,
+      hueDark: current.hueDark,
+      strengthDark: current.strengthDark,
+    }
+  }
+  /** The pending sheet rebuild (cleared by the teardown). */
+  let rebuildTimer: ReturnType<typeof setTimeout> | undefined
+
+  /**
+   * Rebuild the ONE skin sheet after a control change, debounced.
+   *
+   * Idempotent and total: a plugin that is unloading must not rebuild, and a
+   * document that refuses the write loses the update, never the session.
+   */
+  const scheduleSkinRebuild = (): void => {
+    if (!active) return
+    // The choice still gates the sheet (0.1.1): with `off` the user runs the
+    // official theme, so a glow control must NOT bring a Moonset sheet back.
+    if (durable.read() === 'off') return
+    if (rebuildTimer !== undefined) clearTimeout(rebuildTimer)
+    const handle = setTimeout(() => {
+      rebuildTimer = undefined
+      // Re-checked: a pick that landed inside the window owns the page now.
+      if (!active || durable.read() === 'off') return
+      updateSkin(skinOptions())
+    }, SKIN_REBUILD_MS) as ReturnType<typeof setTimeout> & { unref?: () => void }
+    if (typeof handle.unref === 'function') handle.unref()
+    rebuildTimer = handle
+  }
+
+  /** Persist one 地面范围 pick (the sheet follows through the rebuild). */
+  const setScope = (scope: GlowScope): void => {
+    glow.write({ scope })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  /** Flip the environment glow. `false` drops the whole 0.1.2 segment. */
+  const setGlowOn = (next: boolean): void => {
+    glow.write({ glow: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  /** M6: the LIGHT ground's controls (its own hue and strength). */
+  const setHueLight = (hue: GlowHue): void => {
+    glow.write({ hueLight: hue })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  const setStrengthLight = (next: number): void => {
+    glow.write({ strengthLight: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  /** M6: the DARK ground's controls. */
+  const setHueDark = (hue: GlowHue): void => {
+    glow.write({ hueDark: hue })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  const setStrengthDark = (next: number): void => {
+    glow.write({ strengthDark: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
   const deps: ChoiceDeps = {
     setTheme: (id: string) => { ctx.theme.setTheme(id) },
     preference: () => ctx.theme.getTheme().preference,
@@ -367,7 +510,7 @@ function wireSettings(ctx: ClientContext): void {
     // every other choice paints a Moonset palette and keeps the sheet. This is
     // the FIRST moment a stored choice is readable, so the sheet `apply()`
     // mounted is corrected here before anything renders otherwise.
-    syncSkin(choice)
+    syncSkin(choice, undefined, skinOptions())
     // `off` has no theme to apply (and the Host injected no first-paint sheet
     // for it), so the early return keeps this path to exactly one responsibility.
     if (choice === 'off') return
@@ -399,7 +542,7 @@ function wireSettings(ctx: ClientContext): void {
     durable.write(choice)
     // 0.1.1: same alignment as the boot restore — a click on "off" takes the
     // sheet off, every other click keeps (or re-mounts) it.
-    syncSkin(choice)
+    syncSkin(choice, undefined, skinOptions())
     applyChoice(choice, deps)
     // Same handover as the boot restore: a pick can be the FIRST apply on a page
     // whose restore never ran (no settings form bound yet, or a pending intent
@@ -424,7 +567,7 @@ function wireSettings(ctx: ClientContext): void {
     durable.write('off')
     // 0.1.1: the user just chose an official theme, so the Moonset sheet must go
     // with our theme — third and last place the skin follows the choice.
-    syncSkin('off')
+    syncSkin('off', undefined, skinOptions())
     follow.disable()
   }
 
@@ -675,6 +818,9 @@ function wireSettings(ctx: ClientContext): void {
    */
   const read = (): MoonsetSectionView => {
     const choice = durable.read()
+    // M2: the section also owns the glow controls, so the same read answers
+    // them — one view, one subscription, no second source of truth.
+    const current = glow.read()
     return {
       choice,
       status: describeState({
@@ -684,6 +830,12 @@ function wireSettings(ctx: ClientContext): void {
         layerAttached: follow.enabled,
         t,
       }),
+      glowScope: current.scope,
+      glow: current.glow,
+      glowHueLight: current.hueLight,
+      glowStrengthLight: current.strengthLight,
+      glowHueDark: current.hueDark,
+      glowStrengthDark: current.strengthDark,
     }
   }
 
@@ -692,6 +844,12 @@ function wireSettings(ctx: ClientContext): void {
   // there is exactly one answer: `read()`.
   const injected = (): MoonsetSectionFace => ({
     onPick: pick,
+    onScope: setScope,
+    onToggleGlow: setGlowOn,
+    onHueLight: setHueLight,
+    onStrengthLight: setStrengthLight,
+    onHueDark: setHueDark,
+    onStrengthDark: setStrengthDark,
     labels: sectionLabels(t),
     subscribe,
     read,
@@ -712,6 +870,13 @@ function wireSettings(ctx: ClientContext): void {
   // hands the lifecycle to the caller).
   ctx.effect(() => {
     const unsubscribe = durable.subscribe(restore)
+    // M2: the glow store is the second writer into the same view channel. Its
+    // changes are BOTH a sheet rebuild and a section re-render, so it feeds the
+    // same set — no separate effect, no second lifetime to forget.
+    const unsubscribeGlow = glow.subscribe(() => {
+      scheduleSkinRebuild()
+      notifyView()
+    })
     // `theme/change` is the ONLY continuous view of the official preference
     // (the host publishes it synchronously from `setTheme` / `adopt`), so the
     // mirror rule rides it. Rides this effect rather than a new one: the
@@ -725,13 +890,20 @@ function wireSettings(ctx: ClientContext): void {
     return () => {
       // A re-assert queued for this tick must not fire into an unloaded plugin.
       active = false
+      // A queued sheet rebuild must not run into an unloaded plugin either.
+      if (rebuildTimer !== undefined) {
+        clearTimeout(rebuildTimer)
+        rebuildTimer = undefined
+      }
       unsubscribe()
+      unsubscribeGlow()
       // No section survives the unload: dropping the set is what keeps a
       // queued `theme/change` from re-rendering an unmounted panel.
       viewListeners.clear()
       releaseTheme?.()
       follow.disable()
       durable.dispose()
+      glow.dispose()
       // Unloading must not leave our sheet behind: after this the plugin paints
       // nothing, so a lingering sheet would pin a palette with no owner.
       removeBootSheet()

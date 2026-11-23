@@ -1,5 +1,5 @@
 /**
- * The skin layer (0.1.1): ONE root attribute plus ONE injected stylesheet, and
+ * The skin layer (0.1.1–0.1.2): ONE root attribute plus ONE injected stylesheet, and
  * nothing else in the document.
  *
  * Why a stylesheet at all is a decision, not a default (contract §一 P5): the
@@ -68,14 +68,546 @@ export const SKIN_SHEET_ATTR = 'data-dsh-moonset-skin'
 export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
 
 /**
- * The skin's rules, as text — a PURE function of nothing.
+ * How much of the shell the ground is allowed to show through (M2 地面范围).
+ *
+ * The three scopes are NESTED on purpose — the user compares A/B/C on a real
+ * machine, so each one is exactly the previous one plus a documented carrier
+ * set (see `visibilityRules`):
+ *
+ *   conversation  A: the conversation column only;
+ *   main          B: A plus the shell frame and the three columns;
+ *   all           C: B plus the sidebar's own fill layer and the bottom cell.
+ *
+ * `main` is the default since M3 (the user compared A/B/C on a real machine and
+ * B was the coherent one); `all` is what 0.1.2 M1.5 shipped and stays selectable
+ * as the fully transparent mode.
+ */
+export const GLOW_SCOPES = ['conversation', 'main', 'all'] as const
+
+/** One ground scope: see {@link GLOW_SCOPES}. */
+export type GlowScope = (typeof GLOW_SCOPES)[number]
+
+/**
+ * The scope a profile that never touched the control uses.
+ *
+ * `main` since M3: on the user's real machine B is the coherent one — the shell
+ * and the three columns show the ground, while the sidebar keeps
+ * `--dsw-specific-sidebar-fill` and therefore keeps its own surface (C stays
+ * selectable; it is the fully transparent comparison).
+ */
+export const DEFAULT_GLOW_SCOPE: GlowScope = 'main'
+
+/** The strength floor the sliders and the resolver share (0-200%). */
+export const GLOW_STRENGTH_MIN = 0
+
+/** The strength ceiling the sliders and the resolver share (0-200%). */
+export const GLOW_STRENGTH_MAX = 200
+
+/**
+ * The strength the LIGHT ground starts on (90% — the user's final pick).
+ */
+export const DEFAULT_GLOW_STRENGTH_LIGHT = 90
+
+/** The strength the DARK ground starts on (100% — the user's final pick). */
+export const DEFAULT_GLOW_STRENGTH_DARK = 100
+
+/**
+ * The three glow hues (M6 — M4's five collapsed to three).
+ *
+ * The user compared the forms on a real machine and the two "dark" variants
+ * produced the same pixels as their light siblings (`accentDark` / `accentSoftDark`
+ * changed the ladder step, which this palette renders almost identically), so
+ * they were removed instead of shipped as buttons that do nothing visible. What
+ * is left is the three that DO differ: the accent, its soft form, and the night
+ * blue the skin owns.
+ *
+ * Each hue names a per-scheme token pair, so "the same hue" means the same
+ * family, not the same hex: light and dark read different rungs of it.
+ */
+export const GLOW_HUES = ['accent', 'soft', 'night'] as const
+
+/** One glow hue: see {@link GLOW_HUES}. */
+export type GlowHue = (typeof GLOW_HUES)[number]
+
+/** The hue the LIGHT ground starts on (柔和 — the user's final pick). */
+export const DEFAULT_GLOW_HUE_LIGHT: GlowHue = 'soft'
+
+/** The hue the DARK ground starts on (夜空蓝 — the user's final pick). */
+export const DEFAULT_GLOW_HUE_DARK: GlowHue = 'night'
+
+/**
+ * The skin-owned night-blue anchor — the sheet's ONLY literal colour.
+ *
+ * Why a literal at all: the 228-key table has no usable blue. Every `blue-*`
+ * rung is remapped onto this palette's indigo ladder (`blue-500` = `#4F46E5`
+ * light / `#818CF8` dark, `blue-600` = `#413BB9` / `#6B74CE` — all indigo), the
+ * `deepseek-*` family is the accent itself, `violet-400` is purple, and there is
+ * no `sky`/`cyan` family in the table AT ALL. The user's 夜空蓝 therefore had to
+ * come from the skin layer (0.1.2 §11.3's fifth whitelist class, "hue anchor").
+ *
+ * It is declared TWICE in the sheet (light on `html[data-moonset-skin]`, dark on
+ * the host's `body[data-ds-dark-theme]` marker) and read by the `night` hue
+ * alone. `tests/skin.spec.ts` is the guard: apart from those two declarations
+ * the sheet may not contain a single `#` literal.
+ */
+export const NIGHT_BLUE_TOKEN = '--dsh-moonset-night'
+
+/** The night-blue anchor in the light scheme (the official brand blue). */
+export const NIGHT_BLUE_LIGHT = '#2563EB'
+
+/** The night-blue anchor in the dark scheme (the same hue, lightened for it). */
+export const NIGHT_BLUE_DARK = '#60A5FA'
+
+/**
+ * One hue option: the token each scheme mixes from, and the alpha multiplier.
+ *
+ * `accent` is the palette's own anchor rung; `soft` is the SAME tokens at 0.56
+ * of the alpha (16% → 8.96%); `night` is the skin's own anchor (above) — the
+ * 228-key table has no usable blue.
+ *
+ * The multiplier is applied to the HUE layers only (light moon + wash, dark
+ * core / halo / bottom reflection / wash). The amber glint is a different role
+ * and keeps its own 3% — the hue control must not move it.
+ */
+export const GLOW_HUE_AT_FULL: Readonly<Record<GlowHue, { light: string; dark: string; factor: number }>> = {
+  accent: { light: '--dsw-static-deepseek-500', dark: '--dsw-static-deepseek-400', factor: 1 },
+  soft: { light: '--dsw-static-deepseek-500', dark: '--dsw-static-deepseek-400', factor: 0.56 },
+  night: { light: NIGHT_BLUE_TOKEN, dark: NIGHT_BLUE_TOKEN, factor: 1 },
+}
+
+/**
+ * Narrow one raw hue value to a hue.
+ *
+ * Same contract as the other resolvers: a value this version does not know (an
+ * older document that still stores `accentDark`, a hand edit, a future option)
+ * falls back to the caller's default instead of painting something the user
+ * never chose.
+ * @param raw - the stored `glowHueLight` / `glowHueDark` field.
+ * @param fallback - the default for the scheme being read (light `soft`, dark
+ *   `night`).
+ * @returns the narrowed hue.
+ */
+export function resolveGlowHue(raw: unknown, fallback: GlowHue = DEFAULT_GLOW_HUE_LIGHT): GlowHue {
+  return typeof raw === 'string' && (GLOW_HUES as readonly string[]).includes(raw)
+    ? raw as GlowHue
+    : fallback
+}
+
+/** Which colour scheme a ground rule is built for. */
+export type GlowScheme = 'light' | 'dark'
+
+/**
+ * The full-strength alphas per scheme (percent), top layer first.
+ *
+ * LIGHT (M3, second pass): **16% indigo : 3% amber**, the amber ellipse closed
+ * at 46% inside the bottom-right corner. The first pass used 16:6 and the user
+ * still reported amber winning ("即使在 6% 也压过靛蓝") — a warm hue at the same
+ * alpha reads brighter on a near-white canvas, so the RATIO has to carry the
+ * hierarchy and the amber has to be a glint, not a light.
+ *
+ * DARK: ONE hue, three footprints. The user explicitly removed the violet layer
+ * ("不要紫罗兰那层"), so the depth comes from `deepseek-400` at three sizes — a
+ * small tight core (12%), the wide soft halo under it (20%) and a weak
+ * reflection along the bottom edge (4%) — plus a 1% wash. Amber is NOT used in
+ * dark: the bottom reflection already keeps that half from going dead black,
+ * and adding a warm accent is exactly what the light-scheme feedback ruled out.
+ */
+export const GLOW_ALPHA_AT_FULL = {
+  light: { moon: 16, warm: 3, wash: 1.5 },
+  dark: { moon: 20, core: 12, floor: 4, wash: 1 },
+} as const
+
+/**
+ * Narrow one raw scope value to a scope.
+ *
+ * The input crosses a document boundary (a settings echo, a hand-edited
+ * document, an older version), so anything unrecognized falls back to the
+ * default instead of painting an unexpected amount of the shell.
+ * @param raw - the stored `glowScope` field.
+ * @returns the narrowed scope.
+ */
+export function resolveGlowScope(raw: unknown): GlowScope {
+  return typeof raw === 'string' && (GLOW_SCOPES as readonly string[]).includes(raw)
+    ? raw as GlowScope
+    : DEFAULT_GLOW_SCOPE
+}
+
+/**
+ * Narrow one raw strength value into the slider's integer range.
+ *
+ * Deliberately forgiving: a missing field is the default, a numeric string is
+ * accepted (a document round-trip can carry one), and NaN or an out-of-range
+ * value is clamped rather than refused — the setting is cosmetic, so a broken
+ * document must cost the glow's intensity, never the skin.
+ * @param raw - the stored `glowStrengthLight` / `glowStrengthDark` field.
+ * @param fallback - the default for the scheme being read (light 90, dark 100).
+ * @returns an integer in [GLOW_STRENGTH_MIN, GLOW_STRENGTH_MAX].
+ */
+export function resolveGlowStrength(raw: unknown, fallback: number = DEFAULT_GLOW_STRENGTH_LIGHT): number {
+  const value = typeof raw === 'string' ? Number(raw) : raw
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(GLOW_STRENGTH_MAX, Math.max(GLOW_STRENGTH_MIN, Math.round(value)))
+}
+
+/**
+ * Format one percentage for the sheet: at most two decimals, no trailing zeros.
+ *
+ * The point of M2's arithmetic-in-JS decision is that the stylesheet carries
+ * LITERAL percentages (`16%`, `8%`, `1.5%`) instead of a `calc()` expression,
+ * so this is the only place a number becomes CSS text.
+ * @param value - a percentage (0-200).
+ * @returns the CSS percentage token.
+ */
+function percent(value: number): string {
+  const rounded = Math.round(value * 100) / 100
+  return `${rounded}%`
+}
+
+/** The LIGHT ground's alphas, already formatted as CSS percentages. */
+export interface LightGlowAlphas {
+  /** The indigo moon halo. */
+  readonly moon: string
+  /** The amber glint in the bottom-right corner. */
+  readonly warm: string
+  /** The low-contrast wash. */
+  readonly wash: string
+}
+
+/** The DARK ground's alphas, already formatted as CSS percentages. */
+export interface DarkGlowAlphas {
+  /** The wide soft indigo halo. */
+  readonly moon: string
+  /** The small tight indigo core above it — the moon itself. */
+  readonly core: string
+  /** The weak indigo reflection along the bottom edge. */
+  readonly floor: string
+  /** The low-contrast wash (one stop thinner than light). */
+  readonly wash: string
+}
+
+/**
+ * The LIGHT alphas at one strength and hue, already formatted as percentages.
+ *
+ * Two factors, deliberately kept apart: the STRENGTH scales every layer, the
+ * HUE multiplier scales only the hue layers (`moon`, `wash`) — the amber glint
+ * keeps its own 3% because it is a different role, not a different hue.
+ * @param strength - 0-200 (out-of-range input is resolved first, see
+ *   {@link resolveGlowStrength}).
+ * @param hue - the light ground's hue (default {@link DEFAULT_GLOW_HUE_LIGHT}).
+ * @returns the alphas in paint order: moon halo, amber glint, wash.
+ */
+export function glowAlphas(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE_LIGHT): LightGlowAlphas {
+  const strengthFactor = resolveGlowStrength(strength) / 100
+  const hueFactor = strengthFactor * GLOW_HUE_AT_FULL[hue].factor
+  const row = GLOW_ALPHA_AT_FULL.light
+  return {
+    moon: percent(row.moon * hueFactor),
+    warm: percent(row.warm * strengthFactor),
+    wash: percent(row.wash * hueFactor),
+  }
+}
+
+/**
+ * The DARK alphas at one strength and hue — one hue, three footprints.
+ * @param strength - 0-200 (out-of-range input is resolved first).
+ * @param hue - the dark ground's hue (default {@link DEFAULT_GLOW_HUE_DARK}).
+ * @returns the alphas in paint order: core, halo, bottom reflection, wash.
+ */
+export function darkGlowAlphas(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE_DARK): DarkGlowAlphas {
+  const factor = (resolveGlowStrength(strength) / 100) * GLOW_HUE_AT_FULL[hue].factor
+  const row = GLOW_ALPHA_AT_FULL.dark
+  return {
+    moon: percent(row.moon * factor),
+    core: percent(row.core * factor),
+    floor: percent(row.floor * factor),
+    wash: percent(row.wash * factor),
+  }
+}
+
+/**
+ * Options accepted by {@link skinCss} — the whole of M2's user-facing surface.
+ *
+ * Every field defaults to the sheet 0.1.2 M1.5 shipped, so `skinCss()` stays
+ * the contract's exact default sheet and each control can be pinned on its own.
+ *
+ * The ground (wash + two spots) and the carrier clear are ONE feature
+ * ({@link visibilityRules}): `glow: false` drops both halves, which is what
+ * makes "off" the pre-glow 0.1.1 sheet byte-for-byte instead of a zero-alpha
+ * paint (alpha 0 still composites — 0.1.2 §一, D4).
+ */
+export interface SkinOptions {
+  /** The 0.1.2 environment glow — wash, spots and the clear. Defaults on. */
+  glow?: boolean
+  /** Which carrier layers give up their background. Defaults to {@link DEFAULT_GLOW_SCOPE}. */
+  scope?: GlowScope
+  /** The LIGHT ground's hue. Defaults to {@link DEFAULT_GLOW_HUE_LIGHT}. */
+  hueLight?: GlowHue
+  /** The LIGHT ground's strength in percent (0-200). Defaults to {@link DEFAULT_GLOW_STRENGTH_LIGHT}. */
+  strengthLight?: number
+  /** The DARK ground's hue. Defaults to {@link DEFAULT_GLOW_HUE_DARK}. */
+  hueDark?: GlowHue
+  /** The DARK ground's strength in percent (0-200). Defaults to {@link DEFAULT_GLOW_STRENGTH_DARK}. */
+  strengthDark?: number
+}
+
+/**
+ * The 0.1.2 ground segment — kept apart from the 0.1.1 rules so the M2 switch
+ * can emit nothing at all instead of a zero-alpha rule.
+ *
+ * One `background`, layers top-first: the moon halo, the warm light, then the
+ * wash; the final layer carries the canvas token as its colour (the shorthand
+ * would otherwise reset `background-color` to transparent). Every colour is a
+ * `color-mix()` of a static token with `transparent`, and the alpha is a
+ * LITERAL percentage computed in JS from the user's strength ({@link
+ * glowAlphas}) — no `calc()`, no custom-property hop, so the knob cannot die
+ * on a property-invalidation boundary (0.1.2 D2). The sheet is rebuilt when the
+ * control moves, which is the one place a rebuild is cheaper than a variable.
+ *
+ * M1.5 appends the second half: the VISIBILITY block. A `body` background is
+ * the bottom of the paint order, and the host paints `--dsw-alias-bg-base` on
+ * every shell layer between it and the conversation. The chain, read out of the
+ * INSTALLED 0.2.2-rc.5 bundles (not inferred from class names — those are
+ * hashed per build):
+ *
+ *   body
+ *    > #root                     the React container — the shell mounts into it
+ *                                (`getElementById('root')` in the web-frontend
+ *                                bundle; the renderer's `mountApp` owns the root)
+ *    > div[data-slot='root']     display:contents — RootOutlet's anchor
+ *    > div.frame                 background: bg-base (sidebar-fill on Windows)
+ *    > div.centerCol             background: bg-base when [data-windows-titlebar]
+ *    > div.mainPanel             no background
+ *    > div[data-slot='main']     display:contents — SlotOutlet's anchor
+ *    > div.root                  background: bg-base   <- the conversation
+ *
+ * `html` and `#root` are audited transparent: no host sheet paints either (the
+ * only `html` background rule is `[data-platform='darwin']`) and no shipped
+ * bundle writes an inline one, so the `body` background propagates to the
+ * canvas and M1's ground IS painted — before M1.5 it was simply covered by the
+ * opaque carriers below. Clearing exactly those COLOURS is what lets it through
+ * (user report on the installed build: "完全看不到光晕"); their images and
+ * shadows stay, and no layout property is written (§11.4).
+ *
+ * Scope is a SETTING (M2 地面范围), and the three values are nested: the
+ * judgement for what may be cleared is always "fills a column or the whole
+ * screen", never "wraps a piece of content":
+ *
+ *   conversation  clears the conversation column only (its own containers and
+ *                 the elected panel root); the sidebar, the shell frame and
+ *                 the bottom cell keep their paint;
+ *   main          adds the shell frame and the three columns — the frame,
+ *                 .centerCol and .rightbarCol give up their background, while
+ *                 the sidebar column keeps `--dsw-specific-sidebar-fill` and
+ *                 therefore keeps its own surface;
+ *   all           adds the sidebar's INNER fill layer (SidebarRoot's .root) and
+ *                 the frame's bottom cell — the whole screen shows the ground;
+ *
+ * kept in every scope: cards, message bubbles, code blocks, the composer card,
+ * menu popovers (they portal to `body`, outside `#root` entirely), the
+ * rightbar's inner panes (terminal/file tree — content) and the drawer mask
+ * (a scrim, not a carrier).
+ *
+ * The selectors do NOT count levels, on purpose. The anchors are emitted by the
+ * RENDERER, not by ui-layout: `dsh-client-ui-renderer/lib/client.js` renders
+ * `{"data-slot": slotKey}` in SlotOutlet, `{"data-slot": 'root'}` in
+ * RootOutlet, both with `ANCHOR_STYLE = {display:'contents'}` — ui-layout only
+ * calls `renderSlot('main', …)`, so grepping `data-slot` in THAT bundle finds
+ * nothing and proves nothing. Because the anchors are `display: contents`,
+ * the shell's depth is a renderer detail that can grow or lose a wrapper
+ * without changing a single visible pixel; a selector counting child
+ * combinators goes blind on the first such change, which is exactly the
+ * invisible-ground failure this block fixes. Containment (plus two
+ * `> div` roots, the anchors' direct children) is used instead:
+ *
+ *   :has([main, sidebar, rightbar])  every carrier that CONTAINS one of the
+ *                                    three shell slots: the root anchor, the
+ *                                    frame, the three columns, the main panel —
+ *                                    i.e. the layers that paint bg-base or
+ *                                    sidebar-fill;
+ *   :has([data-composer-seat])       the conversation's own containers up to
+ *                                    and including `.root` (ui-conversation
+ *                                    renders the seat with that attribute), so
+ *                                    `.root` is reached even if a wrapper ever
+ *                                    appears between the anchor and it;
+ *   :has(> [data-slot='shell.bottom'])  the frame's bottom cell (its second grid
+ *                                    row), which also paints bg-base;
+ *   [data-slot='main'] > div          the elected panel root: the conversation's
+ *                                    `.root`, or a global panel's page —
+ *                                    `[data-global-panel]` sits on the main panel
+ *                                    only while a panel is open, so the flat
+ *                                    anchor child is the stable spelling;
+ *   [data-slot='sidebar'] > div       SidebarRoot's own root, the second layer
+ *                                    that draws sidebar-fill.
+ *
+ * A descendant can never contain its own ancestor, so no card, message, code
+ * block or field inside the panel is ever one of the `:has()` sets: the
+ * clear stops at the carrier roots, and every host class name stays unused.
+ */
+/**
+ * The carrier selectors each scope clears, in the sheet's fixed order.
+ *
+ * Written as three explicit lists instead of one list filtered at runtime: the
+ * three sets are the user-facing contract (A/B/C), so a change to one of them
+ * has to be visible in the diff as a change to that scope only.
+ */
+const VISIBILITY_SELECTORS: Readonly<Record<GlowScope, readonly string[]>> = {
+  // A: the conversation column. `[data-composer-seat]` is the conversation's
+  // own anchor (ui-conversation renders it on the composer seat), so `.root` is
+  // reached without counting depths; the flat anchor child covers the elected
+  // panel root (a global panel page included).
+  conversation: [
+    "html[data-moonset-skin] #root :has([data-composer-seat])",
+    "html[data-moonset-skin] #root [data-slot='main'] > div",
+  ],
+  // B: A plus every carrier that CONTAINS one of the three shell slots — the
+  // root anchor, the frame, the three columns and the main panel. The sidebar
+  // column is cleared here on purpose: it is a column, not content, and B is
+  // the scope where the sidebar still keeps its INNER fill (see C).
+  main: [
+    "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+    "html[data-moonset-skin] #root :has([data-composer-seat])",
+    "html[data-moonset-skin] #root [data-slot='main'] > div",
+  ],
+  // C: B plus the sidebar's own fill layer (SidebarRoot's `.root`, the second
+  // element that draws sidebar-fill) and the frame's bottom cell.
+  all: [
+    "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+    "html[data-moonset-skin] #root :has([data-composer-seat])",
+    "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])",
+    "html[data-moonset-skin] #root [data-slot='main'] > div",
+    "html[data-moonset-skin] #root [data-slot='sidebar'] > div",
+  ],
+}
+
+/**
+ * The ground half of the feature: ONE `background` per scheme.
+ *
+ * Light — three layers, indigo leading: the moon halo at the top edge, an amber
+ * GLINT in the bottom-right corner (97%/97%, closed at 46%) and the low-contrast
+ * 165° wash. M3's second pass took the amber from 6% to 3%: at 16:6 the user
+ * still read amber as the subject ("琥珀还是太抢"), and a warm hue at equal alpha
+ * is brighter on a near-white canvas, so the ratio is 16:3 and the ellipse is a
+ * corner glint rather than a light.
+ *
+ * Dark — ONE hue, three footprints (user: 深色太单调, then 不要紫罗兰那层). The
+ * depth comes from `deepseek-400` alone, at three sizes, in one declaration:
+ *
+ *   34%/2%    deepseek-400 12%  circle  26%   the moon CORE: small and tight
+ *   50%/-6%   deepseek-400 20%  ellipse 70%   the HALO under it: wide and soft
+ *   50%/104%  deepseek-400  4%  ellipse 55%   a weak reflection off the bottom
+ *   160deg    deepseek-400  1%  linear  75%   the wash, one stop thinner
+ *
+ * The core is painted ABOVE the halo on purpose: the two alphas add where they
+ * overlap, which is what makes the moon read as a body inside its own light
+ * instead of one flat blob. Amber is not used in dark at all — the bottom
+ * reflection keeps that half from going dead black, and a warm accent is
+ * exactly what the light-scheme feedback ruled out.
+ *
+ * The alphas arrive pre-formatted from {@link glowAlphas} / {@link
+ * darkGlowAlphas}, so this builder never does arithmetic and the sheet never
+ * carries a `calc()`.
+ * M6 splits the pair: the light rule uses `hueLight × strengthLight`, the dark
+ * rule `hueDark × strengthDark` — two independent controls, because the user's
+ * final colour call is different in each scheme (浅色 柔和 @90 / 深色 夜空蓝 @100).
+ * @param hueLight - the light ground's hue.
+ * @param strengthLight - the light ground's strength (0-200).
+ * @param hueDark - the dark ground's hue.
+ * @param strengthDark - the dark ground's strength (0-200).
+ * @returns the rules' lines (light first, then the dark override).
+ */
+function groundRules(
+  hueLight: GlowHue,
+  strengthLight: number,
+  hueDark: GlowHue,
+  strengthDark: number,
+): readonly string[] {
+  const lightForm = GLOW_HUE_AT_FULL[hueLight]
+  const darkForm = GLOW_HUE_AT_FULL[hueDark]
+  const light = glowAlphas(strengthLight, hueLight)
+  const dark = darkGlowAlphas(strengthDark, hueDark)
+  return [
+    // M5: the ONE literal colour the sheet owns (see NIGHT_BLUE_TOKEN). It is
+    // declared here, inside the switchable ground segment, so `glow: false` takes
+    // it — and the `night` hue that reads it — with it.
+    '/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the',
+    '   skin owns exactly ONE literal colour, read by the `night` hue. */',
+    'html[data-moonset-skin] {',
+    `  ${NIGHT_BLUE_TOKEN}: ${NIGHT_BLUE_LIGHT};`,
+    '}',
+    'html[data-moonset-skin] body[data-ds-dark-theme] {',
+    `  ${NIGHT_BLUE_TOKEN}: ${NIGHT_BLUE_DARK};`,
+    '}',
+    '/* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the',
+    '   strength is resolved in JS, so every alpha below is a LITERAL percentage. */',
+    'html[data-moonset-skin] body {',
+    '  background:',
+    `    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(${lightForm.light}) ${light.moon}, transparent) 0%, transparent 62%),`,
+    `    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) ${light.warm}, transparent) 0%, transparent 46%),`,
+    `    linear-gradient(165deg, color-mix(in srgb, var(${lightForm.light}) ${light.wash}, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);`,
+    '}',
+    // The dark override. Same gating attribute, plus the host's own dark marker
+    // (`body[data-ds-dark-theme]`, the official design-platform switch), so it
+    // only ever applies to the dark scheme and outranks the light rule there.
+    '/* 0.1.2 ground (dark): ONE indigo hue at three footprints (core, halo,',
+    '   bottom reflection) plus a thinner wash — depth without a second colour. */',
+    'html[data-moonset-skin] body[data-ds-dark-theme] {',
+    '  background:',
+    `    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(${darkForm.dark}) ${dark.core}, transparent) 0%, transparent 26%),`,
+    `    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(${darkForm.dark}) ${dark.moon}, transparent) 0%, transparent 70%),`,
+    `    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(${darkForm.dark}) ${dark.floor}, transparent) 0%, transparent 55%),`,
+    `    linear-gradient(160deg, color-mix(in srgb, var(${darkForm.dark}) ${dark.wash}, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);`,
+    '}',
+  ]
+}
+
+/**
+ * The visibility half: clear the COLOUR of the carriers the scope names.
+ *
+ * `background-color` only — never the `background` shorthand, which would wipe
+ * any image or shadow the host put on the same element — and no layout
+ * property at all (§11.4). The scope is named in the comment so a DevTools
+ * reader can tell which sheet they are looking at.
+ *
+ * The block ends with the M2 底部白带 entry. `[data-composer-seat]` is the very
+ * element the conversation renders its composer seat on (ui-conversation:
+ * `className={…composerSeat}` + `data-composer-seat`), and in the active phase
+ * it paints `linear-gradient(180deg, bg-base 0%, transparent … )` — a mask that
+ * fades the transcript out under the composer. Over the ground that mask reads
+ * as a bright band across the bottom of the conversation (user report), so its
+ * IMAGE is cleared. It cannot be a `background-color` clear (the band IS the
+ * image) and `background: transparent` would also wipe the element's colour and
+ * any other layer, so the one longhand is the narrowest possible fix. Nothing
+ * moves: the seat keeps its size, position and children.
+ * @param scope - the resolved scope.
+ * @returns the rule's lines.
+ */
+function visibilityRules(scope: GlowScope): readonly string[] {
+  const selectors = VISIBILITY_SELECTORS[scope]
+  const last = selectors.length - 1
+  return [
+    `/* 0.1.2 visibility (scope: ${scope}): the host paints bg-base on these`,
+    '   carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */',
+    ...selectors.map((selector, index) => (index === last ? `${selector} {` : `${selector},`)),
+    '  background-color: transparent;',
+    '}',
+    // M2 底部白带: a SECOND entry, because this one clears an IMAGE.
+    '/* 0.1.2 bottom band (M2): the composer seat\'s bg-base mask is an image. */',
+    'html[data-moonset-skin] #root [data-composer-seat] {',
+    '  background-image: none;',
+    '}',
+  ]
+}
+
+/**
+ * The skin's rules, as text — a PURE function of its options only.
  *
  * Pure on purpose: the sheet's exact bytes are the contract the tests pin
  * (`tests/skin.spec.ts` compares them verbatim), so it must not depend on the
  * document, the clock, the palette or the scheme. Scheme-correctness comes from
- * the token the rule references: `--dsw-static-deepseek-500` is the accent
- * anchor (light #4338CA, dark #818CF8), so one rule follows both schemes and
- * every theme switch automatically.
+ * the tokens the rules reference: `--dsw-static-deepseek-500` is the accent
+ * anchor (light #4338CA, dark #818CF8), `--dsw-static-amber-500` is the moon
+ * anchor (#F59E0B in both schemes) and `--dsw-alias-bg-base` is the canvas, so
+ * every rule follows both schemes and every theme switch automatically.
  *
  * The rule mirrors the documentation site's `selection:bg-indigo-500/20`
  * `selection:text-indigo-700` pair: a 22% accent wash with the accent ITSELF as
@@ -122,22 +654,76 @@ export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
  * the same attribute sits on every menu trigger and disclosure, so colouring it
  * would repaint states the skin should not touch.
  *
+ * The 0.1.2 GROUND is one more rule — the whitelist's third entry. It is a
+ * single `background` on `body`, root-gated, three layers above the canvas
+ * token: a low-contrast wash (`linear-gradient(165deg, accent 1.5% → transparent
+ * 70%)`; the left-to-right spread at 1920×1080 is ~1.3/255 in light and
+ * ~1.6/255 in dark, inside the contract's "<= 2/255" band) plus two
+ * viewport-fixed spots — an indigo moon halo at top-centre (16%) and an amber
+ * warm light at the bottom-right (10%). The hues are mixed from
+ * `--dsw-static-deepseek-500` (accent) and `--dsw-static-amber-500` (moon);
+ * no literal colour enters the sheet. The canvas token rides as the colour of
+ * the final layer on purpose: a `background` shorthand resets
+ * `background-color` to transparent, so the base has to be part of the same
+ * declaration or the ground would go see-through.
+ *
+ * The strength factor (M2) is resolved in JS: `glowAlphas(strength)` multiplies
+ * the three full-strength alphas and formats the result as a LITERAL percentage
+ * (`16%`, `8%`, `32%`, `1.5%`), so the sheet carries no `calc()` and no
+ * custom-property hop at all. That is the answer 0.1.2 D2 demanded — catppuccin
+ * measured on Chromium that a value hidden behind an intermediate property does
+ * not recompute when it changes, i.e. the knob "dies" — and it is also why the
+ * sheet is REBUILT (debounced) when the slider moves instead of being re-pointed
+ * through a variable. The ground and the carrier clear are one switchable
+ * segment ({@link groundRules} + {@link visibilityRules}): `glow: false` drops
+ * both, because alpha 0 would still composite (0.1.2 §一, D4).
+ *
+ * M1.5: a ground on `body` is only visible if nothing opaque paints over it,
+ * and on the installed build every carrier surface does — `.frame`,
+ * `.sidebarCol` + SidebarRoot's `.root` (sidebar-fill), `.centerCol` and
+ * `.rightbarCol` on the caption/vibrancy shells, `.bottomRow`, the conversation
+ * root and every global panel page root all carry a `background` (audited in
+ * `AppFrame.module.css`, `SidebarRoot.module.css`,
+ * `ConversationRoot.module.css`, `TaskManagerPage.module.css`). `html` and
+ * `#root` are transparent (no host rule, no inline write), so the ground is
+ * painted and was simply buried. The visibility block clears `background-color`
+ * on exactly the carriers the user's SCOPE selects (A/B/C, see
+ * {@link VISIBILITY_SELECTORS}) and stops there: the surfaces inside them
+ * (cards, bubbles, code blocks, the composer card, menu popovers) keep their own
+ * paint. The doc block above `groundRules` carries the audited chain, the bundle
+ * evidence for the anchors, the exact cleared/kept lists per scope and why the
+ * selectors do not count levels.
+ *
+ * It is the ONE place where §11.4's "no structural selector" gives way, and it
+ * gives way for the reason this layer exists at all: those surfaces carry no
+ * stable attribute — `data-global-panel` sits on the main panel only while a
+ * global panel is open, and `.frame` / `.centerCol` / `.root` are hashed class
+ * names. Structure (`#root`, the shell's fixed mount point in `index.html`)
+ * plus the two renderer/app anchors (`[data-slot='main']`, and the conversation's
+ * `[data-composer-seat]` as an independent second address) are the only stable
+ * handles. No wildcard, no class name, no `!important`, no layout property —
+ * and it rides the SAME switch as the ground: `glow: false` drops both halves,
+ * so the 0.1.1 sheet is still returned byte-for-byte (D4).
+ *
  * How the exception maps onto §一 P5's whitelist:
  *
  *   `::selection`  text selection — cannot be expressed as a token (see the
  *                   module doc above), so it is the FIRST whitelist entry;
- *   body wash       (0.1.2) surface gradient, also whitelisted;
+ *   body ground     (0.1.2) wash + two fixed spots, also whitelisted;
  *   material faces  (0.1.3) `::before` planes, also whitelisted.
  *
  * The selector is `html body ::selection` (0,0,2) so it outranks a plain
  * `::selection` (0,0,1) from any third-party sheet that happens to set one; the
  * sheet is also appended after the host's sheets, so a same-specificity rule
  * still loses to ours.
+ * @param options - the emit switches (M2): `glow` drops the whole 0.1.2
+ *   segment, `scope` picks the carrier set, `strength` scales the three alphas.
+ *   Omitted means "every layer on, scope all, 100%" — the sheet 0.1.2 shipped.
  * @returns the complete CSS text of the single skin sheet.
  */
-export function skinCss(): string {
-  return [
-    '/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */',
+export function skinCss(options: SkinOptions = {}): string {
+  const rules = [
+    '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
     'html body ::selection {',
     '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
     '  color: var(--dsw-static-deepseek-500);',
@@ -156,7 +742,17 @@ export function skinCss(): string {
     "html[data-moonset-skin] body [data-active='true']::after {",
     '  background: var(--dsw-static-deepseek-500);',
     '}',
-  ].join('\n')
+  ]
+  if (options.glow !== false) {
+    rules.push(...groundRules(
+      options.hueLight ?? DEFAULT_GLOW_HUE_LIGHT,
+      options.strengthLight ?? DEFAULT_GLOW_STRENGTH_LIGHT,
+      options.hueDark ?? DEFAULT_GLOW_HUE_DARK,
+      options.strengthDark ?? DEFAULT_GLOW_STRENGTH_DARK,
+    ))
+    rules.push(...visibilityRules(options.scope ?? DEFAULT_GLOW_SCOPE))
+  }
+  return rules.join('\n')
 }
 
 /**
@@ -232,11 +828,12 @@ function reportFailure(action: string, error: unknown): void {
  * already. Repeated mounts therefore converge to exactly one sheet (P2).
  * @param root - document surface; defaults to the page's own (see
  *   {@link resolveRoot}).
+ * @param options - the M2 emit switches the sheet is built from.
  * @returns whether the document now carries the skin. `false` is the normal
  *   outcome in a non-browser harness, not a failure; the value is diagnostics
  *   only.
  */
-export function mountSkin(root?: SkinRoot): boolean {
+export function mountSkin(root?: SkinRoot, options: SkinOptions = {}): boolean {
   const target = resolveRoot(root)
   if (target === undefined) return false
   try {
@@ -244,11 +841,40 @@ export function mountSkin(root?: SkinRoot): boolean {
     if (target.querySelector(SKIN_SHEET_SELECTOR) !== null) return true
     const sheet = target.createElement('style')
     sheet.setAttribute(SKIN_SHEET_ATTR, '')
-    sheet.textContent = skinCss()
+    sheet.textContent = skinCss(options)
     target.head.appendChild(sheet)
     return true
   } catch (error) {
     reportFailure('mount', error)
+    return false
+  }
+}
+
+/**
+ * Rebuild the sheet in place from new options — the M2 rebuild path.
+ *
+ * The sheet is a SINGLETON (P2), so a control change must not mount a second
+ * one: this finds the existing element and replaces its rule text, which is one
+ * style invalidation and no DOM churn. A document that carries no sheet yet is
+ * mounted with the same options, so the two entry points converge.
+ *
+ * Callers debounce this (the plugin entry uses 150 ms): a slider drag emits a
+ * change per step, and rebuilding per step would re-parse the whole sheet on
+ * every pointer move.
+ * @param options - the resolved M2 switches.
+ * @param root - document surface; defaults to the page's own.
+ * @returns whether a sheet is live afterwards (diagnostics only).
+ */
+export function updateSkin(options: SkinOptions = {}, root?: SkinRoot): boolean {
+  const target = resolveRoot(root)
+  if (target === undefined) return false
+  try {
+    const sheet = target.querySelector(SKIN_SHEET_SELECTOR)
+    if (sheet === null) return mountSkin(target, options)
+    sheet.textContent = skinCss(options)
+    return true
+  } catch (error) {
+    reportFailure('update', error)
     return false
   }
 }
@@ -306,14 +932,22 @@ export function unmountSkin(root?: SkinRoot): boolean {
  * Both branches are idempotent ({@link mountSkin} / {@link unmountSkin} are), so
  * calling it with the same choice twice is free — which is what lets the boot
  * path call it without first asking whether the skin is on.
+ * M2 adds the second half of the policy: a mounted sheet is REBUILT from the
+ * current glow options, so a mode/strength change lands on the same singleton
+ * instead of being ignored because a sheet already exists.
  * @param choice - the stored choice (a queued intent included).
  * @param root - document surface; defaults to the page's own.
+ * @param options - the M2 emit switches (scope, strength, glow).
  * @returns whether the skin is ON after this call (diagnostics only).
  */
-export function syncSkin(choice: MoonsetChoice, root?: SkinRoot): boolean {
+export function syncSkin(choice: MoonsetChoice, root?: SkinRoot, options: SkinOptions = {}): boolean {
   if (choice === 'off') {
     unmountSkin(root)
     return false
   }
-  return mountSkin(root)
+  // Through `updateSkin`, not `mountSkin`: a sheet that is already mounted (the
+  // one `apply()` created) must still pick up the stored M2 options, and a
+  // profile whose section is never opened must end up on exactly the same
+  // sheet as one that touched every control.
+  return updateSkin(options, root)
 }

@@ -406,19 +406,21 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 **零常驻 JS（P1）**：`skin.ts` 里没有 `addEventListener` / `requestAnimationFrame` /
 `ResizeObserver` / `setInterval`；全部登记只有两个时刻——插件激活与卸载。
 
-### 11.3 白名单：允许的四类
+### 11.3 白名单：允许的六类
 
 | 类 | 形状 | 为什么 token 做不到 | 版本 |
 |---|---|---|---|
 | **选区** | `html body ::selection` | UA 伪元素，无 token 座位 | 0.1.1 |
 | **选中项文字色** | 稳定属性钩子上的 `color`（见下表） | 宿主把选中容器的文字色直接写成 `--dsw-alias-label-primary`，值内联在规则里，**不能从一个 token 重新指向** | 0.1.1 |
-| **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
+| **地面渐变** | `html[data-moonset-skin] body { background: … }`（浅色三层）+ `… body[data-ds-dark-theme] { background: … }`（暗色四层，同一靛蓝色相） | 多层图层 + 视口固定 + 两套方案，单 token 装不下 | 0.1.2 / M3 |
+| **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
+| **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `night` 色相读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.1，全表三条规则，19 行）：
+当前登记（0.1.2 + M1.5…M6，全表九条规则，55 行 / C 档 57 行）：
 
 ```css
-/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */
+/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
 html body ::selection {
   background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);
   color: var(--dsw-static-deepseek-500);
@@ -437,6 +439,42 @@ html[data-moonset-skin] body [aria-pressed='true'] {
 html[data-moonset-skin] body [data-active='true']::after {
   background: var(--dsw-static-deepseek-500);
 }
+/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the
+   skin owns exactly ONE literal colour, read by the `night` hue. */
+html[data-moonset-skin] {
+  --dsh-moonset-night: #2563EB;
+}
+html[data-moonset-skin] body[data-ds-dark-theme] {
+  --dsh-moonset-night: #60A5FA;
+}
+/* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the
+   strength is resolved in JS, so every alpha below is a LITERAL percentage. */
+html[data-moonset-skin] body {
+  background:
+    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 8.06%, transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) 2.7%, transparent) 0%, transparent 46%),
+    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 0.76%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
+}
+/* 0.1.2 ground (dark): ONE indigo hue at three footprints (core, halo,
+   bottom reflection) plus a thinner wash — depth without a second colour. */
+html[data-moonset-skin] body[data-ds-dark-theme] {
+  background:
+    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsh-moonset-night) 12%, transparent) 0%, transparent 26%),
+    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsh-moonset-night) 20%, transparent) 0%, transparent 70%),
+    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsh-moonset-night) 4%, transparent) 0%, transparent 55%),
+    linear-gradient(160deg, color-mix(in srgb, var(--dsh-moonset-night) 1%, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);
+}
+/* 0.1.2 visibility (scope: main): the host paints bg-base on these
+   carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */
+html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),
+html[data-moonset-skin] #root :has([data-composer-seat]),
+html[data-moonset-skin] #root [data-slot='main'] > div {
+  background-color: transparent;
+}
+/* 0.1.2 bottom band (M2): the composer seat's bg-base mask is an image. */
+html[data-moonset-skin] #root [data-composer-seat] {
+  background-image: none;
+}
 ```
 
 三个选择上的理由：
@@ -454,6 +492,143 @@ html[data-moonset-skin] body [data-active='true']::after {
 3. **选择器 `html body ::selection`（0,0,2）**：压过任何第三方 `::selection`
    （0,0,1）；表又是在宿主样式之后插入的，同特异性也赢。宿主 9 张表零命中，所以
    当前没有实战冲突（D2 的兜底留在这里）。
+
+**地面渐变（0.1.2，第三条）**：`html[data-moonset-skin] body` 上**一条** `background`，
+三层（顶→底）：靛蓝月晕 `radial-gradient(ellipse at 50% -10%, accent 16% → transparent 62%)`、
+琥珀暖光 `radial-gradient(ellipse at 92% 88%, amber 10% → transparent 60%)`、wash
+`linear-gradient(165deg, accent 1.5% → transparent 70%)`。最后一层的颜色是画布 token
+`--dsw-alias-bg-base`——`background` 简写会把 `background-color` 重置成透明，地面必须
+在同一条声明里带上底色，否则画布会漏底。颜色全部由 `--dsw-static-deepseek-500`
+（accent）与 `--dsw-static-amber-500`（moon）同 `transparent` 混出，没有字面色。wash 的
+左右两端横向差（1920×1080 视口）：浅 **1.34/255** / 暗 **1.62/255**，落在契约的
+「≤2/255」带内；两枚光斑固定视口，多面板各读到不同切片（D1：接受，0.1.3 做玻璃时一起调，
+本轮不加 blur、不加第二张表）。
+
+**强度内联，不进中间变量**：每个 `color-mix()` 的 alpha 写成 `calc(16% * 1)`，`1` 是
+M1 的常量 100%；M2 只要把 `1` 换成 `var(--dsh-moonset-glow-strength, 1)`，表达式形状
+不变。把乘式预先算进一个中间 custom property 再让 `background` 引用是**错的**：
+catppuccin 在 Chromium 上实测过「性质失效传播不重算」，旋钮会失灵（0.1.2 D2）。本仓库另用
+Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength, 1))` 在 1→2 时计算值
+从 alpha 0.16 变 0.32（`color-mix` 里允许 `calc()` 百分比），所以 M2 的代入路径成立。
+
+**开关 = 整条规则消失**：地面在 `skinCss()` 里是独立一段（`GLOW_RULES`），
+`skinCss({ glow: false })` 返回 0.1.1 那张 19 行的表——不是 alpha 归零（0 alpha 仍参与
+合成，0.1.2 §一）。M2 只需把这个选项接到 `Config`，不用再拆规则。
+
+**M2 / M3：地面范围（A/B/C）、开关与强度**：三个 volatile 字段（`glowScope` / `glow` /
+`glowStrength`）与 `choice` 同一个表单、同一个 300 ms 写防抖；样式表在**控制变化后**
+150 ms 重建（`SKIN_REBUILD_MS`，不是逐帧），走 `updateSkin()` 原地替换单例表的内容。
+**默认档 M3 起是 B `main`**（真机对比后用户拍板：B 最协调），C 仍可选。三档是**嵌套**的，
+各自清哪些承载层见 §11.3 上表：
+
+| 档 | 额外清掉的承载层 | 侧栏 | 底部 |
+|---|---|---|---|
+| A `conversation` | — | 保留自己的面 | 保留 |
+| B `main`（默认，M3 起） | 外壳与三列（`:has([main, sidebar, rightbar])`） | 保留 `sidebar-fill` 内层 | 保留 |
+| C `all` | B + 侧栏内层 + 底部单元 | 透出地面 | 透出地面 |
+
+**强度在 JS 里算，CSS 只收字面百分比**：`glowAlphas(strength, hue)` / `darkGlowAlphas(strength, hue)`
+把 100% 那一行乘上系数（强度 × 色相乘数）再格式化成 `24%` / `2.25%` 这样的字面百分比，所以表里
+永远没有 `calc()`、也没有「藏在中间 custom property 里」的值（0.1.2 D2 的教训）。开关关闭时整段
+（两套地面 + 清理 + 底部遮罩 + 锚点）一起消失，仍是 0.1.1 那张 19 行的表。
+
+**M3：重新配比 + 暗色独立一套**。真机两轮反馈逼出来的三处改动：
+
+1. **琥珀退成点缀（浅色）**：16% : 10% 时琥珀在近白底上最亮，用户要把它拖到 50% 才觉得紫是主角；
+   改成 16% : 6% 仍「太抢」，最终 **16% : 3%**（≈5.3:1），并把椭圆压到 `97% 97%` 角上、
+   `transparent` 收到 46%——它现在只是右下角一点暖意，碰不到画面中部。
+2. **暗色不再单调，且只用一种靛蓝**：用户先嫌「深色太单调」，看到紫罗兰层后又说「不要紫罗兰那层」。
+   最终暗色是**同一色相三层**（+ wash）：小而紧的**核心** `circle at 34% 2%`（`deepseek-400` 12%，
+   `transparent 26%`）、它下面大而柔的**月晕** `ellipse at 50% -6%`（同 token 20%，`transparent 70%`）、
+   以及底部极弱的**反光** `ellipse at 50% 104%`（同 token 4%，`transparent 55%`），wash 用 `deepseek-400` 1%。
+   核心画在月晕之上，两者叠加处更亮，于是读成「月亮本体 + 外圈光」。暗色**不用琥珀**：底部反光已经
+   让下半屏不发死黑，而暖色正是浅色反馈要求收掉的东西。四层都在**同一条 `background`** 里，颜色全部来自
+   `--dsw-static-*` token。
+3. **行数预算 40 → 60**：暗色多一层（四层 vs 三层），仍是单表、根属性门控、无 `calc()`、无 `!important`、
+   无通配；`glow: false` 同时抹掉两套地面（有测试逐字比对 0.1.1 那张表）。
+
+**强度表**（JS 按字面百分比拼，浅/暗各自一套）：浅色 0/50/100/150/200 → 月晕 0/8/16/24/32、琥珀
+0/1.5/3/4.5/6、wash 0/0.75/1.5/2.25/3；暗色 → 月晕 0/10/20/30/40、核心 0/6/12/18/24、反光 0/2/4/6/8、
+wash 0/0.5/1/1.5/2。
+
+**M6：深/浅两套光晕（当前形态）**。真机最终结论：**浅色 = 柔和 @ 90%**、**深色 = 夜空蓝 @ 100%**。
+用户在同一套色相的两个方案之间看不出区别，所以色相与强度都拆成浅/深各一个 volatile 字段：
+
+| 字段 | 取值 | 默认 |
+|---|---|---|
+| `glowHueLight` | `accent` / `soft` / `night` | **`soft`** |
+| `glowStrengthLight` | 0–200 | **90** |
+| `glowHueDark` | `accent` / `soft` / `night` | **`night`** |
+| `glowStrengthDark` | 0–200 | **100** |
+
+**三档色相**（M4 的五档删掉两档：`accentDark` / `accentSoftDark` 在两个方案里像素级重复，
+用户判为冗余）：
+
+| 值 | 按钮文案 | 浅色 token | 暗色 token | alpha 乘数 |
+|---|---|---|---|---|
+| `accent` | 强调 | `--dsw-static-deepseek-500` | `--dsw-static-deepseek-400` | 1 |
+| `soft` | 柔和 | 同 `accent` | 同 `accent` | **0.56** |
+| `night` | 夜空蓝 | `var(--dsh-moonset-night)` = `#2563EB` | `var(--dsh-moonset-night)` = `#60A5FA` | 1 |
+
+**渲染规则**：浅色地面 = `glowHueLight × glowStrengthLight`（100% 基准：月晕 16%（M3 起）、wash 1.5%、
+琥珀 3%）；深色地面 = `glowHueDark × glowStrengthDark`（100% 基准：月核 12 / 月晕 20 / 底部反光 4 /
+wash 1）。两套**完全独立**：动其中一套的任何一个旋钮，另一套的规则文本一个字都不变（有测试逐字
+比对）。琥珀只出现在浅色、只随 `glowStrengthLight` 缩放；色相乘数只作用于色相层（浅色月晕 + wash、
+暗色三层 + wash）。设置区是两行分组（浅色光晕 / 深色光晕），每组三个色相按钮 + 一个 0–200 的滑块
+（step 10，右侧百分比）。行数仍是 55（只换 token 名与 alpha 字面量）。
+
+**`night` 为什么自带一个字面色（M5，§11.3 第五类）**：这张 228 键表里没有任何一处能当
+「夜空蓝」用——`--dsw-static-blue-500` = `#4F46E5`（浅）/ `#818CF8`（暗）、`blue-600` =
+`#413BB9` / `#6B74CE`，**全是靛**（官方阶梯被本调色板重新映射过）；`deepseek-*` 就是强调色
+本身；`violet-400` 更紫；`sky` / `cyan` 家族在表里根本不存在。所以皮肤层自己带一个锚点：
+
+```css
+html[data-moonset-skin] { --dsh-moonset-night: #2563EB; }
+html[data-moonset-skin] body[data-ds-dark-theme] { --dsh-moonset-night: #60A5FA; }
+```
+
+这是**整张皮肤表里唯一的两个字面色**，且**只被 `night` 消费**：两处声明之外，规则里出现的任何
+颜色都必须是 token（`tests/skin.spec.ts` 的白名单断言：整张表恰好两个 `#` 字面量，梯度里不许
+直接写它们）。锚点放在可关闭的地面段里，所以 `glow: false` 会连同它一起消失。
+
+**底部白带（M2 修）**：用户报 C 模式底部有一条亮带。定位到宿主在会话列底部画的遮罩带：
+`ConversationRoot.module.css` 的 `.root[data-phase='active'] .composerSeat` 用
+`linear-gradient(180deg, color-mix(bg-base 0%, transparent) 0px, bg-base 36px)` 把转写
+淡出到 `bg-base`；地面透出来后它就成了横跨会话列的浅色带。承载它的元素正是
+`ui-conversation` 渲染的 `className={…composerSeat}` + `data-composer-seat`（安装态
+`dsh-client-ui-conversation/lib/client.js` 同一行内两个属性），所以能用稳定属性命中；
+**只清它的 `background-image`**（band 本身是 image，`background-color` 清不掉它；而
+`background` 简写会连色/阴影一起抹掉）。输入卡、正文、卡片一律不碰。
+
+**地面可见性（0.1.2 M1.5，第三条的另一半）**：M1 把光晕画在 `body` 上，但真机「完全看不到」——因为宿主把 `--dsw-alias-bg-base` 画在它上面三层。安装态 0.2.2-rc.5 的 DOM 链（从 bundle 读出，不是按类名推测）：
+
+```text
+body
+ > #root                    ← 壳的 React 容器（web-frontend bundle 里的 getElementById('root')）
+ > div[data-slot='root']    ← display:contents，RootOutlet 的锚点
+ > div.frame                ← background: bg-base（Windows 下是 sidebar-fill）
+ > div.centerCol            ← [data-windows-titlebar] 下是 bg-base
+ > div.mainPanel            ← 无背景
+ > div[data-slot='main']    ← display:contents，SlotOutlet 的锚点
+ > div.root                 ← background: bg-base，会话根
+```
+
+`html` 与 `#root` 都**没有**背景（宿主样式表零命中，也没有内联写入），所以 `body` 的背景会传播到画布、地面确实在画——只是被上面这些承载层盖住。规则只写 **`background-color: transparent`**（不是 `background` 简写：宿主可能在同一元素上放了 image 或阴影，简写会一并抹掉），且不碰任何布局属性。
+
+**范围是用户拍板的「方案 C 全透」**：不只会话列。判据一条——**只清「铺满一列或一屏」的承载层，不清「包住一小块内容」的容器**。下表就是 C 模式下面面透的清单（也是「哪些面会透」的验收口径）：
+
+选择器**不数层级**。锚点由**渲染器**发出：`dsh-client-ui-renderer/lib/client.js` 里 `SlotOutlet` 渲染 `{"data-slot": slotKey}`、`RootOutlet` 渲染 `{"data-slot": 'root'}`，两者都带 `ANCHOR_STYLE = { display: 'contents' }`；而 `ui-layout` 只调用 `renderSlot('main', …)`——**在 layout bundle 里 grep `data-slot` 是零命中，这不能证明 DOM 里没有**（M1.5 首版正是这么误判过一次，见 §八 证据日志）。两个 `display:contents` 锚点意味着深度是渲染器细节，随时可能多或少于一层包装，所以用**包含关系**取祖先：
+
+| 面 | 宿主现在由谁画 | 清它的选择器 |
+|---|---|---|
+| 外壳 `.frame`、三列 `.sidebarCol` / `.centerCol` / `.rightbarCol`、主面板 `.mainPanel` | `bg-base`（Windows 下 `.frame` 是 `sidebar-fill`、`.centerCol` 是 `bg-base`；darwin 下 `.centerCol` / `.rightbarCol` 是 `bg-base`） | `:has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` —— 包含任一外壳槽锚点的都是承载层 |
+| 会话列（`.root` 及其容器） | `bg-base` | `:has([data-composer-seat])` + `[data-slot='main'] > div` |
+| 侧栏 | `.sidebarCol` 与 `SidebarRoot` 的 `.root` **各画一层** `--dsw-specific-sidebar-fill` | 前者由外壳选择器覆盖，后者由 `[data-slot='sidebar'] > div` 清 |
+| 底部栏 `.bottomRow` | `bg-base` | `:has(> [data-slot='shell.bottom'])`（该槽锚点是它的直接子节点） |
+| 全局面板页（设置 / 插件 / 任务） | 面板 page 根画 `bg-base` | `[data-slot='main'] > div`；`[data-global-panel]` 只在面板打开时存在，不是稳定拼写，故不用它定位 |
+| **不清**（内容面） | 卡片、消息气泡、代码块、输入卡、右栏内的终端/文件树等 pane、菜单弹层（menu 挂在 `body` 上，根本不在 `#root` 里） | — |
+
+后代永远不可能是自己祖先的祖先，所以 `:has()` 那几条永远不会命中卡片、消息或代码块；两条 `> div` 只取锚点的**直接子节点**（承载根），也不再往下数层级。
 
 **选中项文字色这一条的前因**：0.1.1 首验把选中行底色换成淡紫之后，文字仍是墨色
 （宿主用 `--dsw-alias-label-primary` 写在选中容器上），观感是「紫底黑字」。任务列表、
@@ -518,22 +693,31 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
   `padding` / `overflow` 一律不许；
 - **碰宿主 DOM 结构**：不增删宿主节点、不注入 `html.style` / `body.style`、不用
   结构性选择器「修」宿主组件；允许的 DOM 写只有两笔——根上摘挂一个属性、head 里
-  增删一张表（`unmount` 之后零残留）；
+  增删一张表（`unmount` 之后零残留）。**唯一例外**是 §11.3 第四类「地面可见性」：
+  结构性选择器只允许出现在那一条里，只允许用 `#root` 与 `[data-slot]` /
+  `[data-composer-seat]` 定位（可直接取槽锚点的父/子一层，但不再往下数层级），
+  只允许写 `background-color: transparent`（唯二例外是 M2 的底部遮罩带：允许一条
+  `background-image: none`，因为它本身就是 image），范围止于「铺满一列或一屏」的
+  承载层，并且随 `glow: false` 一并消失；借它改结构、尺寸或位置仍然是回退；
 - **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
 - **堆第二张表**：要扩就改 `skinCss()`，两处声明就是两份真相（P2）；
 - **写死颜色**：白名单里的每个颜色必须由 `var(--dsw-*)` 混出，否则跟随/主题切换会掉队
-  （P5）。
+  （P5）。**唯一例外**是 §11.3 第五类「色相锚点」的 `--dsh-moonset-night`：它只能出现在
+  那两条声明里（浅 `#2563EB` / 暗 `#60A5FA`），只能被 `nightBlue` 以 `var()` 读取，地方一律
+  不许出现 `#` 开头的字面颜色（有白名单断言钉住）；
 
 ### 11.5 新增一条白名单项的门槛
 
 1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
-2. 规则总数 ≤ 20 行、单选择器、无 `!important`、无 `@media`；
+2. 全表 ≤ 40 行（0.1.2 起；单条新增仍 ≤ 20 行）、单选择器、无 `!important`、无 `@media`；
 3. 颜色只从 token 混出；
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（12 条：挂载、单例、逐字 CSS、
-预算、装饰色取自 token、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与
-fiber teardown 卸载）；`src/client/index.ts` 的 `moonset: skin sheet` effect；
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（53 条：挂载、单例、逐字 CSS、
+预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
+开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
+`src/client/index.ts` 的
+`moonset: skin sheet` effect；
 生成器的 `TOKEN_OVERRIDES`（选中行 token 侧）；安装态 0.2.2-rc.5 的 9 张主题样式表
 `::selection` 0 命中。

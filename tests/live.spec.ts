@@ -5,6 +5,7 @@ import { STATUS_SEPARATOR, describeState, type MoonsetChoice } from '../src/clie
 import { RESTORE_WINDOW_MS, WRITE_DEBOUNCE_MS } from '../src/client/durable'
 import { apply } from '../src/client/index'
 import { en, zh, type MoonsetLocaleKey } from '../src/client/locales'
+import { GLOW_HUES, GLOW_SCOPES, type GlowHue, type GlowScope } from '../src/client/skin'
 import {
   MoonsetSection,
   type MoonsetSectionFace,
@@ -522,20 +523,63 @@ const LABELS: MoonsetSectionProps['labels'] = {
     { value: 'dark', label: zh['option.dark'] },
     { value: 'follow', label: zh['option.follow'] },
   ],
+  // M2: the glow block, built the way `sectionLabels` builds it — the scope
+  // buttons are derived from GLOW_SCOPES, so an added scope shows up here too.
+  glowTitle: zh['glow.title'],
+  glowOn: zh['glow.on'],
+  glowOff: zh['glow.off'],
+  scopeTitle: zh['glow.scope.title'],
+  scopeOptions: GLOW_SCOPES.map((scope) => ({
+    value: scope,
+    label: zh[`glow.scope.${scope}` as MoonsetLocaleKey],
+  })),
+  strengthTitle: zh['glow.strength'],
+  lightTitle: zh['glow.light.title'],
+  darkTitle: zh['glow.dark.title'],
+  hueOptions: GLOW_HUES.map((hue) => ({
+    value: hue,
+    label: zh[`glow.hue.${hue}` as MoonsetLocaleKey],
+  })),
+  hint: zh['glow.hint'],
+}
+
+/** The three M2 fields a view carries, at their contract defaults (M3: B `main`). */
+const GLOW_FIELDS: Pick<
+  MoonsetSectionView,
+  'glowScope' | 'glow' | 'glowHueLight' | 'glowStrengthLight' | 'glowHueDark' | 'glowStrengthDark'
+> = {
+  glowScope: 'main',
+  glow: true,
+  glowHueLight: 'soft',
+  glowStrengthLight: 90,
+  glowHueDark: 'night',
+  glowStrengthDark: 100,
 }
 
 /**
  * Mount the real component over a controllable view + subscription.
- * @param spec - the view to read and the pick callback to record.
+ * @param spec - the view to read plus the callbacks to record (M2 adds three).
  * @returns the mount plus the listener set its subscription fills.
  */
 function mountSection(spec: {
   readonly view: () => MoonsetSectionView
   readonly onPick?: (choice: MoonsetChoice) => void
+  readonly onScope?: (scope: GlowScope) => void
+  readonly onToggleGlow?: (next: boolean) => void
+  readonly onHueLight?: (hue: GlowHue) => void
+  readonly onStrengthLight?: (next: number) => void
+  readonly onHueDark?: (hue: GlowHue) => void
+  readonly onStrengthDark?: (next: number) => void
 }): { mount: HookMount; listeners: Set<() => void> } {
   const listeners = new Set<() => void>()
   const props: MoonsetSectionProps = {
     onPick: spec.onPick ?? (() => {}),
+    onScope: spec.onScope ?? (() => {}),
+    onToggleGlow: spec.onToggleGlow ?? (() => {}),
+    onHueLight: spec.onHueLight ?? (() => {}),
+    onStrengthLight: spec.onStrengthLight ?? (() => {}),
+    onHueDark: spec.onHueDark ?? (() => {}),
+    onStrengthDark: spec.onStrengthDark ?? (() => {}),
     labels: LABELS,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
@@ -591,7 +635,7 @@ describe('M5.3 describeState — 状态行是纯函数', () => {
 
 describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => {
   it('moves the highlight on the click itself, and re-seeds from read() after a remount', () => {
-    let view: MoonsetSectionView = { choice: 'light', status: 'mock' }
+    let view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
     const picks: string[] = []
     const { mount, listeners } = mountSection({
       view: () => view,
@@ -609,7 +653,7 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
 
     // The Host stores the choice and REMOUNTS the section (a settings write
     // re-derives its scope forms). The new mount seeds from read().
-    view = { choice: 'follow', status: 'mock' }
+    view = { choice: 'follow', status: 'mock', ...GLOW_FIELDS }
     const remount = mountSection({ view: () => view })
     expect(pressedLabel(remount.mount.mount())).toBe(zh['option.follow'])
     remount.mount.unmount()
@@ -618,14 +662,14 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
 
     // And a STALE read seeds the old value again: the component keeps no
     // private copy that could outlive the remount (that copy was the M5 bug).
-    view = { choice: 'light', status: 'mock' }
+    view = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
     const stale = mountSection({ view: () => view })
     expect(pressedLabel(stale.mount.mount())).toBe(zh['option.light'])
     stale.mount.unmount()
   })
 
   it('binds the view on mount and releases it on unmount, for both sources', () => {
-    let view: MoonsetSectionView = { choice: 'off', status: 'A' }
+    let view: MoonsetSectionView = { choice: 'off', status: 'A', ...GLOW_FIELDS }
     const { mount, listeners } = mountSection({ view: () => view })
     const tree = mount.mount()
     // The effect ran once, on mount.
@@ -633,7 +677,7 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
     expect(statusLine(tree)).toBe('A')
 
     // Either source — a durable change or a theme/change — pushes a re-read.
-    view = { choice: 'follow', status: 'B' }
+    view = { choice: 'follow', status: 'B', ...GLOW_FIELDS }
     for (const listener of [...listeners]) listener()
     expect(statusLine(mount.update())).toBe('B')
 
@@ -641,7 +685,7 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
     // cannot reach the (now absent) section.
     mount.unmount()
     expect(listeners.size).toBe(0)
-    view = { choice: 'off', status: 'C' }
+    view = { choice: 'off', status: 'C', ...GLOW_FIELDS }
     for (const listener of [...listeners]) listener()
     expect(statusLine(mount.update())).toBe('B')
   })
@@ -821,6 +865,221 @@ describe('M5.3 跟随自愈 — 覆盖层与偏好各修一处', () => {
       expect(seen).toHaveLength(1)
     } finally {
       unload(harness)
+    }
+  })
+})
+
+// ── M6: 浅色 / 深色两组光晕 ─────────────────────────────────────────────────
+
+describe('M6 设置区 — 浅色 / 深色两组光晕', () => {
+  /** The two group headings, in document order. */
+  function groupTitles(tree: unknown): string[] {
+    return elementsUnder(tree)
+      .filter((node) => node.type === 'div')
+      .map((node) => textOf(node))
+      .filter((text): text is string => text === LABELS.lightTitle || text === LABELS.darkTitle)
+  }
+
+  /** The six hue buttons, in document order (light group, then dark group). */
+  function hueButtons(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'button'
+      && LABELS.hueOptions.some((option) => textOf(node) === option.label))
+  }
+
+  /** Both strength sliders, in document order. */
+  function sliders(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'input' && node.props.type === 'range')
+  }
+
+  it('renders two groups, each with three hue buttons and a slider', () => {
+    const view: MoonsetSectionView = {
+      choice: 'light',
+      status: 'mock',
+      ...GLOW_FIELDS,
+      glowStrengthLight: 150,
+      glowHueDark: 'accent',
+    }
+    const { mount } = mountSection({ view: () => view })
+    const tree = mount.mount()
+    try {
+      // A heading per group, in the order the panel shows them.
+      expect(groupTitles(tree)).toEqual([LABELS.lightTitle, LABELS.darkTitle])
+      // Three hues per group, in GLOW_HUES order, twice.
+      expect(hueButtons(tree).map((button) => textOf(button))).toEqual([
+        ...LABELS.hueOptions.map((option) => option.label),
+        ...LABELS.hueOptions.map((option) => option.label),
+      ])
+      // The pressed state is per GROUP: light 柔和 (index 1), dark 强调 (index 3).
+      expect(hueButtons(tree).map((button) => button.props['aria-pressed'])).toEqual([
+        false, true, false,
+        true, false, false,
+      ])
+      // One slider per group, each carrying its own value and the shared bounds.
+      expect(sliders(tree)).toHaveLength(2)
+      expect(sliders(tree).map((input) => input.props.value)).toEqual([150, 100])
+      for (const input of sliders(tree)) {
+        expect(input.props).toMatchObject({ min: 0, max: 200, step: 10 })
+      }
+      // ...and the live percentage beside each one.
+      expect(elementsUnder(tree).some((node) => node.type === 'span' && textOf(node) === '150%')).toBe(true)
+      expect(elementsUnder(tree).some((node) => node.type === 'span' && textOf(node) === '100%')).toBe(true)
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('keeps each group\'s controls inside that group\'s own block', () => {
+    // The grouping is structural, not just two headings over one flat row: each
+    // block must own exactly three hue buttons and one slider.
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const { mount } = mountSection({ view: () => view })
+    const tree = mount.mount()
+    try {
+      // The GROUP block is the smallest div that owns exactly one slider and the
+      // three hue buttons (the outer column owns two sliders; a button row owns
+      // no slider at all).
+      const blocks = elementsUnder(tree).filter((node) => {
+        if (node.type !== 'div') return false
+        const inside = elementsUnder(node)
+        return inside.filter((child) => child.type === 'input' && child.props.type === 'range').length === 1
+          && inside.filter((child) => child.type === 'button').length === LABELS.hueOptions.length
+      })
+      expect(blocks).toHaveLength(2)
+      // Light first, dark second — each with its OWN value and accessible name.
+      const sliderValues = blocks.map((block) => elementsUnder(block)
+        .find((node) => node.type === 'input' && node.props.type === 'range')?.props.value)
+      expect(sliderValues).toEqual([90, 100])
+      for (let index = 0; index < blocks.length; index += 1) {
+        const slider = elementsUnder(blocks[index])
+          .find((node) => node.type === 'input' && node.props.type === 'range')
+        const title = index === 0 ? LABELS.lightTitle : LABELS.darkTitle
+        expect(slider?.props['aria-label']).toBe(title + ' ' + LABELS.strengthTitle)
+        // ...and the group's heading really is inside its own block.
+        const texts = elementsUnder(blocks[index]).map((node) => textOf(node))
+        expect(texts).toContain(title)
+      }
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('calls the group\'s own callbacks and moves only that group', () => {
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const huesLight: GlowHue[] = []
+    const huesDark: GlowHue[] = []
+    const strengthsLight: number[] = []
+    const strengthsDark: number[] = []
+    const { mount } = mountSection({
+      view: () => view,
+      onHueLight: (hue) => { huesLight.push(hue) },
+      onHueDark: (hue) => { huesDark.push(hue) },
+      onStrengthLight: (next) => { strengthsLight.push(next) },
+      onStrengthDark: (next) => { strengthsDark.push(next) },
+    })
+    const tree = mount.mount()
+    try {
+      // The LIGHT group is soft (1); clicking 夜空蓝 there only touches light.
+      const lightNight = hueButtons(tree)[2]
+      ;(lightNight.props.onClick as () => void)()
+      expect(huesLight).toEqual(['night'])
+      expect(huesDark).toEqual([])
+      // Light moved to 夜空蓝 (index 2); dark is untouched (its own GLOW_FIELDS
+      // hue is `night`, also index 2 of that group).
+      const pressed = hueButtons(mount.update()).map((button) => button.props['aria-pressed'])
+      expect(pressed).toEqual([false, false, true, false, false, true])
+      // ...and a dark slider only touches the dark pair (never a string).
+      const darkSlider = sliders(mount.update())[1]
+      const onChange = darkSlider.props.onChange
+      if (typeof onChange !== 'function') throw new Error('the dark slider has no onChange')
+      onChange({ currentTarget: { value: '200' } })
+      expect(strengthsDark).toEqual([200])
+      expect(strengthsLight).toEqual([])
+      expect(view.glowStrengthDark).toBe(100)
+      expect(view.glowStrengthLight).toBe(90)
+    } finally {
+      mount.unmount()
+    }
+  })
+})
+
+// ── M2: 地面范围 / 环境光晕 / 强度 ───────────────────────────────────────────
+
+describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
+  /** The rendered slider (the only range input). */
+  function slider(tree: unknown): FakeElement {
+    const input = elementsUnder(tree).find((node) => node.type === 'input' && node.props.type === 'range')
+    if (input === undefined) throw new Error('the section rendered no strength slider')
+    return input
+  }
+
+  /** The three scope buttons, in document order. */
+  function scopeButtons(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'button'
+      && LABELS.scopeOptions.some((option) => textOf(node) === option.label))
+  }
+
+  it('renders the three scope buttons, the switch and the slider from read()', () => {
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS, glowStrengthLight: 150 }
+    const { mount } = mountSection({ view: () => view })
+    const tree = mount.mount()
+    try {
+      // 地面范围: one button per GLOW_SCOPES value, the live one pressed.
+      const buttons = scopeButtons(tree)
+      expect(buttons.map((button) => textOf(button))).toEqual(LABELS.scopeOptions.map((option) => option.label))
+      expect(buttons.map((button) => button.props['aria-pressed'])).toEqual([false, true, false])
+      // 环境光晕: a pressed toggle carrying the ON word.
+      const toggle = elementsUnder(tree).find((node) => node.type === 'button' && textOf(node) === LABELS.glowTitle + ' ' + LABELS.glowOn)
+      expect(toggle).toBeDefined()
+      expect(toggle?.props['aria-pressed']).toBe(true)
+      // 强度: the range input, its bounds, and the live percentage beside it.
+      expect(slider(tree).props).toMatchObject({ min: 0, max: 200, step: 10, value: 150 })
+      const percent = elementsUnder(tree).find((node) => node.type === 'span' && textOf(node) === '150%')
+      expect(percent).toBeDefined()
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('calls onScope / onToggleGlow / onStrengthLight and moves its own view at once', () => {
+    let view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const scopes: GlowScope[] = []
+    const toggles: boolean[] = []
+    const strengths: number[] = []
+    const { mount } = mountSection({
+      view: () => view,
+      onScope: (scope) => { scopes.push(scope) },
+      onToggleGlow: (next) => { toggles.push(next) },
+      onStrengthLight: (next) => { strengths.push(next) },
+    })
+    const tree = mount.mount()
+    try {
+      // A scope click: the handler sees the value, and the pressed state moves in
+      // THIS render even though read() has not moved yet (the same optimism as
+      // the theme buttons).
+      press(tree, zh['glow.scope.conversation'])
+      expect(scopes).toEqual(['conversation'])
+      // The store still says the default (M3: B `main`); only the view moved.
+      expect(view.glowScope).toBe('main')
+      const pressedScopes = scopeButtons(mount.update())
+        .filter((button) => button.props['aria-pressed'] === true)
+        .map((button) => textOf(button))
+      expect(pressedScopes).toEqual([zh['glow.scope.conversation']])
+
+      // The glow toggle flips off and says so.
+      press(tree, LABELS.glowTitle + ' ' + LABELS.glowOn)
+      expect(toggles).toEqual([false])
+      const off = elementsUnder(mount.update()).find((node) => node.type === 'button' && textOf(node) === LABELS.glowTitle + ' ' + LABELS.glowOff)
+      expect(off).toBeDefined()
+      expect(off?.props['aria-pressed']).toBe(false)
+
+      // The slider hands the parsed number over (never a string).
+      const onChange = slider(mount.update()).props.onChange
+      if (typeof onChange !== 'function') throw new Error('the slider has no onChange')
+      ;(onChange as (event: unknown) => void)({ currentTarget: { value: '150' } })
+      expect(strengths).toEqual([150])
+      expect(elementsUnder(mount.update()).some((node) => node.type === 'span' && textOf(node) === '150%')).toBe(true)
+    } finally {
+      mount.unmount()
     }
   })
 })

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * 0.1.1 skin layer: one root attribute, one injected sheet, and the exact rules.
+ * 0.1.1–0.1.2 skin layer: one root attribute, one injected sheet, and the exact rules.
  *
  * The cases are grouped by contract rather than by function:
  *
@@ -8,8 +8,16 @@
  *    `<style data-dsh-moonset-skin>` in the head (P2: a second sheet would fight
  *    the first, and the winner would depend on document order);
  *  - THE SHEET — the CSS text is the contract: byte-for-byte, inside the
- *    whitelist budget (<= 20 lines, no layout properties), and every colour
+ *    whitelist budget (<= 40 lines, no layout properties), and every colour
  *    comes from a `--dsw-*` token rather than a literal (P5);
+ *  - GROUND — the 0.1.2 wash + two viewport-fixed spots: root-gated, token-only,
+ *    both radial layers at their contract alphas, the strength factor inlined,
+ *    and the WHOLE rule absent when the (M2) switch says off;
+ *  - VISIBILITY — M1.5: the host's opaque layers in front of the ground (the
+ *    frame, the centre column, the conversation root) get
+ *    `background-color: transparent`, addressed by CONTAINMENT on two
+ *    independent anchors — the renderer's `[data-slot='main']` and the
+ *    conversation's `[data-composer-seat]` — never by counting depth;
  *  - SELECTED ITEMS — the selected row's LABEL is the accent, hooked on the four
  *    stable attributes the real UI renders (never a host class name), root-
  *    gated so it outranks the host's own selected-tab colour, and readable on
@@ -20,8 +28,8 @@
  *  - CHOICE — the sheet is not unconditional: `off` (the official theme) takes it
  *    off from all three paths that learn a choice (boot restore, our section's
  *    pick, the official-Appearance mirror);
- *  - TOKENS — the colours the rule reads are the palette's own accent, i.e. the
- *    sheet follows the theme instead of duplicating it.
+ *  - TOKENS — the colours the rules read are the palette's own accent / moon /
+ *    canvas anchors, i.e. the sheet follows the theme instead of duplicating it.
  *
  * No DOM implementation is involved (this repo carries none — PLAN §九 已知债):
  * `skin.ts` is written against a structural surface, and the stub below models
@@ -33,16 +41,36 @@ import { readFileSync } from 'node:fs'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { BOOT_SHEET_SELECTOR } from '../src/client/boot-cleanup'
-import { apply } from '../src/client/index'
+import { SKIN_REBUILD_MS, apply } from '../src/client/index'
 import { MOONSET_DARK, MOONSET_LIGHT, MOONSET_TOKEN_OVERRIDES } from '../src/client/palettes'
 import {
+  DEFAULT_GLOW_HUE_DARK,
+  DEFAULT_GLOW_HUE_LIGHT,
+  DEFAULT_GLOW_SCOPE,
+  DEFAULT_GLOW_STRENGTH_DARK,
+  DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLOW_ALPHA_AT_FULL,
+  GLOW_HUES,
+  GLOW_HUE_AT_FULL,
+  GLOW_SCOPES,
+  GLOW_STRENGTH_MAX,
+  GLOW_STRENGTH_MIN,
   SKIN_ATTR,
   SKIN_SHEET_ATTR,
+  NIGHT_BLUE_TOKEN,
   SKIN_SHEET_SELECTOR,
+  darkGlowAlphas,
+  glowAlphas,
   mountSkin,
+  resolveGlowHue,
+  resolveGlowScope,
+  resolveGlowStrength,
   skinCss,
   syncSkin,
   unmountSkin,
+  updateSkin,
+  type GlowHue,
+  type GlowScope,
   type SkinRoot,
   type SkinSheetElement,
 } from '../src/client/skin'
@@ -53,14 +81,22 @@ const board = JSON.parse(readFileSync(BOARD_URL, 'utf8')) as Record<'light' | 'd
 /** The accent the skin draws from: the static token the palette anchors `accent` to. */
 const ACCENT = '--dsw-static-deepseek-500'
 
+/** The moon anchor: the amber the 0.1.2 warm light is mixed from. */
+const MOON = '--dsw-static-amber-500'
+
+/** The canvas: the base colour under the gradient layers. */
+const CANVAS = '--dsw-alias-bg-base'
+
 /**
- * The complete sheet, restated here verbatim.
+ * The 0.1.1 half of the sheet, restated verbatim.
  *
  * A literal on purpose: this string IS the whitelist entry, so the test has to
  * fail when the production rule is reworded, re-scoped or grows a declaration.
+ * 0.1.2 appends the ground segment below; splitting the halves lets the
+ * switch-off case assert the pre-glow sheet returns byte-for-byte.
  */
-const EXPECTED_CSS = [
-  '/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */',
+const EXPECTED_BASE_CSS = [
+  '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
   'html body ::selection {',
   '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
   '  color: var(--dsw-static-deepseek-500);',
@@ -80,6 +116,75 @@ const EXPECTED_CSS = [
   '  background: var(--dsw-static-deepseek-500);',
   '}',
 ].join('\n')
+
+/** The 0.1.2 segment (night anchor + light ground + dark override), verbatim. */
+const EXPECTED_GLOW_CSS = [
+  '/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the',
+  '   skin owns exactly ONE literal colour, read by the `night` hue. */',
+  'html[data-moonset-skin] {',
+  '  --dsh-moonset-night: #2563EB;',
+  '}',
+  'html[data-moonset-skin] body[data-ds-dark-theme] {',
+  '  --dsh-moonset-night: #60A5FA;',
+  '}',
+  '/* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the',
+  '   strength is resolved in JS, so every alpha below is a LITERAL percentage. */',
+  'html[data-moonset-skin] body {',
+  '  background:',
+  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 8.06%, transparent) 0%, transparent 62%),',
+  '    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) 2.7%, transparent) 0%, transparent 46%),',
+  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 0.76%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
+  '}',
+  '/* 0.1.2 ground (dark): ONE indigo hue at three footprints (core, halo,',
+  '   bottom reflection) plus a thinner wash — depth without a second colour. */',
+  'html[data-moonset-skin] body[data-ds-dark-theme] {',
+  '  background:',
+  '    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsh-moonset-night) 12%, transparent) 0%, transparent 26%),',
+  '    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsh-moonset-night) 20%, transparent) 0%, transparent 70%),',
+  '    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsh-moonset-night) 4%, transparent) 0%, transparent 55%),',
+  '    linear-gradient(160deg, color-mix(in srgb, var(--dsh-moonset-night) 1%, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);',
+  '}',
+  '/* 0.1.2 visibility (scope: main): the host paints bg-base on these',
+  '   carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */',
+  "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),",
+  'html[data-moonset-skin] #root :has([data-composer-seat]),',
+  "html[data-moonset-skin] #root [data-slot='main'] > div {",
+  '  background-color: transparent;',
+  '}',
+  "/* 0.1.2 bottom band (M2): the composer seat's bg-base mask is an image. */",
+  'html[data-moonset-skin] #root [data-composer-seat] {',
+  '  background-image: none;',
+  '}',
+].join('\n')
+
+/** The complete 0.1.2 sheet: the 0.1.1 rules plus the ground. */
+const EXPECTED_CSS = EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS
+
+/** The LIGHT ground rule of one sheet (the night anchor and the dark rule follow). */
+function lightGroundRule(sheet: string): string {
+  const start = sheet.indexOf('html[data-moonset-skin] body {')
+  return sheet.slice(start, sheet.indexOf('}', start) + 1)
+}
+
+/** The DARK ground rule of one sheet (the night anchor rule comes first). */
+function darkGroundRule(sheet: string): string {
+  const groundAt = sheet.indexOf('/* 0.1.2 ground (dark)')
+  const start = sheet.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
+  return sheet.slice(start, sheet.indexOf('}', start) + 1)
+}
+
+/**
+ * The percentage format `skin.ts` emits: at most two decimals, no trailing zeros.
+ *
+ * Restated here so the matrix test derives its expectations from the ARITHMETIC
+ * rather than from a second copy of the numbers (a drifted formatter would fail
+ * every cell instead of passing on a coincidence).
+ * @param value - a percentage.
+ * @returns the CSS percentage token.
+ */
+function percentOf(value: number): string {
+  return String(Math.round(value * 100) / 100) + '%'
+}
 
 
 /* ------------------------------------------------------------------ *
@@ -287,39 +392,82 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 20 lines, three rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 60 lines, nine rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
-    expect(lines.length).toBeLessThanOrEqual(20)
-    // Three blocks: text selection, the selected-item label colour, the
-    // selected tab's underline.
+    // 60 since M3 (the dark composition) — the night anchor pairs add two more
+    // rules without coming close to the ceiling.
+    expect(lines.length).toBeLessThanOrEqual(60)
+    // Nine blocks: text selection, the selected-item label colour, the selected
+    // tab's underline, the night anchor (light), the night anchor (dark), the
+    // light ground, the DARK ground override, the visibility clear, and the M2
+    // bottom-band entry (an image, not a colour).
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(3)
-    expect(css.match(/\}/g)).toHaveLength(3)
-    // Both additive blocks stay well inside the 12-line entry budget.
+    expect(css.match(/\{/g)).toHaveLength(9)
+    expect(css.match(/\}/g)).toHaveLength(9)
+    // Every additive block stays well inside the 12-line entry budget. The two
+    // grounds and the visibility clear are blocks of ONE switchable segment, so
+    // the budget is measured per block, not per segment.
     const selectedStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
     const underlineStart = css.indexOf("html[data-moonset-skin] body [data-active='true']::after")
+    const underlineEnd = css.indexOf('}', underlineStart) + 1
+    const anchorStart = css.indexOf('/* 0.1.2 hue anchor (M5)')
+    const groundStart = css.indexOf('html[data-moonset-skin] body {')
+    const darkStart = css.indexOf('/* 0.1.2 ground (dark)')
+    const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
+    const bandStart = css.indexOf('/* 0.1.2 bottom band (M2)')
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
+    expect(anchorStart).toBeGreaterThan(underlineEnd)
+    expect(groundStart).toBeGreaterThan(anchorStart)
+    expect(darkStart).toBeGreaterThan(groundStart)
+    expect(clearStart).toBeGreaterThan(darkStart)
+    expect(bandStart).toBeGreaterThan(clearStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
-    expect(css.slice(underlineStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(anchorStart, groundStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(groundStart, darkStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(darkStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(clearStart, bandStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(bandStart).split('\n').length).toBeLessThanOrEqual(12)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
   })
 
-  it('takes every colour from a token and writes no literal', () => {
+  it('takes every colour from a token — except the ONE night anchor (M5)', () => {
     const css = skinCss()
 
-    // Every declaration reads the ONE accent token: the wash and the text are
-    // the same colour at different opacities (documentation-site semantics),
-    // and the selected-item label plus the tab underline reuse it.
+    // Every declaration reads a `--dsw-*` token or the skin's own `--dsh-moonset-`
+    // one: the accent at several opacities, the moon anchor for the light glint,
+    // the night anchor for the dark composition, and the canvas under both
+    // grounds. The night anchor is the single exception, and it is a
+    // `var(--dsh-moonset-night)` reference — not a hex — everywhere it is used.
     const tokens = css.match(/var\(--dsw-[a-z0-9-]+\)/g) ?? []
-    expect(new Set(tokens)).toEqual(new Set([`var(${ACCENT})`]))
-    expect(tokens).toHaveLength(4)
-    // Nothing opaque: no hex, no rgb()/hsl() literal anywhere in the sheet.
-    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(new Set(tokens)).toEqual(new Set([
+      `var(${ACCENT})`,
+      `var(${MOON})`,
+      `var(${CANVAS})`,
+    ]))
+    // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
+    // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
+    // ground (night): one canvas. The night anchor refs are counted separately.
+    expect(tokens).toHaveLength(9)
+    expect(css.match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(4)
+    // The anchor is DECLARED in every sheet (it is a custom property, unused by
+    // the other hues) and REFERENCED only by a ground whose hue is `night`.
+    expect(css).toContain('--dsh-moonset-night: #2563EB;')
+    expect(skinCss({ hueDark: 'accent' })).not.toContain('var(--dsh-moonset-night)')
+    expect(skinCss({ hueLight: 'night' }).match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(6)
+    expect(skinCss({ hueDark: 'night' }).match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(4)
+    // THE WHITELIST (M5): the sheet may carry exactly TWO hex literals — the two
+    // declarations of the night anchor, one per scheme, and nothing else.
+    const hexes = [...css.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((match) => match[0])
+    expect(hexes).toEqual(['#2563EB', '#60A5FA'])
+    expect(css).toContain('--dsh-moonset-night: #2563EB;')
+    expect(css).toContain('--dsh-moonset-night: #60A5FA;')
+    // Nothing opaque beyond those two: no rgb()/hsl() literal anywhere.
     expect(css).not.toMatch(/\b(?:rgba?|hsla?)\(/)
   })
 
@@ -414,9 +562,13 @@ describe('skinCss — the whitelisted rules', () => {
       "html[data-moonset-skin] body [aria-pressed='true']",
     ])
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
-    // No class-name hacks, no wildcard subtree selector, no !important.
-    expect(rules).not.toMatch(/\[class|\*=|!important/)
-    expect(rules).not.toContain('*')
+    // No class-name hacks, no wildcard selector, no !important. The `*` in the
+    // ground's calc() products is arithmetic, not a selector, so only selector
+    // text (everything outside a declaration block) is checked for it.
+    const selectorText = rules.replace(/\{[^}]*\}/g, '')
+    expect(selectorText).not.toMatch(/\[class|\*=/)
+    expect(selectorText).not.toContain('*')
+    expect(rules).not.toContain('!important')
     // The rule colours the container and lets the label inherit; muted
     // children (timestamps, summaries) set their own colour and keep it.
     expect(colourBlock).toContain(`color: var(${ACCENT});`)
@@ -469,6 +621,680 @@ describe('skinCss — the whitelisted rules', () => {
   })
 })
 
+/* ------------------------------------------------------------------ *
+ * the 0.1.2 ground                                                    *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
+  /** The ground block: the only root-gated `body { … }` rule in the sheet. */
+  const GROUND_RULE = /html\[data-moonset-skin\] body \{\n([\s\S]*?)\n\}/
+
+  it('paints the ground from tokens only, root-gated, alpha as a literal percentage', () => {
+    // The LIGHT rule with its numbers pinned by explicit options (M6 defaults are
+    // soft @ 90, which would make this a test of the default rather than of the
+    // shape).
+    const css = skinCss({ hueLight: 'accent', strengthLight: 100 })
+    // Exactly one ground block, and it is the root-gated body rule (P2's gate).
+    expect(css.match(/html\[data-moonset-skin\] body \{/g)).toHaveLength(1)
+    const block = GROUND_RULE.exec(css)
+    expect(block).not.toBeNull()
+    const declarations = block![1]
+
+    // Three layers, top-first: the two spots above the wash.
+    expect(declarations.match(/(?:radial|linear)-gradient\(/g)).toEqual([
+      'radial-gradient(',
+      'radial-gradient(',
+      'linear-gradient(',
+    ])
+    // The canvas token rides the LAST layer: a background shorthand resets
+    // background-color, so the base has to be in the same declaration.
+    expect(declarations).toContain('var(--dsw-alias-bg-base)')
+
+    // Colours are tokens mixed with transparent — and M2's strength lands as a
+    // LITERAL percentage computed in JS. No literal colour, no `calc()`, no
+    // intermediate custom property (a property hop is what breaks the knob — D2).
+    expect(declarations).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(declarations).not.toMatch(/\b(?:rgba?|hsla?)\(/)
+    expect(declarations).not.toMatch(/--[a-z0-9-]+\s*:/)
+    expect(declarations).not.toContain('dsh-moonset-glow-strength')
+    const mixes = [
+      ...declarations.matchAll(
+        /color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) ([\d.]+)%, transparent\)/g,
+      ),
+    ]
+    // M3 rebalance, second pass: indigo 16% : amber 3% (≈5.3:1). The amber was
+    // 10%, then 6%, and the user still read it as the subject ("即使 6% 也压过
+    // 靛蓝") — a warm hue at equal alpha is brighter on a near-white canvas.
+    expect(mixes.map((match) => [match[1], Number(match[2])])).toEqual([
+      [ACCENT, 16],
+      [MOON, 3],
+      [ACCENT, 1.5],
+    ])
+    // ...and the three alphas are exactly the light 100% row from skin.ts.
+    expect(mixes.map((match) => Number(match[2]))).toEqual([
+      GLOW_ALPHA_AT_FULL.light.moon,
+      GLOW_ALPHA_AT_FULL.light.warm,
+      GLOW_ALPHA_AT_FULL.light.wash,
+    ])
+    expect(declarations).not.toContain('calc(')
+  })
+
+  it('carries BOTH spots: indigo moon halo top-centre, amber warm light bottom-right', () => {
+    // The LIGHT block only: the dark override is its own composition (asserted
+    // separately below), and mixing the two would count four radials.
+    const css = skinCss({ hueLight: 'accent', strengthLight: 100 })
+    const light = css.slice(css.indexOf('html[data-moonset-skin] body {'), css.indexOf('/* 0.1.2 ground (dark)'))
+    const spots = [
+      ...light.matchAll(
+        /radial-gradient\(ellipse at (\d+)% (-?\d+)%, color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) ([\d.]+)%, transparent\) 0%, transparent (\d+)%\)/g,
+      ),
+    ]
+    expect(spots).toHaveLength(2)
+    const spot = (match: RegExpMatchArray): Record<string, unknown> => ({
+      x: Number(match[1]),
+      y: Number(match[2]),
+      token: match[3],
+      alpha: Number(match[4]),
+      fade: Number(match[5]),
+    })
+    // Top-centre (-10% pulls the halo off the top edge) and the M3 corner: the
+    // warm light sits at 97%/97% and closes at 46%, so it is a glint in one
+    // corner of the canvas rather than a wash across the lower half.
+    expect(spot(spots[0])).toEqual({ x: 50, y: -10, token: ACCENT, alpha: 16, fade: 62 })
+    expect(spot(spots[1])).toEqual({ x: 97, y: 97, token: MOON, alpha: 3, fade: 46 })
+    // Both hues are the board's own anchors in each scheme: no second colour
+    // source, and the warm light is exactly the palette's `moon` role.
+    expect(MOONSET_LIGHT[MOON]).toBe(board.light.moon.toUpperCase())
+    expect(MOONSET_DARK[MOON]).toBe(board.dark.moon.toUpperCase())
+    expect(MOONSET_LIGHT[ACCENT]).toBe(board.light.accent.toUpperCase())
+    expect(MOONSET_DARK[ACCENT]).toBe(board.dark.accent.toUpperCase())
+  })
+
+  it('gives the DARK scheme its own ground: ONE hue, three footprints', () => {
+    // Explicit `accent` for the dark ground: the default is `night`, whose shape
+    // is asserted in the M6 describe.
+    const css = skinCss({ hueDark: 'accent', strengthDark: 100 })
+    // A second ground rule, gated on our root attribute AND the host's own dark
+    // marker (`body[data-ds-dark-theme]`, the official design-platform switch),
+    // so it only applies to the dark scheme and outranks the light rule there.
+    // The marker now appears in TWO rules (this one and the night anchor above),
+    // so the slice starts from the ground comment.
+    const groundAt = css.indexOf('/* 0.1.2 ground (dark)')
+    const start = css.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
+    expect(start).toBeGreaterThan(groundAt)
+    const end = css.indexOf('}', start) + 1
+    const dark = css.slice(start, end)
+    // Four layers, top-first: the tight core, the wide halo under it, the
+    // bottom reflection, and the wash.
+    expect(dark.match(/(?:radial|linear)-gradient\(/g)).toEqual([
+      'radial-gradient(',
+      'radial-gradient(',
+      'radial-gradient(',
+      'linear-gradient(',
+    ])
+    // ONE hue: every coloured layer is `deepseek-400`. The user removed the
+    // violet pass ("不要紫罗兰那层"), so a second token here is a regression —
+    // this is the assertion that keeps the dark ground monochrome.
+    const tokens = new Set([...dark.matchAll(/var\((--dsw-[a-z0-9-]+)\)/g)].map((match) => match[1]))
+    expect(tokens).toEqual(new Set(['--dsw-static-deepseek-400', '--dsw-alias-bg-base']))
+    expect(dark).not.toContain('amber')
+    expect(dark).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(dark).not.toMatch(/\b(?:rgba?|hsla?)\(/)
+    // The composition: a small tight CORE left of centre at the top edge, the
+    // wide soft HALO under it, a weak REFLECTION off the bottom, thinner wash.
+    expect(dark).toContain('circle at 34% 2%, color-mix(in srgb, var(--dsw-static-deepseek-400) 12%, transparent) 0%, transparent 26%')
+    expect(dark).toContain('ellipse at 50% -6%, color-mix(in srgb, var(--dsw-static-deepseek-400) 20%, transparent) 0%, transparent 70%')
+    expect(dark).toContain('ellipse at 50% 104%, color-mix(in srgb, var(--dsw-static-deepseek-400) 4%, transparent) 0%, transparent 55%')
+    expect(dark).toContain('linear-gradient(160deg, color-mix(in srgb, var(--dsw-static-deepseek-400) 1%, transparent) 0%, transparent 75%)')
+    // Both schemes ride the same switch: off is the 0.1.1 sheet.
+    expect(skinCss({ glow: false })).not.toContain('data-ds-dark-theme')
+    // ...and the same strength factor (the dark rows scale too).
+    expect(skinCss({ hueDark: 'accent', strengthDark: 200 })).toContain('var(--dsw-static-deepseek-400) 40%, transparent')
+  })
+
+  it('keeps indigo in charge: the amber never approaches the light hue', () => {
+    // The M3 contract, carried into M6's per-scheme hues: whatever the hue and
+    // the strength, the amber glint is a fraction of the hue layer. `accent` /
+    // `night` are 16:3 (≈5.3:1); `soft` halves only the hue side, so its floor is
+    // ≈3:1 — still the glint, never the subject (the user's 橙黄喧宾夺主 report).
+    for (const hue of GLOW_HUES) {
+      const floor = hue === 'soft' ? 2.5 : 5
+      for (const strength of [GLOW_STRENGTH_MIN, 50, 100, 150, GLOW_STRENGTH_MAX]) {
+        const alphas = glowAlphas(strength, hue)
+        const moon = Number(alphas.moon.replace('%', ''))
+        const warm = Number(alphas.warm.replace('%', ''))
+        if (moon === 0) {
+          expect(warm).toBe(0)
+          continue
+        }
+        expect(moon / warm).toBeGreaterThanOrEqual(floor)
+      }
+    }
+    // ...and the geometry says the same thing: the amber ellipse dies at 46%
+    // while the moon halo runs to 62%, so it cannot reach the middle of the
+    // canvas even at full strength.
+    const css = skinCss()
+    const light = css.slice(css.indexOf('html[data-moonset-skin] body {'), css.indexOf('/* 0.1.2 ground (dark)'))
+    const fades = [...light.matchAll(/0%, transparent (\d+)%\)/g)].map((match) => Number(match[1]))
+    expect(fades).toEqual([62, 46, 70])
+  })
+
+  it('keeps the DARK composition monochrome at EVERY hue: one colour, three footprints', () => {
+    // The violet layer was removed on the user's second pass ("不要紫罗兰那层"),
+    // and M6's hue switch must not reintroduce a second colour: whatever the
+    // user picks, the dark ground reads exactly ONE coloured token plus the
+    // canvas, and the amber never appears in it.
+    for (const hue of GLOW_HUES) {
+      const dark = darkGroundRule(skinCss({ hueDark: hue }))
+      // `--dsh-moonset-*` counts too: the `night` hue's token is the skin anchor.
+      const tokens = new Set([...dark.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((match) => match[1]))
+      expect(tokens.size, hue).toBe(2)
+      expect(tokens).toContain('--dsw-alias-bg-base')
+      expect(dark).not.toContain('amber')
+      // Core brighter than halo, halo wider than core: that is the layering.
+      expect(Number(darkGlowAlphas(100, hue).core.replace('%', '')))
+        .toBeLessThan(Number(darkGlowAlphas(100, hue).moon.replace('%', '')))
+      expect(dark).toContain('circle at 34% 2%')
+      expect(dark).toContain('ellipse at 50% -6%')
+      expect(dark).toContain('ellipse at 50% 104%')
+    }
+  })
+
+  it('drops BOTH grounds — light and dark — when the switch is off', () => {
+    // The switch is not a strength: `glow: false` must leave no dark rule, no
+    // layer and no scope behind, at any strength (0.1.2 D4's pre-glow screen).
+    for (const strength of [GLOW_STRENGTH_MIN, 100, GLOW_STRENGTH_MAX]) {
+      const off = skinCss({ glow: false, strengthLight: strength, strengthDark: strength })
+      expect(off).toBe(EXPECTED_BASE_CSS)
+      expect(off).not.toContain('data-ds-dark-theme')
+      expect(off).not.toContain('radial-gradient')
+      expect(off).not.toContain('linear-gradient')
+    }
+  })
+
+  it('keeps the wash inside the <= 2/255 horizontal band at 1920x1080', () => {
+    const css = skinCss({ hueLight: 'accent', strengthLight: 100 })
+    // A 165deg CSS gradient spans L = W·|sin θ| + H·|cos θ|; moving horizontally
+    // by dx shifts the gradient position by dx·|sin θ| / L. The wash starts at
+    // `alpha` and dies at `fade`, so left vs right edge differ by
+    // alpha · (W·sin θ / L) / fade. The colour deltas are the palette's own.
+    const wash =
+      /linear-gradient\(165deg, color-mix\(in srgb, var\((--dsw-[a-z0-9-]+)\) ([\d.]+)%, transparent\) 0%, transparent (\d+)%\)/.exec(
+        css,
+      )
+    expect(wash).not.toBeNull()
+    const alpha = Number(wash![2]) / 100
+    const fade = Number(wash![3]) / 100
+    const width = 1920
+    const height = 1080
+    const angle = (165 * Math.PI) / 180
+    const horizontal = width * Math.abs(Math.sin(angle))
+    const span = horizontal + height * Math.abs(Math.cos(angle))
+    const positionShift = horizontal / span
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const glow = rgbOf(resolveToken(table, wash![1]))
+      const canvas = rgbOf(resolveToken(table, CANVAS))
+      const deltaAlpha = (alpha * positionShift) / fade
+      const delta =
+        Math.max(
+          Math.abs(glow.r - canvas.r),
+          Math.abs(glow.g - canvas.g),
+          Math.abs(glow.b - canvas.b),
+        ) * deltaAlpha
+      expect(
+        delta,
+        scheme + ' wash left/right spread = ' + delta.toFixed(2) + '/255',
+      ).toBeLessThanOrEqual(2)
+    }
+  })
+
+  it('stays ONE root-gated sheet inside the 60-line budget (P2)', () => {
+    const css = skinCss()
+    const lines = css.split('\n')
+    // 60 since M3: the dark scheme is its own four-layer composition.
+    expect(lines.length).toBeLessThanOrEqual(60)
+    // 0.1.1's 19 lines + the light and dark ground segments.
+    expect(lines.length).toBeGreaterThan(19)
+    // Mounting still yields exactly ONE <style>, carrying exactly this CSS.
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.attached()).toHaveLength(1)
+    expect(doc.attached()[0].textContent).toBe(css)
+    // The ground is behind the root attribute, never a bare `body` rule.
+    expect(css).toMatch(/^html\[data-moonset-skin\] body \{$/m)
+    expect(css).not.toMatch(/^body \{$/m)
+  })
+
+  it('drops the WHOLE ground rule when the M2 switch is off (never alpha 0)', () => {
+    // Off means the rule does not exist: alpha 0 would still composite
+    // (0.1.2 §一), and D4's bar is a pre-glow screenshot.
+    const off = skinCss({ glow: false })
+    expect(off).toBe(EXPECTED_BASE_CSS)
+    expect(off).not.toContain('radial-gradient')
+    expect(off).not.toContain('linear-gradient')
+    expect(off).not.toMatch(/html\[data-moonset-skin\] body \{/)
+    // On is the default and is still the full contract sheet.
+    expect(skinCss({ glow: true })).toBe(EXPECTED_CSS)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * the 0.1.2 visibility (the layers in FRONT of the ground)            *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel root)', () => {
+  /**
+   * The visibility block, read the way the engine reads it: from the first
+   * `#root` selector to its closing brace.
+   */
+  function clearRule(scope: GlowScope = 'all'): { selectors: string[]; declarations: string[]; raw: string } {
+    const css = skinCss({ scope })
+    const start = css.indexOf('html[data-moonset-skin] #root :has(')
+    if (start === -1) throw new Error('the sheet carries no visibility block:\n' + css)
+    const open = css.indexOf('{', start)
+    const close = css.indexOf('}', open)
+    const raw = css.slice(start, close + 1)
+    const declarations = raw
+      .slice(raw.indexOf('{') + 1, -1)
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+    // Split the selector list on TOP-LEVEL commas only: a :has(a, b) argument
+    // list carries commas of its own and must stay one selector.
+    const selectors: string[] = []
+    let depth = 0
+    let current = ''
+    for (const character of raw.slice(0, raw.indexOf('{'))) {
+      if (character === '(') depth += 1
+      if (character === ')') depth -= 1
+      if (character === ',' && depth === 0) {
+        if (current.trim() !== '') selectors.push(current.trim())
+        current = ''
+        continue
+      }
+      current += character
+    }
+    if (current.trim() !== '') selectors.push(current.trim())
+    return { selectors, declarations, raw }
+  }
+
+  it('clears EXACTLY the shell chain above the main slot and the panel root, root-gated', () => {
+    const { selectors } = clearRule()
+    // Verbatim: every shell container that CONTAINS the main slot (the
+    // display:contents root anchor, .frame, .centerCol, .mainPanel), every
+    // container of the conversation's composer seat (which reaches .root even if
+    // the panel entry gains a wrapper), and the elected panel root itself.
+    // No host class name (every one is hashed per build), no wildcard, no
+    // attribute-substring hack.
+    expect(selectors).toEqual([
+      "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+      "html[data-moonset-skin] #root [data-slot='sidebar'] > div",
+    ])
+    // P2: the root attribute gates every selector, so an orphaned sheet is inert.
+    for (const selector of selectors) expect(selector.startsWith('html[data-moonset-skin] ')).toBe(true)
+    // Only structure (#root) and the renderer's documented seam (data-slot); no
+    // class name, no !important. The gate is also what wins: (1,2,1) / (1,3,1)
+    // against the host's own .frame / .centerCol / .root (0,1,0), and (0,2,0)
+    // for [data-windows-titlebar] .centerCol.
+    // No class name may appear. Quoted attribute values are stripped first:
+    // `[data-slot='shell.bottom']` legitimately contains a dot.
+    expect(selectors.join(' ').replace(/'[^']*'/g, "''")).not.toContain('.')
+    expect(skinCss()).not.toContain('!important')
+  })
+
+  it('addresses the carriers by CONTAINMENT, so a shell-depth change cannot blind it', () => {
+    const { selectors } = clearRule()
+    // The audited chain, from the INSTALLED 0.2.2-rc.5 bundles:
+    //   body > #root                      (the shell's React container)
+    //        > div[data-slot='root']      display:contents — RootOutlet's anchor
+    //        > div.frame > div.centerCol  the two layers that paint bg-base
+    //        > div.mainPanel              no background
+    //        > div[data-slot='main']      display:contents — SlotOutlet's anchor
+    //        > div.root                   background: bg-base — the conversation
+    // The anchors are emitted by the RENDERER (`dsh-client-ui-renderer`, which
+    // renders {"data-slot": slotKey} / {"data-slot": 'root'} with
+    // ANCHOR_STYLE = {display:'contents'}), NOT by ui-layout — that package only
+    // calls renderSlot('main', …), so a `data-slot` grep there finds nothing and
+    // proves nothing. Both anchors are display:contents, so their number is a
+    // renderer detail: a selector counting child combinators goes blind on the
+    // first wrapper change, which is exactly the invisible-ground failure this
+    // milestone fixes. Containment cannot drift that way.
+    const hops = (selector: string): number => selector.split('>').length - 1
+    // The carrier set, by containment: everything that CONTAINS one of the three
+    // shell slots (root anchor, frame, the three columns, the panel), everything
+    // that contains the conversation's composer seat (the conversation root and
+    // its containers), and the frame's slot-holding bottom cell.
+    expect(hops(selectors[0])).toBe(0)
+    expect(selectors[0]).toContain("[data-slot='sidebar']")
+    expect(selectors[0]).toContain("[data-slot='rightbar']")
+    // The second anchor is INSIDE the conversation (`data-composer-seat` is
+    // rendered by ui-conversation on the composer seat), so its ancestor set
+    // reaches `.root` without assuming where `.root` sits relative to the main
+    // anchor. A descendant can never contain its own ancestor, so no card,
+    // message body, code block or field can match any of the :has() selectors.
+    expect(hops(selectors[1])).toBe(0)
+    expect(selectors[1].endsWith(':has([data-composer-seat])')).toBe(true)
+    // The bottom cell paints bg-base too; its slot anchor is its DIRECT child.
+    expect(selectors[2]).toBe("html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])")
+    // Two carrier roots are the anchors' DIRECT children: one hop, nothing deeper.
+    expect(hops(selectors[3])).toBe(1)
+    expect(selectors[3].endsWith('> div')).toBe(true)
+    expect(selectors[3]).toContain("[data-slot='main']")
+    expect(hops(selectors[4])).toBe(1)
+    expect(selectors[4].endsWith('> div')).toBe(true)
+    expect(selectors[4]).toContain("[data-slot='sidebar']")
+  })
+
+  it('clears the COLOUR only, and rides the same switch as the ground', () => {
+    const { declarations, raw } = clearRule()
+    // One declaration, the LONGHAND: a background shorthand would wipe every
+    // other layer the host put on the same element (an image, a shadow), and a
+    // layout property here would be the §11.4 regression.
+    expect(declarations).toEqual(['background-color: transparent'])
+    expect(raw).not.toMatch(/^\s*background:/m)
+    expect(declarations.some((declaration) => /^(?:display|position|grid|flex|width|height|margin|padding|overflow)/.test(declaration))).toBe(false)
+    // Off means the whole segment disappears — the clear must not outlive the
+    // ground it exists to reveal (0.1.1 parity, D4).
+    const off = skinCss({ glow: false })
+    expect(off).not.toContain('background-color: transparent')
+    expect(off).not.toContain('#root')
+    expect(off).toBe(EXPECTED_BASE_CSS)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * M2 地面范围 (A/B/C)                                                 *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — M2 地面范围 (A/B/C)', () => {
+  /**
+   * The sheet without its comments.
+   *
+   * The rule text mentions `calc()` in prose (it explains why there is none),
+   * so a whole-sheet search has to look at declarations only.
+   * @param css - the sheet text.
+   * @returns the same text with every comment removed.
+   */
+  function withoutComments(css: string): string {
+    return css.replace(/\/\*[\s\S]*?\*\//g, '')
+  }
+
+  /** The visibility block of one scope, parsed the way the engine reads it. */
+  function visibilityOf(scope: GlowScope): { selectors: string[] } {
+    const css = skinCss({ scope })
+    const start = css.indexOf('/* 0.1.2 visibility')
+    const open = css.indexOf('{', start)
+    const close = css.indexOf('}', open)
+    const raw = css.slice(start, close + 1)
+    const selectorText = raw.slice(raw.indexOf('*/') + 2, raw.indexOf('{'))
+    // Top-level commas only: a :has(a, b) argument list carries its own.
+    const selectors: string[] = []
+    let depth = 0
+    let current = ''
+    for (const character of selectorText) {
+      if (character === '(') depth += 1
+      if (character === ')') depth -= 1
+      if (character === ',' && depth === 0) {
+        if (current.trim() !== '') selectors.push(current.trim())
+        current = ''
+        continue
+      }
+      current += character
+    }
+    if (current.trim() !== '') selectors.push(current.trim())
+    return { selectors }
+  }
+
+  it('nests the three scopes: conversation ⊂ main ⊂ all', () => {
+    const conversation = visibilityOf('conversation').selectors
+    const main = visibilityOf('main').selectors
+    const all = visibilityOf('all').selectors
+    // A: the conversation column only — its own anchor plus the elected panel
+    // root. No shell, no sidebar, no bottom cell.
+    expect(conversation).toEqual([
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+    ])
+    // B: A plus the carriers that CONTAIN the three shell slots — and NOT the
+    // sidebar's inner fill layer, so the sidebar keeps its own surface.
+    expect(main).toEqual([
+      "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+    ])
+    // C: B plus the sidebar root and the bottom cell.
+    expect(all).toEqual([
+      "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+      "html[data-moonset-skin] #root [data-slot='sidebar'] > div",
+    ])
+    // The nesting the buttons promise: every A selector is in B, every B in C.
+    for (const selector of conversation) expect(main).toContain(selector)
+    for (const selector of main) expect(all).toContain(selector)
+    // And each sheet NAMES its scope, so a DevTools copy is self-describing.
+    for (const scope of GLOW_SCOPES) expect(skinCss({ scope })).toContain('scope: ' + scope + ')')
+  })
+
+  it('keeps every sheet inside the 60-line budget, for every scope', () => {
+    for (const scope of GLOW_SCOPES) {
+      const lines = skinCss({ scope }).split('\n')
+      expect(lines.length).toBeLessThanOrEqual(60)
+      expect(lines.length).toBeGreaterThan(19)
+      expect(withoutComments(skinCss({ scope }))).not.toContain('calc(')
+    }
+    // The default sheet is B — the user's verdict after comparing A/B/C.
+    expect(skinCss()).toBe(skinCss({ scope: 'main' }))
+    expect(DEFAULT_GLOW_SCOPE).toBe('main')
+    expect(visibilityOf('main').selectors).toHaveLength(3)
+  })
+
+  it('clears the composer seat mask band by its IMAGE only', () => {
+    // `[data-composer-seat]` is the element the conversation paints its seat on;
+    // in the active phase it carries a bg-base mask gradient, which over the
+    // ground reads as a bright band across the bottom of the column. The fix is
+    // the NARROWEST one available: the image goes, the element keeps everything
+    // else (its colour is already transparent, and nothing moves).
+    const css = skinCss()
+    const start = css.indexOf('/* 0.1.2 bottom band (M2)')
+    expect(start).toBeGreaterThan(-1)
+    const end = css.indexOf('}', start) + 1
+    const rule = css.slice(start, end)
+    expect(rule).toContain("html[data-moonset-skin] #root [data-composer-seat] {")
+    const declarations = rule.slice(rule.indexOf('{') + 1, -1).split(';').map((part) => part.trim()).filter(Boolean)
+    expect(declarations).toEqual(['background-image: none'])
+    expect(rule).not.toContain('background-color')
+    // The band belongs to the glow segment, so the switch takes it with it.
+    expect(skinCss({ glow: false })).not.toContain('bottom band')
+    for (const scope of GLOW_SCOPES) expect(skinCss({ scope })).toContain('bottom band (M2)')
+  })
+
+  it('rebuilds the ONE sheet in place when the options move (updateSkin)', () => {
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.attached()).toHaveLength(1)
+    const before = doc.attached()[0].textContent
+    expect(updateSkin({ scope: 'conversation', strengthLight: 50, hueLight: 'accent' }, doc)).toBe(true)
+    // Still a singleton, and the rule text moved to the new options.
+    expect(doc.attached()).toHaveLength(1)
+    const after = doc.attached()[0].textContent
+    expect(after).not.toBe(before)
+    expect(after).toBe(skinCss({ scope: 'conversation', strengthLight: 50, hueLight: 'accent' }))
+    expect(after).toContain('scope: conversation)')
+    expect(after).toContain('8%, transparent')
+    // A document with no sheet yet is mounted by the same call (convergence).
+    const fresh = new StubDocument()
+    expect(updateSkin({ scope: 'all' }, fresh)).toBe(true)
+    expect(fresh.attached()).toHaveLength(1)
+    expect(fresh.attached()[0].textContent).toBe(skinCss({ scope: 'all' }))
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * M6: 深/浅两套光晕（色相 × 强度）                                     *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — M6 深/浅两套光晕', () => {
+  it('ships the final defaults: light 柔和 @90, dark 夜空蓝 @100', () => {
+    // The point of the split: the user's best form differs per scheme, so the
+    // defaults do too, and `skinCss()` must emit exactly that.
+    expect(DEFAULT_GLOW_HUE_LIGHT).toBe('soft')
+    expect(DEFAULT_GLOW_STRENGTH_LIGHT).toBe(90)
+    expect(DEFAULT_GLOW_HUE_DARK).toBe('night')
+    expect(DEFAULT_GLOW_STRENGTH_DARK).toBe(100)
+    const css = skinCss()
+    // light: soft @ 90% → 16 × 0.9 × 0.56 = 8.064 → 8.06%; amber 3 × 0.9 = 2.7%.
+    expect(lightGroundRule(css)).toContain('var(--dsw-static-deepseek-500) 8.06%')
+    expect(lightGroundRule(css)).toContain('var(--dsw-static-amber-500) 2.7%')
+    // dark: night @ 100% → the anchor at its full alphas.
+    expect(darkGroundRule(css)).toContain('var(--dsh-moonset-night) 20%')
+    expect(darkGroundRule(css)).toContain('var(--dsh-moonset-night) 12%')
+  })
+
+  it('offers three hues and repaints only the hue layers', () => {
+    expect(GLOW_HUES).toEqual(['accent', 'soft', 'night'])
+    for (const hue of GLOW_HUES) {
+      const light = lightGroundRule(skinCss({ hueLight: hue, strengthLight: 100 }))
+      const dark = darkGroundRule(skinCss({ hueDark: hue, strengthDark: 100 }))
+      const token = GLOW_HUE_AT_FULL[hue]
+      expect(light).toContain('var(' + token.light + ')')
+      expect(dark).toContain('var(' + token.dark + ')')
+      // The amber glint is a different ROLE: the hue never moves it.
+      expect(light).toContain('var(--dsw-static-amber-500) 3%')
+      expect(dark).not.toContain('amber')
+    }
+    // `soft` is the SAME tokens at 0.56; `night` is the skin anchor.
+    expect(GLOW_HUE_AT_FULL.soft.light).toBe(GLOW_HUE_AT_FULL.accent.light)
+    expect(GLOW_HUE_AT_FULL.soft.dark).toBe(GLOW_HUE_AT_FULL.accent.dark)
+    expect(GLOW_HUE_AT_FULL.soft.factor).toBe(0.56)
+    expect(GLOW_HUE_AT_FULL.night.light).toBe(NIGHT_BLUE_TOKEN)
+    expect(GLOW_HUE_AT_FULL.night.dark).toBe(NIGHT_BLUE_TOKEN)
+  })
+
+  it('scales the full 3 hues × 2 schemes × 5 strengths matrix in JS', () => {
+    // Every cell is `full-strength alpha × strength/100 × hue factor`, formatted
+    // as a literal percentage: no calc(), no var() hop, nothing computed by CSS.
+    const strengths = [0, 50, 100, 150, 200]
+    for (const hue of GLOW_HUES) {
+      const factor = GLOW_HUE_AT_FULL[hue].factor
+      for (const strength of strengths) {
+        const light = glowAlphas(strength, hue)
+        const dark = darkGlowAlphas(strength, hue)
+        const s = strength / 100
+        // LIGHT: hue + wash scale with strength AND hue; amber only with strength.
+        expect(light.moon).toBe(percentOf(16 * s * factor))
+        expect(light.wash).toBe(percentOf(1.5 * s * factor))
+        expect(light.warm).toBe(percentOf(3 * s))
+        // DARK: all three footprints and the wash scale with strength AND hue.
+        expect(dark.moon).toBe(percentOf(20 * s * factor))
+        expect(dark.core).toBe(percentOf(12 * s * factor))
+        expect(dark.floor).toBe(percentOf(4 * s * factor))
+        expect(dark.wash).toBe(percentOf(1 * s * factor))
+      }
+    }
+    // The named cells the user will actually see at the defaults.
+    expect(glowAlphas(90, 'soft')).toEqual({ moon: '8.06%', warm: '2.7%', wash: '0.76%' })
+    expect(darkGlowAlphas(100, 'night')).toEqual({ moon: '20%', core: '12%', floor: '4%', wash: '1%' })
+    expect(glowAlphas(200, 'soft').moon).toBe('17.92%')
+    // ...and the emitted sheets carry those literals, never a calc().
+    const sheet = skinCss({ hueLight: 'soft', strengthLight: 200, hueDark: 'soft', strengthDark: 200 })
+    expect(lightGroundRule(sheet)).toContain('deepseek-500) 17.92%')
+    expect(darkGroundRule(sheet)).toContain('deepseek-400) 22.4%')
+    expect(sheet.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('calc(')
+  })
+
+  it('no longer accepts the two removed hues, anywhere', () => {
+    // M4 shipped five; the two "dark" variants were visually identical to their
+    // light siblings, so M6 removed them. Nothing may resurrect them: not the
+    // union, not the table, not a resolved value.
+    for (const removed of ['accentDark', 'accentSoftDark', 'accentSoft', 'nightBlue']) {
+      expect(GLOW_HUES as readonly string[]).not.toContain(removed)
+      expect(Object.keys(GLOW_HUE_AT_FULL)).not.toContain(removed)
+      expect(resolveGlowHue(removed)).toBe(DEFAULT_GLOW_HUE_LIGHT)
+      expect(resolveGlowHue(removed, 'night')).toBe('night')
+    }
+  })
+
+  it('clamps strength per scheme and falls back to that scheme default', () => {
+    expect(resolveGlowStrength(undefined, DEFAULT_GLOW_STRENGTH_LIGHT)).toBe(90)
+    expect(resolveGlowStrength(undefined, DEFAULT_GLOW_STRENGTH_DARK)).toBe(100)
+    expect(resolveGlowStrength(undefined)).toBe(90)
+    expect(resolveGlowStrength(Number.NaN, 100)).toBe(100)
+    expect(resolveGlowStrength(-40)).toBe(GLOW_STRENGTH_MIN)
+    expect(resolveGlowStrength(1e6)).toBe(GLOW_STRENGTH_MAX)
+    expect(resolveGlowStrength('150')).toBe(150)
+    expect(resolveGlowStrength(149.6)).toBe(150)
+    expect(resolveGlowHue(undefined)).toBe('soft')
+    expect(resolveGlowHue(undefined, 'night')).toBe('night')
+    expect(resolveGlowHue('sidebar')).toBe('soft')
+    expect(resolveGlowHue('night')).toBe('night')
+  })
+
+  it('keeps the two grounds independent: one pair never moves the other', () => {
+    const base0 = skinCss()
+    const lightMoved = skinCss({ hueLight: 'night', strengthLight: 40 })
+    const darkMoved = skinCss({ hueDark: 'soft', strengthDark: 180 })
+    // Moving the LIGHT pair leaves the dark rule byte-identical.
+    expect(darkGroundRule(lightMoved)).toBe(darkGroundRule(base0))
+    expect(lightGroundRule(lightMoved)).not.toBe(lightGroundRule(base0))
+    // ...and the other way round.
+    expect(lightGroundRule(darkMoved)).toBe(lightGroundRule(base0))
+    expect(darkGroundRule(darkMoved)).not.toBe(darkGroundRule(base0))
+    // The anchor declarations belong to neither pair, so they never move.
+    expect(lightMoved).toContain('--dsh-moonset-night: #2563EB;')
+    expect(darkMoved).toContain('--dsh-moonset-night: #60A5FA;')
+  })
+
+  it('never lets one ground read the other scheme hue', () => {
+    // A deliberately crossed configuration: light = night blue, dark = accent.
+    const css = skinCss({ hueLight: 'night', hueDark: 'accent' })
+    const light = lightGroundRule(css)
+    const dark = darkGroundRule(css)
+    expect(light).toContain('var(' + NIGHT_BLUE_TOKEN + ')')
+    expect(light).not.toContain('deepseek-500')
+    expect(dark).toContain('var(--dsw-static-deepseek-400)')
+    expect(dark).not.toContain(NIGHT_BLUE_TOKEN)
+  })
+
+  it('writes the same line count for every hue: only token names change', () => {
+    // The hue control is a repaint, not a re-layout of the sheet: 3 hues × 2
+    // schemes must all emit the same shape, so the budget cannot drift per hue.
+    const reference = skinCss().split('\n').length
+    for (const hue of GLOW_HUES) {
+      const sheet = skinCss({ hueLight: hue, hueDark: hue })
+      expect(sheet.split('\n').length, hue).toBe(reference)
+      expect(sheet.match(/\{/g)).toHaveLength(9)
+    }
+  })
+
+  it('drops the night anchor with the switch, in every scope', () => {
+    for (const scope of GLOW_SCOPES) {
+      const off = skinCss({ glow: false, scope })
+      expect(off).not.toContain(NIGHT_BLUE_TOKEN)
+      expect(off).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    }
+  })
+  it('owns the night anchor: declared twice, read only by the `night` hue', () => {
+    const css = skinCss()
+    // One declaration per scheme, and the dark one hangs off the host marker so
+    // it can only win in dark mode.
+    expect(css).toContain('html[data-moonset-skin] {\n  --dsh-moonset-night: #2563EB;\n}')
+    expect(css).toContain('html[data-moonset-skin] body[data-ds-dark-theme] {\n  --dsh-moonset-night: #60A5FA;\n}')
+    // The hex is NEVER used directly in a gradient: the ground reads the variable.
+    const nightDark = darkGroundRule(css)
+    expect(nightDark).toContain('var(' + NIGHT_BLUE_TOKEN + ')')
+    expect(nightDark).not.toContain('#60A5FA')
+    // A ground whose hue is not `night` never reads it.
+    for (const hue of ['accent', 'soft'] as const) {
+      expect(lightGroundRule(skinCss({ hueLight: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
+      expect(darkGroundRule(skinCss({ hueDark: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
+    }
+  })
+})
 /* ------------------------------------------------------------------ *
  * unmount                                                             *
  * ------------------------------------------------------------------ */
@@ -770,6 +1596,73 @@ describe('apply — the skin follows the stored choice', () => {
       for (const dispose of [...wiring.disposers].reverse()) dispose()
       expect(wiring.form.sets).toEqual([{ field: 'choice', value: 'off' }])
     } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps the sheet off when the stored choice is off, whatever the controls say', async () => {
+    // The 0.1.1 gate still wins: `off` means the official theme owns the page, so
+    // a glow control must not bring a Moonset sheet back (the skin is choice-
+    // gated, and the rebuild path is a fifth way to mount it).
+    vi.useFakeTimers()
+    try {
+      const wiring = applyWithStoredChoice('off')
+      expect(wiring.doc.attached()).toHaveLength(0)
+      const face = wiring.face() as unknown as { onScope(scope: string): void }
+      face.onScope('conversation')
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS * 2)
+      expect(wiring.doc.attached()).toHaveLength(0)
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rebuilds the ONE sheet when the M2 glow controls move (150 ms debounce)', async () => {
+    vi.useFakeTimers()
+    try {
+      const wiring = applyWithStoredChoice('light')
+      const sheetText = (): string => {
+        const live = wiring.doc.attached()
+        expect(live).toHaveLength(1)
+        return live[0].textContent
+      }
+      // The boot restore built the sheet from the stored (default) glow options —
+      // scope `main` since M3.
+      expect(sheetText()).toContain('scope: main)')
+      const face = wiring.face() as unknown as {
+        onScope(scope: string): void
+        onToggleGlow(next: boolean): void
+        onStrengthLight(next: number): void
+        onHueLight(hue: string): void
+        onStrengthDark(next: number): void
+        onHueDark(hue: string): void
+      }
+      face.onScope('conversation')
+      // Debounced: a fast drag must not re-parse the sheet per step.
+      expect(sheetText()).toContain('scope: main)')
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).toContain('scope: conversation)')
+      // M6: the LIGHT pair moves its own rule — a literal alpha from 16 × 2 × 0.56.
+      face.onStrengthLight(200)
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).toContain('deepseek-500) 17.92%, transparent')
+      // ...and the DARK pair its own, independently.
+      face.onHueDark('accent')
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).toContain('deepseek-400) 20%, transparent')
+      // The switch drops the whole segment (both grounds and the anchor).
+      face.onToggleGlow(false)
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).not.toContain('radial-gradient')
+      expect(sheetText()).not.toContain(NIGHT_BLUE_TOKEN)
+      // Still exactly one sheet, and the durable write is a separate clock.
+      expect(wiring.doc.attached()).toHaveLength(1)
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+      expect(wiring.doc.attached()).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
       vi.unstubAllGlobals()
     }
   })

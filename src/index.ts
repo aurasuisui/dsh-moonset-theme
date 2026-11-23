@@ -47,6 +47,20 @@ export const name = 'dsh-moonset'
  */
 const CHOICE_VALUES = ['off', 'light', 'dark', 'follow'] as const
 
+/**
+ * The M2 ground scopes — restated for the same reason as {@link CHOICE_VALUES}.
+ * `tests/settings.spec.ts` cross-checks this union against the client's
+ * `GLOW_SCOPES`, so the two copies cannot drift into an unreadable document.
+ */
+const GLOW_SCOPE_VALUES = ['conversation', 'main', 'all'] as const
+
+/**
+ * The M4 glow hues — the same restatement rule as the other two unions: the
+ * client half owns the table (tokens + multipliers), and
+ * `tests/settings.spec.ts` cross-checks this union against `GLOW_HUES`.
+ */
+const GLOW_HUE_VALUES = ['accent', 'soft', 'night'] as const
+
 /** The subset of a schemastery node this module probes. */
 interface VolatileCapable {
   volatile?: () => unknown
@@ -82,6 +96,22 @@ export function maybeVolatile<T extends object>(node: T): T {
  */
 export const Config = Schema.object({
   choice: maybeVolatile(Schema.union([...CHOICE_VALUES]).default('off')),
+  // ── M2: the environment glow ──────────────────────────────────────────────
+  // Three more volatile fields, projected into the same browser form. Their
+  // defaults are the 0.1.2 M1.5 sheet, so a profile that never opens the
+  // section keeps the look the user approved.
+  glow: maybeVolatile(Schema.boolean().default(true)),
+  // `main` (B) since M3: the user compared A/B/C on a real machine and B is the
+  // coherent default — the shell and columns show the ground, the sidebar keeps
+  // its own surface. `all` stays selectable as the fully transparent mode.
+  glowScope: maybeVolatile(Schema.union([...GLOW_SCOPE_VALUES]).default('main')),
+  // M6: two independent grounds. The user's final colour call is different in
+  // each scheme — light 柔和 @ 90%, dark 夜空蓝 @ 100% — so the hue and the
+  // strength each carry a light and a dark field.
+  glowHueLight: maybeVolatile(Schema.union([...GLOW_HUE_VALUES]).default('soft')),
+  glowStrengthLight: maybeVolatile(Schema.number().min(0).max(200).default(90)),
+  glowHueDark: maybeVolatile(Schema.union([...GLOW_HUE_VALUES]).default('night')),
+  glowStrengthDark: maybeVolatile(Schema.number().min(0).max(200).default(100)),
 })
 
 /**
