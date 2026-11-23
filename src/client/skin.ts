@@ -666,16 +666,32 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * the arguments (`+ *`). The one universal selector in the sheet is that
  * sibling position, not a sweep: it cannot escape the row, and the expanded body
  * is a SIBLING of the disclosure row, so it is outside the rule by construction.
+ *
+ * The HUE is per KIND of step (0.1.3 M2b): the class rules set two custom
+ * properties on the row (`--dsh-moonset-step-name` / `-args`) and the two cell
+ * rules read them, so adding a class is one more declaration block instead of
+ * two more cell rules. Classes: shell `[data-variant='bash']` green, files
+ * (`read` / `write` / `edit`) blue-violet, `search` amber, `think` violet;
+ * `code` and `others` fall back to the accent, which is ALSO the unknown-tool
+ * colour because it is the property's fallback value. Every hue is a
+ * `color-mix(in srgb, <family> N%, <label token>)`: the label tokens flip with
+ * the scheme, so ONE declaration darkens the hue on light and lightens it on
+ * dark (the same trick the active button uses, 0.1.3 M1). 65% for the name,
+ * 40% for the arguments (the dimmer step). Measured on the canvas, light /
+ * dark: shell 6.48 / 11.32 and 6.22 / 9.20, files 6.71 / 10.03 and 6.20 / 8.59,
+ * search 7.61 / 9.93 and 6.85 / 8.47, reasoning 5.06 / 8.25 and 5.20 / 7.57 —
+ * every cell clears AA in both schemes.
+ *
  * The mono face is `--ds-font-family-code` (the theme layer's code stack, the
- * same one the host's own diff totals read); the failure line and its exit
- * capsule (`[data-tone]`) take `--dsw-alias-state-error-primary` — the token
- * the host already uses for a failed summary. Measured on the canvas: name
- * 7.58:1 / 6.33:1, arguments 8.62:1 / 9.32:1, failure 6.41:1 / 8.10:1 (light /
- * dark). A SUCCESS capsule does not exist in this build: the exit badge renders
- * only while `terminalFailed()` is true (`dsh-client-ui-tool/…/terminal-card-model.ts:96-112`,
- * `ExitCodeBadge.tsx:12` hard-codes `tone="neutral"`), and the green alias
- * measures 3.61:1 on the light canvas — below AA for text — so nothing is
- * painted for the success case (§11.7 records the gap).
+ * same one the host's own diff totals read). A FAILED step (non-zero exit or a
+ * terminating signal) wins over its class: name, arguments and the exit capsule
+ * (`[data-tone]`) all take `--dsw-alias-state-error-primary` — 6.41:1 / 8.10:1
+ * on the canvas, 5.28 / 6.93 on the capsule's own background — and that rule
+ * sits LAST so a later class cannot out-order it. A SUCCESS capsule does not
+ * exist in this build: the exit badge renders only while `terminalFailed()` is
+ * true (`dsh-client-ui-tool/…/terminal-card-model.ts:96-112`;
+ * `ExitCodeBadge.tsx:12` hard-codes `tone="neutral"`), so nothing is painted for
+ * the success case (§11.7 records the gap).
  *
  * The 0.1.2 GROUND is one more rule — the whitelist's third entry. It is a
  * single `background` on `body`, root-gated, three layers above the canvas
@@ -767,18 +783,38 @@ export function skinCss(options: SkinOptions = {}): string {
     "html[data-moonset-skin] body [data-active='true']::after {",
     '  background: var(--dsw-static-deepseek-500);',
     '}',
-    '/* 0.1.3 M2: a step row reads as a terminal line. Hooks are the host\'s: a row',
-    '   carries [data-variant][data-state], and the dot between the tool name and its',
-    '   arguments is [data-shimmer-decoration] — name before it, arguments after. */',
+    '/* 0.1.3 M2: a step row reads as a terminal line, and each KIND of step carries',
+    '   its own hue (shell green, file blue-violet, search amber, reasoning violet;',
+    '   code and unknown tools keep the accent). Host hooks: [data-variant] on the',
+    '   row, [data-shimmer-decoration] the dot before the arguments. */',
     "html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration]) {",
-    '  color: var(--dsw-static-deepseek-500);',
+    '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
     '  font-family: var(--ds-font-family-code);',
     '}',
     "html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + * {",
-    '  color: var(--dsw-alias-label-secondary);',
+    '  color: var(--dsh-moonset-step-args, var(--dsw-alias-label-secondary));',
     '  font-family: var(--ds-font-family-code);',
     '}',
-    '/* failed step (exit != 0 / signal): the host capsules it, Tag = [data-tone]. */',
+    "html[data-moonset-skin] body [data-variant='bash'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-green-500) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 40%, var(--dsw-alias-label-secondary));',
+    '}',
+    "html[data-moonset-skin] body [data-variant='read'],",
+    "html[data-moonset-skin] body [data-variant='write'],",
+    "html[data-moonset-skin] body [data-variant='edit'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-deepseek-400) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 40%, var(--dsw-alias-label-secondary));',
+    '}',
+    "html[data-moonset-skin] body [data-variant='search'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-amber-600) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 40%, var(--dsw-alias-label-secondary));',
+    '}',
+    "html[data-moonset-skin] body [data-variant='think'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-violet-400) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 40%, var(--dsw-alias-label-secondary));',
+    '}',
+    '/* failed step (exit != 0 / signal): the class hue loses to the error colour. */',
+    "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
     '  color: var(--dsw-alias-state-error-primary);',
