@@ -13,14 +13,17 @@
  *        The 00..1000 direction is constant, so the official alias layer
  *        (light reads the light end, dark the dark end) keeps working.
  *   B1   var()/color-mix() expressions: copied verbatim - the static they
- *        reference is in this same table, so they follow class A. Two tokens
- *        (0.1.1, the selected sidebar row) are listed in TOKEN_OVERRIDES
- *        instead and exported as MOONSET_TOKEN_OVERRIDES; they are counted
- *        as B1 because that is the class of the OFFICIAL value.
+ *        reference is in this same table, so they follow class A.
  *   B2   pure neutral literals: alpha kept, tinted with the scheme own
  *        ink/canvas end (NEUTRAL_ENDPOINTS in the generator).
  *   B3   chroma literals: replaced through the explicit CHROMA_LITERALS table.
  *   B4   anything else: the generator exits 1 instead of writing a file.
+ *
+ * TOKEN_OVERRIDES (0.1.1) replaces a handful of selected/active tokens whose
+ * official values ride the neutral ladder; its keys may be B1, B2 or B3. The
+ * class counts below still describe the OFFICIAL value, so they do not move
+ * when an override lands. The overridden names are exported as
+ * MOONSET_TOKEN_OVERRIDES.
  *
  * The tables are pure data: no imports, no side effects, no timestamps.
  */
@@ -57,7 +60,7 @@ export const MOONSET_LIGHT: MoonsetTokenTable = {
   '--dsw-alias-bg-mask-3': 'rgba(16, 19, 28, 0.48)',
   '--dsw-alias-bg-mask-drop': 'rgba(250, 250, 252, 0.7)',
   '--dsw-alias-bg-mask-photo': 'rgba(16, 19, 28, 0.88)',
-  '--dsw-alias-bg-module-platform': 'var(--dsw-static-neutral-bluish-60)',
+  '--dsw-alias-bg-module-platform': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 12%, var(--dsw-alias-bg-base))',
   '--dsw-alias-bg-multi-select': 'var(--dsw-static-neutral-bluish-60)',
   '--dsw-alias-bg-overlay': 'var(--dsw-static-neutral-bluish-150)',
   '--dsw-alias-bg-skeleton': 'rgba(16, 19, 28, 0.04)',
@@ -68,7 +71,7 @@ export const MOONSET_LIGHT: MoonsetTokenTable = {
   '--dsw-alias-border-l2-darkmode-thin': 'rgba(16, 19, 28, 0.1)',
   '--dsw-alias-border-l3': 'rgba(16, 19, 28, 0.12)',
   '--dsw-alias-border-l4': 'rgba(16, 19, 28, 0.16)',
-  '--dsw-alias-border-selected': 'var(--dsw-static-neutral-bluish-400)',
+  '--dsw-alias-border-selected': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 40%, transparent)',
   '--dsw-alias-brand-primary': 'var(--dsw-static-neutral-bluish-1000)',
   '--dsw-alias-brand-primary-invert': 'var(--dsw-static-neutral-bluish-1000)',
   '--dsw-alias-brand-primary-new-colorprimary-new-color': '#4338CA',
@@ -78,7 +81,7 @@ export const MOONSET_LIGHT: MoonsetTokenTable = {
   '--dsw-alias-button-floating-fill': 'var(--dsw-static-neutral-bluish-00)',
   '--dsw-alias-button-floating-hover': 'var(--dsw-static-neutral-bluish-75)',
   '--dsw-alias-button-ghost-active-border': 'var(--dsw-static-neutral-bluish-500)',
-  '--dsw-alias-button-ghost-active-fill': 'var(--dsw-static-neutral-bluish-100)',
+  '--dsw-alias-button-ghost-active-fill': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 18%, var(--dsw-alias-bg-base))',
   '--dsw-alias-button-ghost-active-hover': 'var(--dsw-static-neutral-bluish-150)',
   '--dsw-alias-button-info-fill': 'var(--dsw-static-deepseek-500)',
   '--dsw-alias-button-info-hover': 'var(--dsw-static-deepseek-400)',
@@ -114,8 +117,8 @@ export const MOONSET_LIGHT: MoonsetTokenTable = {
   '--dsw-alias-illustration-inset': 'var(--dsw-alias-illustration-surface)',
   '--dsw-alias-illustration-shadow': 'var(--dsw-alias-illustration-surface)',
   '--dsw-alias-illustration-surface': 'var(--dsw-static-neutral-bluish-90)',
-  '--dsw-alias-interactive-bg-active': 'rgba(15, 23, 42, 0.1)',
-  '--dsw-alias-interactive-bg-hover': 'rgba(15, 23, 42, 0.06)',
+  '--dsw-alias-interactive-bg-active': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, var(--dsw-alias-bg-base))',
+  '--dsw-alias-interactive-bg-hover': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))',
   '--dsw-alias-interactive-bg-hover-accent': 'rgba(15, 23, 42, 0.14)',
   '--dsw-alias-interactive-bg-hover-danger': 'rgba(225, 29, 72, 0.05)',
   '--dsw-alias-interactive-bg-hover-solid': 'var(--dsw-static-neutral-bluish-75)',
@@ -289,7 +292,7 @@ export const MOONSET_DARK: MoonsetTokenTable = {
   '--dsw-alias-bg-mask-3': 'rgba(8, 9, 14, 0.48)',
   '--dsw-alias-bg-mask-drop': 'rgba(16, 18, 27, 0.7)',
   '--dsw-alias-bg-mask-photo': 'rgba(8, 9, 14, 0.88)',
-  '--dsw-alias-bg-module-platform': 'var(--dsw-static-neutral-bluish-800)',
+  '--dsw-alias-bg-module-platform': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 12%, var(--dsw-alias-bg-base))',
   '--dsw-alias-bg-multi-select': 'var(--dsw-static-neutral-850)',
   '--dsw-alias-bg-overlay': 'var(--dsw-static-neutral-bluish-700)',
   '--dsw-alias-bg-skeleton': 'rgba(238, 240, 247, 0.08)',
@@ -300,7 +303,7 @@ export const MOONSET_DARK: MoonsetTokenTable = {
   '--dsw-alias-border-l2-darkmode-thin': 'rgba(238, 240, 247, 0.06)',
   '--dsw-alias-border-l3': 'rgba(238, 240, 247, 0.16)',
   '--dsw-alias-border-l4': 'rgba(238, 240, 247, 0.2)',
-  '--dsw-alias-border-selected': 'var(--dsw-static-neutral-bluish-400)',
+  '--dsw-alias-border-selected': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 40%, transparent)',
   '--dsw-alias-brand-primary': 'var(--dsw-static-neutral-bluish-50)',
   '--dsw-alias-brand-primary-invert': 'var(--dsw-static-neutral-bluish-50)',
   '--dsw-alias-brand-primary-new-colorprimary-new-color': 'var(--dsw-static-deepseek-450)',
@@ -310,7 +313,7 @@ export const MOONSET_DARK: MoonsetTokenTable = {
   '--dsw-alias-button-floating-fill': 'var(--dsw-static-neutral-bluish-850)',
   '--dsw-alias-button-floating-hover': 'var(--dsw-static-neutral-bluish-800)',
   '--dsw-alias-button-ghost-active-border': 'var(--dsw-static-neutral-bluish-600)',
-  '--dsw-alias-button-ghost-active-fill': 'var(--dsw-static-neutral-bluish-750)',
+  '--dsw-alias-button-ghost-active-fill': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 18%, var(--dsw-alias-bg-base))',
   '--dsw-alias-button-ghost-active-hover': 'var(--dsw-static-neutral-bluish-700)',
   '--dsw-alias-button-info-fill': 'var(--dsw-static-deepseek-400)',
   '--dsw-alias-button-info-hover': 'var(--dsw-static-deepseek-500)',
@@ -346,8 +349,8 @@ export const MOONSET_DARK: MoonsetTokenTable = {
   '--dsw-alias-illustration-inset': 'var(--dsw-alias-illustration-backing)',
   '--dsw-alias-illustration-shadow': 'var(--dsw-alias-illustration-backing)',
   '--dsw-alias-illustration-surface': 'var(--dsw-static-neutral-bluish-700)',
-  '--dsw-alias-interactive-bg-active': 'rgba(238, 240, 247, 0.14)',
-  '--dsw-alias-interactive-bg-hover': 'rgba(238, 240, 247, 0.08)',
+  '--dsw-alias-interactive-bg-active': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, var(--dsw-alias-bg-base))',
+  '--dsw-alias-interactive-bg-hover': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))',
   '--dsw-alias-interactive-bg-hover-accent': 'rgba(238, 240, 247, 0.24)',
   '--dsw-alias-interactive-bg-hover-danger': 'rgba(251, 113, 133, 0.15)',
   '--dsw-alias-interactive-bg-hover-solid': 'var(--dsw-static-neutral-bluish-800)',
@@ -513,10 +516,16 @@ export const MOONSET_DARK: MoonsetTokenTable = {
  *
  * Every other token is the official value copied verbatim (B1) or rebuilt
  * from the palette (A/B2/B3); these few are replaced on purpose, and the
- * reasons live beside TOKEN_OVERRIDES in the generator. 0.1.1: the two
- * selected-sidebar-row tokens (accent wash + accent label).
+ * reasons live beside TOKEN_OVERRIDES in the generator. 0.1.1: the
+ * selected/active seats (rows, pressed states, selected surfaces, the
+ * selected outline and the settings-sidebar row + label).
  */
 export const MOONSET_TOKEN_OVERRIDES: readonly string[] = [
+  '--dsw-alias-bg-module-platform',
+  '--dsw-alias-border-selected',
+  '--dsw-alias-button-ghost-active-fill',
+  '--dsw-alias-interactive-bg-active',
+  '--dsw-alias-interactive-bg-hover',
   '--dsw-specific-sidebar-nav-item-active',
   '--dsw-specific-sidebar-nav-item-active-accent',
 ]

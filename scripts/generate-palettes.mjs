@@ -331,13 +331,12 @@ export const CHROMA_LITERALS = {
     light: function (p) { return rgbaOf(p.borderStrong, 0.36) },
     dark: function (p) { return rgbaOf(p.canvas, 0.36) },
   },
-  /* hover / active washes: the hairline ink in light, a lift in dark */
-  '--dsw-alias-interactive-bg-hover': {
-    light: function (p) { return rgbaOf(p.borderHairline, 0.06) },
-  },
-  '--dsw-alias-interactive-bg-active': {
-    light: function (p) { return rgbaOf(p.borderHairline, 0.1) },
-  },
+  /*
+   * NOTE (0.1.1): --dsw-alias-interactive-bg-hover / -active are NOT listed
+   * here any more. They are the main "selected / active row" seat in the app
+   * (14 + 7 hits in the installed CSS), so the skin replaces them through
+   * TOKEN_OVERRIDES below instead of with an ink wash. One owner per token.
+   */
   '--dsw-alias-interactive-bg-hover-accent': {
     light: function (p) { return rgbaOf(p.borderHairline, 0.14) },
   },
@@ -406,19 +405,33 @@ export const CHROMA_LITERALS = {
  * ------------------------------------------------------------------ */
 
 /**
- * Tokens whose emitted value is NOT the official one even though the official
- * value is a var()/color-mix() expression (class B1, "copied verbatim").
+ * Tokens whose emitted value is NOT the official one, whatever class the
+ * official value falls into.
  *
- * 0.1.1 is the first consumer. Upstream paints the selected sidebar row with a
- * neutral rung (--dsw-static-neutral-bluish-100 / -750) and its label with a
- * second neutral rung, i.e. the selected row is GREY. A skin that asks for a
- * pale-violet wash with violet text cannot ride the neutral ladder, so the two
- * tokens are replaced here. Both replacements are CSS expressions built from
- * tokens that are already in this same table, which is what keeps them
- * scheme-correct without a second source of truth:
+ * 0.1.1 is the first consumer, and its first real-machine pass is why there are
+ * seven entries instead of two. Upstream paints every "selected / active" seat
+ * with a NEUTRAL rung, so a skin that asks for a pale-violet wash with violet
+ * text cannot ride the neutral ladder at all:
+ *
+ *   sidebar nav item (1 hit)   selected ROW, settings sidebar
+ *   interactive-bg-hover (14)  main seat: .rowActive, .badge[data-active],
+ *                              automation tabs, conversation rows
+ *   interactive-bg-active (7)  pressed state
+ *   bg-module-platform (2)     .cardActive / .selected surfaces
+ *   button-ghost-active-fill   selected clock/date-picker cell
+ *   border-selected            the selected outline
+ *   nav-item-active-accent     the selected row's label colour
+ *
+ * Every replacement is a CSS expression built from tokens already in this same
+ * table, which keeps it scheme-correct without a second source of truth:
  *
  *   --dsw-static-deepseek-500   the accent anchor (light #4338CA, dark #818CF8)
  *   --dsw-alias-bg-base         the canvas the alias layer reads
+ *
+ * Two of them (interactive-bg-hover / -active) are B3 in light and B2 in dark
+ * upstream (a rgba() wash), so this table may override B1, B2 and B3 keys. The
+ * class COUNTS still describe the OFFICIAL value, which is why they do not move
+ * when an override lands.
  *
  * Rules enforced by validateOverrides() below (the run fails, never guesses):
  *   - the key exists in themes/dsw-tokens.json and is NOT a --dsw-static-*
@@ -429,16 +442,45 @@ export const CHROMA_LITERALS = {
  *   - the value actually differs from the official one.
  */
 export const TOKEN_OVERRIDES = {
-  /*
-   * The selected row background: accent 10% over the canvas. 10% keeps the row
-   * a wash (not a chip) in both schemes; a heavier share reads as a button.
+  /* ── the main seat: hover / pressed washes (14 + 7 hits) ──────────────────
+   *
+   * Upstream: light rgba(38,49,72,.06/.10), dark rgba(255,255,255,.08/.14) —
+   * i.e. an ink/white overlay. The skin's "selected row" is this token in the
+   * conversation list, the badge/tab states and the automation rows, so it
+   * carries the accent wash instead. Two steps (10% hover, 16% pressed) keep a
+   * visible difference between hover and press, and both stay light enough to
+   * read the label on top.
+   */
+  '--dsw-alias-interactive-bg-hover':
+    'color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))',
+  '--dsw-alias-interactive-bg-active':
+    'color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, var(--dsw-alias-bg-base))',
+  /* ── selected surfaces (.cardActive / .selected, 2 hits) ──────────────────
+   *
+   * A SURFACE token, so it is opaque on purpose: 12% accent over the canvas.
+   */
+  '--dsw-alias-bg-module-platform':
+    'color-mix(in srgb, var(--dsw-static-deepseek-500) 12%, var(--dsw-alias-bg-base))',
+  /* ── selected cell fill (ghost button active, 2 hits) ─────────────────────
+   *
+   * 18% is the "chip" step: solid enough to read as a fill, still a wash under
+   * the accent label.
+   */
+  '--dsw-alias-button-ghost-active-fill':
+    'color-mix(in srgb, var(--dsw-static-deepseek-500) 18%, var(--dsw-alias-bg-base))',
+  /* ── the selected OUTLINE ─────────────────────────────────────────────────
+   *
+   * Translucent like the official border, so it sits on any surface.
+   */
+  '--dsw-alias-border-selected':
+    'color-mix(in srgb, var(--dsw-static-deepseek-500) 40%, transparent)',
+  /* ── the selected sidebar row + its label (settings sidebar, 1 hit) ───────
+   *
+   * The row is a 10% accent wash over the canvas; its label and icon are the
+   * accent used AS TEXT (violet on pale violet instead of the neutral rung).
    */
   '--dsw-specific-sidebar-nav-item-active':
     'color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))',
-  /*
-   * The selected row's label and icon: the accent used AS TEXT, so the row is
-   * violet-on-pale-violet instead of the neutral rung upstream picks.
-   */
   '--dsw-specific-sidebar-nav-item-active-accent':
     'var(--dsw-static-deepseek-500)',
 }
@@ -561,10 +603,11 @@ export function buildPalettes() {
       const value = official[scheme][token]
       const kind = classify(token, value)
       if (Object.prototype.hasOwnProperty.call(TOKEN_OVERRIDES, token)) {
-        // 0.1.1 exception: our value replaces the official B1 expression, while
-        // the count still records the OFFICIAL class (see TOKEN_OVERRIDES).
-        if (kind !== 'expression') {
-          throw new Error('TOKEN_OVERRIDES entry ' + token + ' must target a B1 expression, got class ' + kind)
+        // 0.1.1 exception: our value replaces the official one, while the count
+        // still records the OFFICIAL class (see TOKEN_OVERRIDES). B1, B2 and B3
+        // keys are all fair game; a static primitive never is (validated).
+        if (kind === 'static' || kind === 'unmapped') {
+          throw new Error('TOKEN_OVERRIDES entry ' + token + ' cannot target class ' + kind)
         }
         const replacement = TOKEN_OVERRIDES[token]
         if (replacement === value) {
@@ -650,14 +693,17 @@ const HEADER = [
   ' *        The 00..1000 direction is constant, so the official alias layer',
   ' *        (light reads the light end, dark the dark end) keeps working.',
   ' *   B1   var()/color-mix() expressions: copied verbatim - the static they',
-  ' *        reference is in this same table, so they follow class A. Two tokens',
-  ' *        (0.1.1, the selected sidebar row) are listed in TOKEN_OVERRIDES',
-  ' *        instead and exported as MOONSET_TOKEN_OVERRIDES; they are counted',
-  ' *        as B1 because that is the class of the OFFICIAL value.',
+  ' *        reference is in this same table, so they follow class A.',
   ' *   B2   pure neutral literals: alpha kept, tinted with the scheme own',
   ' *        ink/canvas end (NEUTRAL_ENDPOINTS in the generator).',
   ' *   B3   chroma literals: replaced through the explicit CHROMA_LITERALS table.',
   ' *   B4   anything else: the generator exits 1 instead of writing a file.',
+  ' *',
+  ' * TOKEN_OVERRIDES (0.1.1) replaces a handful of selected/active tokens whose',
+  ' * official values ride the neutral ladder; its keys may be B1, B2 or B3. The',
+  ' * class counts below still describe the OFFICIAL value, so they do not move',
+  ' * when an override lands. The overridden names are exported as',
+  ' * MOONSET_TOKEN_OVERRIDES.',
   ' *',
   ' * The tables are pure data: no imports, no side effects, no timestamps.',
   ' */',
@@ -706,8 +752,9 @@ export function renderModule(built) {
   lines.push(' *')
   lines.push(' * Every other token is the official value copied verbatim (B1) or rebuilt')
   lines.push(' * from the palette (A/B2/B3); these few are replaced on purpose, and the')
-  lines.push(' * reasons live beside TOKEN_OVERRIDES in the generator. 0.1.1: the two')
-  lines.push(' * selected-sidebar-row tokens (accent wash + accent label).')
+  lines.push(' * reasons live beside TOKEN_OVERRIDES in the generator. 0.1.1: the')
+  lines.push(' * selected/active seats (rows, pressed states, selected surfaces, the')
+  lines.push(' * selected outline and the settings-sidebar row + label).')
   lines.push(' */')
   lines.push('export const MOONSET_TOKEN_OVERRIDES: readonly string[] = [')
   for (const token of Object.keys(TOKEN_OVERRIDES).sort()) lines.push('  ' + quote(token) + ',')

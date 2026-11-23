@@ -48,8 +48,6 @@ const board = JSON.parse(readFileSync(BOARD_URL, 'utf8')) as Record<'light' | 'd
 
 /** The accent the skin draws from: the static token the palette anchors `accent` to. */
 const ACCENT = '--dsw-static-deepseek-500'
-/** The body-label rung the selection text uses. */
-const LABEL = '--dsw-alias-label-primary'
 
 /**
  * The complete sheet, restated here verbatim.
@@ -60,11 +58,72 @@ const LABEL = '--dsw-alias-label-primary'
 const EXPECTED_CSS = [
   '/* dsh-moonset[0.1.1]: skin layer — P5 whitelist, ::selection only */',
   'html body ::selection {',
-  '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 28%, transparent);',
-  '  color: var(--dsw-alias-label-primary);',
+  '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
+  '  color: var(--dsw-static-deepseek-500);',
   '}',
 ].join('\n')
 
+
+/* ------------------------------------------------------------------ *
+ * a tiny colour helper for the selection contrast (light + dark)      *
+ * ------------------------------------------------------------------ */
+
+interface Rgba {
+  r: number
+  g: number
+  b: number
+  a: number
+}
+
+/** Follow `var(--dsw-…)` hops inside one scheme table to a leaf value. */
+function resolveToken(table: Record<string, string>, token: string): string {
+  let value = table[token]
+  for (let hop = 0; hop < 8; hop += 1) {
+    if (value === undefined) throw new Error('missing token ' + token)
+    const ref = /^var\((--dsw-[a-z0-9-]+)\)$/.exec(value.trim())
+    if (ref === null) return value
+    value = table[ref[1]]
+  }
+  throw new Error('var() resolution is too deep for ' + token)
+}
+
+/** `#RRGGBB` → opaque sRGB (the selection tokens all resolve to hex). */
+function rgbOf(value: string): Rgba {
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(value)
+  if (hex === null) throw new Error('not a hex colour: ' + value)
+  return {
+    r: parseInt(hex[1].slice(0, 2), 16),
+    g: parseInt(hex[1].slice(2, 4), 16),
+    b: parseInt(hex[1].slice(4, 6), 16),
+    a: 1,
+  }
+}
+
+/** Paint one translucent colour over an opaque one. */
+function over(fg: Rgba, bg: Rgba): Rgba {
+  return {
+    r: fg.r * fg.a + bg.r * (1 - fg.a),
+    g: fg.g * fg.a + bg.g * (1 - fg.a),
+    b: fg.b * fg.a + bg.b * (1 - fg.a),
+    a: 1,
+  }
+}
+
+function luminance(colour: Rgba): number {
+  const channel = (value: number): number => {
+    const scaled = value / 255
+    return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b)
+}
+
+function contrastRatio(a: Rgba, b: Rgba): number {
+  const first = luminance(a)
+  const second = luminance(b)
+  const lighter = Math.max(first, second)
+  const darker = Math.min(first, second)
+  return (lighter + 0.05) / (darker + 0.05)
+}
 /* ------------------------------------------------------------------ *
  * stub document                                                       *
  * ------------------------------------------------------------------ */
@@ -184,8 +243,11 @@ describe('skinCss — the whitelisted rules', () => {
   it('takes every colour from a token and writes no literal', () => {
     const css = skinCss()
 
-    // The tokens the rule reads, in order: the accent, then the label rung.
-    expect(css.match(/var\(--dsw-[a-z0-9-]+\)/g)).toEqual([`var(${ACCENT})`, `var(${LABEL})`])
+    // Both declarations read the ONE accent token: the wash and the text are
+    // the same colour at different opacities (documentation-site semantics).
+    const tokens = css.match(/var\(--dsw-[a-z0-9-]+\)/g) ?? []
+    expect(new Set(tokens)).toEqual(new Set([`var(${ACCENT})`]))
+    expect(tokens).toHaveLength(2)
     // Nothing opaque: no hex, no rgb()/hsl() literal anywhere in the sheet.
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(css).not.toMatch(/\b(?:rgba?|hsla?)\(/)
@@ -197,24 +259,71 @@ describe('skinCss — the whitelisted rules', () => {
     // The token IS the board's accent in each scheme: no second colour source.
     expect(MOONSET_LIGHT[ACCENT]).toBe(board.light.accent.toUpperCase())
     expect(MOONSET_DARK[ACCENT]).toBe(board.dark.accent.toUpperCase())
-    // And the label rung exists in both tables (the selection text is a token).
-    expect(MOONSET_LIGHT[LABEL]).toBeTypeOf('string')
-    expect(MOONSET_DARK[LABEL]).toBeTypeOf('string')
   })
 
-  it('pairs with the token half: the selected row is an accent wash', () => {
-    // The skin is the exception for what tokens cannot do; the selected row is
-    // a TOKEN delta (generator TOKEN_OVERRIDES), so the two never overlap.
-    const active = '--dsw-specific-sidebar-nav-item-active'
-    const accent = '--dsw-specific-sidebar-nav-item-active-accent'
-    expect(MOONSET_TOKEN_OVERRIDES).toContain(active)
-    expect(MOONSET_TOKEN_OVERRIDES).toContain(accent)
-    for (const table of [MOONSET_LIGHT, MOONSET_DARK]) {
-      expect(table[active]).toContain(`var(${ACCENT})`)
-      expect(table[active]).toContain('10%')
-      expect(table[active]).toContain('--dsw-alias-bg-base')
-      expect(table[accent]).toBe(`var(${ACCENT})`)
+  it('pairs with the token half: every selected/active seat is an accent wash', () => {
+    // The skin is the exception for what tokens cannot do; the selected seats
+    // are TOKEN deltas (generator TOKEN_OVERRIDES), so the two never overlap.
+    // The first real-machine pass fixed only the settings sidebar; these are
+    // the seats it missed (14 + 7 + 2 + 2 hits + the outline).
+    const seats = [
+      '--dsw-alias-interactive-bg-hover',
+      '--dsw-alias-interactive-bg-active',
+      '--dsw-alias-bg-module-platform',
+      '--dsw-alias-button-ghost-active-fill',
+      '--dsw-alias-border-selected',
+      '--dsw-specific-sidebar-nav-item-active',
+      '--dsw-specific-sidebar-nav-item-active-accent',
+    ]
+    expect(MOONSET_TOKEN_OVERRIDES).toHaveLength(seats.length)
+    for (const token of seats) {
+      expect(MOONSET_TOKEN_OVERRIDES).toContain(token)
+      for (const table of [MOONSET_LIGHT, MOONSET_DARK]) {
+        expect(table[token], token).toContain(`var(${ACCENT})`)
+      }
     }
+    const active = '--dsw-specific-sidebar-nav-item-active'
+    expect(MOONSET_LIGHT[active]).toContain('10%')
+    expect(MOONSET_LIGHT[active]).toContain('--dsw-alias-bg-base')
+    expect(MOONSET_LIGHT['--dsw-specific-sidebar-nav-item-active-accent']).toBe(`var(${ACCENT})`)
+  })
+  it('keeps the selected TEXT readable on the selection wash (AA >= 4.5:1)', () => {
+    const css = skinCss()
+    // Read the shipped rule instead of restating it: a changed alpha or a
+    // changed text token has to be re-measured, not just re-formatted.
+    const wash = /var\((--dsw-[a-z0-9-]+)\) (\d+)%, transparent/.exec(css)
+    const text = /^\s*color: var\((--dsw-[a-z0-9-]+)\);/m.exec(css)
+    expect(wash, 'selection background must be an accent wash').not.toBeNull()
+    expect(text, 'selection text must be a token').not.toBeNull()
+    const alpha = Number(wash![2]) / 100
+    const ratios: Record<string, number> = {}
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const accent = rgbOf(resolveToken(table, wash![1]))
+      const textColour = rgbOf(resolveToken(table, text![1]))
+      const canvas = rgbOf(resolveToken(table, '--dsw-alias-bg-base'))
+      const painted = over({ ...accent, a: alpha }, canvas)
+      ratios[scheme] = contrastRatio(textColour, painted)
+      // Measured: light 5.25:1, dark 4.55:1 at the shipped 22%.
+      expect(
+        ratios[scheme],
+        scheme + ' selection text on the wash = ' + ratios[scheme].toFixed(2) + ':1',
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+  it('mirrors the documentation-site pair: a 22% accent wash + accent text', () => {
+    // selection:bg-indigo-500/20 selection:text-indigo-700 — one accent at two
+    // opacities, not an ink label on a violet wash (the first real-machine pass
+    // and its 'grey-violet' verdict).
+    const css = skinCss()
+    const wash = /var\((--dsw-[a-z0-9-]+)\) (\d+)%, transparent/.exec(css)
+    const text = /^\s*color: var\((--dsw-[a-z0-9-]+)\);/m.exec(css)
+    if (wash === null || text === null) throw new Error('unexpected sheet: ' + css)
+    expect(wash[1]).toBe(ACCENT)
+    expect(text[1]).toBe(ACCENT)
+    // A wash, not a surface: the alpha stays in the documentation-site band.
+    const alpha = Number(wash[2])
+    expect(alpha).toBeGreaterThanOrEqual(18)
+    expect(alpha).toBeLessThanOrEqual(24)
   })
 })
 

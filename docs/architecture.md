@@ -419,8 +419,8 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 ```css
 /* dsh-moonset[0.1.1]: skin layer — P5 whitelist, ::selection only */
 html body ::selection {
-  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 28%, transparent);
-  color: var(--dsw-alias-label-primary);
+  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);
+  color: var(--dsw-static-deepseek-500);
 }
 ```
 
@@ -431,18 +431,22 @@ html body ::selection {
    墨色**，照抄进本表后依然是墨色；蓝紫强调在本调色板里是 `deepseek` 阶梯的 500
    （= 16 锚点的 `accent`：浅 `#4338CA` / 暗 `#818CF8`）。契约 §一 A 节写的
    `brand-primary` 在这里会画出一条灰选区，改用 accent 才是「紫」。
-2. **文字用 `--dsw-alias-label-primary`**：它是正文标签那一档（对比度契约 ≥7:1），
-   在紫底上仍是正文可读色，且浅深各自跟随。
+2. **文字也用同一个 accent**：文档站的配对是 `selection:bg-indigo-500/20` +
+   `selection:text-indigo-700`，即「底是淡紫、字是紫」，所以这里用同一个 accent 而
+   不是正文墨色。首验发出去的「紫底 + 墨字」看着像灰紫，问题就在这一条。实测选中文字
+   对该选区底的对比度：浅 **5.25:1** / 暗 **4.55:1**（叠在 `bg-base` 上，均过 AA
+   4.5:1；`tests/skin.spec.ts` 用调色板重算这两条，改锚点就会红）。
 3. **选择器 `html body ::selection`（0,0,2）**：压过任何第三方 `::selection`
    （0,0,1）；表又是在宿主样式之后插入的，同特异性也赢。宿主 9 张表零命中，所以
    当前没有实战冲突（D2 的兜底留在这里）。
 
-**与 token 的分工**：选中行（「淡紫底 + 紫字」）走的是 **token**，不进白名单——它是
-生成器 `TOKEN_OVERRIDES` 的两个条目（`--dsw-specific-sidebar-nav-item-active` =
-`color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))`，
-`…-active-accent` = `var(--dsw-static-deepseek-500)`，见 §3；逐条的改前/改后值在
-[palette.md §2.1](palette.md#21-011-的两处-token-覆盖b1-的显式例外)）。白名单只收 token
-表达不了的；两者不重叠。
+**与 token 的分工**：所有「选中 / 激活」座位（会话行、tab、badge、选中面、选中描边、
+设置侧栏行）走的是 **token**，不进白名单——它们是生成器 `TOKEN_OVERRIDES` 的**七个**
+条目（主座位是 `--dsw-alias-interactive-bg-hover` / `-active`，都是
+`color-mix(in srgb, var(--dsw-static-deepseek-500) N%, var(--dsw-alias-bg-base))`，
+见 §3；逐条的改前/改后值与命中分布见
+[palette.md §2.1](palette.md#21-011-的七处-token-覆盖选中与激活座位)）。白名单只收
+token 表达不了的；两者不重叠。
 
 ### 11.4 禁止什么（写进来就是回退）
 

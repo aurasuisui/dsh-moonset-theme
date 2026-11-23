@@ -73,10 +73,17 @@ export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
  * Pure on purpose: the sheet's exact bytes are the contract the tests pin
  * (`tests/skin.spec.ts` compares them verbatim), so it must not depend on the
  * document, the clock, the palette or the scheme. Scheme-correctness comes from
- * the tokens the rule references: `--dsw-static-deepseek-500` is the accent
- * anchor (light #4338CA, dark #818CF8) and `--dsw-alias-label-primary` is the
- * body-label rung, so one rule stays readable in both schemes and follows every
- * theme switch automatically.
+ * the token the rule references: `--dsw-static-deepseek-500` is the accent
+ * anchor (light #4338CA, dark #818CF8), so one rule follows both schemes and
+ * every theme switch automatically.
+ *
+ * The rule mirrors the documentation site's `selection:bg-indigo-500/20`
+ * `selection:text-indigo-700` pair: a 22% accent wash with the accent ITSELF as
+ * the text colour (the first real-machine pass shipped ink text on a violet
+ * wash and read as "grey-violet", not as the web). Measured contrast of the
+ * selected text against that wash: light 5.25:1, dark 4.55:1 over `bg-base`
+ * (both clear the 4.5:1 AA floor; `tests/skin.spec.ts` re-derives them from the
+ * palette so a future anchor change cannot silently fail it).
  *
  * How the exception maps onto §一 P5's whitelist:
  *
@@ -95,8 +102,8 @@ export function skinCss(): string {
   return [
     '/* dsh-moonset[0.1.1]: skin layer — P5 whitelist, ::selection only */',
     'html body ::selection {',
-    '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 28%, transparent);',
-    '  color: var(--dsw-alias-label-primary);',
+    '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
+    '  color: var(--dsw-static-deepseek-500);',
     '}',
   ].join('\n')
 }
