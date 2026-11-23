@@ -721,3 +721,48 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 `moonset: skin sheet` effect；
 生成器的 `TOKEN_OVERRIDES`（选中行 token 侧）；安装态 0.2.2-rc.5 的 9 张主题样式表
 `::selection` 0 命中。
+
+### 11.6 0.1.3 M1 的两条边界（记录，不是新白名单）
+
+M1 的两处文字修复都不扩白名单，但各留下一条「为什么」和一条「改不到」，记在这里，
+免得下一个里程碑重新推一遍。
+
+**G1：active 按钮的底与字走 token，不进本表。** 设置区是我们自己的组件，选中态写在
+`src/client/settings-section.tsx` 的内联样式里，所以底 / 描边 / 字三件都由 `--dsw-*`
+表达（四处共用同一个 `ACTIVE_BUTTON_STYLE`：主题三按钮、地面范围三按钮、两组色相各一个、
+再加环境光晕开关，一次改动覆盖全部 active 座位）。这里同时也是 §11.3 第一类的**反向
+证据**：0.1.2 的 active 底用了 `--dsw-alias-brand-primary`，而它是本调色板的**墨色**——
+浅 `var(--dsw-static-neutral-bluish-1000)` = `#10131C`、暗 `var(--dsw-static-neutral-bluish-50)`
+= `#E8EBF2`（`src/client/palettes.ts:75` / `:307`），字是 `--dsw-alias-label-on-color`
+（`#FAFAFC` / `#EEF0F7`，两边都近白），暗色实测 **1.05:1**，就是用户看到的「白底白字」
+（浅色 17.8:1，反而掩盖了问题）。改法取 accent 阶梯里**还能压住深色字**的那一档：
+
+| active 底 / 字 | 浅色 | 暗色 | 结论 |
+|---|---|---|---|
+| `-600` / `label-on-color`（白） | 9.47:1 | 3.68:1 | 暗色不过 AA |
+| `-500` / `label-on-color` | 7.58:1 | 2.62:1 | 暗色不过 AA |
+| **`-400` / `neutral-bluish-1000`** | **4.63:1** | **8.07:1** | 过 AA，0.1.3 采用 |
+
+两个字色细节值得记住：中性阶梯的 00→1000 方向**两套方案一致**（生成器 class A），所以
+`neutral-bluish-1000` 浅 `#10131C` / 暗 `#08090E`，**两边都是深色**；而所有 `label-*`
+别名都跟着方案翻转，拿它当强调底上的字就会重新变成白字。底取 `-400` 同理：accent 阶梯
+在暗色整体更亮（`-500` 是 `#818CF8`），只有 400 这一档还能让深字过 AA。这对 token 在
+官方表下也成立（`#7AAAFF` on `#0F1115` = 8.12:1），所以换官方主题不掉队；
+`tests/live.spec.ts` 从 `MOONSET_LIGHT` / `MOONSET_DARK` 重算全部数字，改调色板就红。
+
+**G2：选中会话行的时间戳没有稳定钩子，CSS 改不到，记为宿主缺口。** 行标题能变紫，是因为
+行容器本身带 `aria-selected`——那是 §11.3 第二类的合法钩子；时间戳则不行。安装态
+0.2.2-rc.5 的 `@deepseek-ai/dsh-client-ui-workspace` 源码里它是：
+
+```
+src/client/rows/Rows.tsx:736   <span className={css.rowResting}>
+src/client/rows/Rows.tsx:738     <span className={clsx(css.time, primaryStatus.trailingLabel === undefined && css.timestamp)}
+                                    aria-hidden={primaryStatus.trailingLabel === undefined ? undefined : true}>
+```
+
+——`<span>`，不是 `<time>`（整个 `lib/client.js` 里 `datetime` **0 命中**），没有 `data-*`、
+没有 `title`，类名是按构建哈希的 CSS Module；而 `.time`（`Rows.module.css:238`，`color`
+在第 242 行）与 `.rowResting`（301 行，`color` 在第 306 行）各写了一次
+`var(--dsw-alias-label-tertiary)`，行容器上的继承被这两条一起挡住。按 P5 / §11.4，
+`[class*=time]` 与数层级的结构选择器都不许写，所以 0.1.3 只做 G1；等宿主给出
+`<time datetime>` 或 `data-*` 钩子，G2 也只是本表第二类的一条 `color`，不需要新白名单类。
