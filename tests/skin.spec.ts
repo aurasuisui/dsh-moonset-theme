@@ -13,6 +13,10 @@
  *  - GROUND — the 0.1.2 wash + two viewport-fixed spots: root-gated, token-only,
  *    both radial layers at their contract alphas, the strength factor inlined,
  *    and the WHOLE rule absent when the (M2) switch says off;
+ *  - VISIBILITY — M1.5: the host's three opaque layers in front of the ground
+ *    (the frame, the centre column, the main-panel root) get
+ *    `background-color: transparent`, addressed by structure + the renderer's
+ *    `[data-slot='main']` seam only, with the depth capped at the panel root;
  *  - SELECTED ITEMS — the selected row's LABEL is the accent, hooked on the four
  *    stable attributes the real UI renders (never a host class name), root-
  *    gated so it outranks the host's own selected-tab colour, and readable on
@@ -102,6 +106,15 @@ const EXPECTED_GLOW_CSS = [
   '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),',
   '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),',
   '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
+  '}',
+  // M1.5: the visibility half — the host's own opaque layers are cleared so the
+  // ground above can be seen (see the "0.1.2 visibility" describe below).
+  '/* 0.1.2 visibility: the host paints bg-base on the shell chain above the main',
+  '   panel and on the panel root itself, which hide the ground above; clear the',
+  '   COLOUR of exactly those layers (images/shadows stay, layout untouched). */',
+  "html[data-moonset-skin] #root :has([data-slot='main']),",
+  "html[data-moonset-skin] #root [data-slot='main'] > div {",
+  '  background-color: transparent;',
   '}',
 ].join('\n')
 
@@ -314,27 +327,32 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 40 lines, four rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 40 lines, five rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
     expect(lines.length).toBeLessThanOrEqual(40)
-    // Four blocks: text selection, the selected-item label colour, the selected
-    // tab's underline, the 0.1.2 ground.
+    // Five blocks: text selection, the selected-item label colour, the selected
+    // tab's underline, the 0.1.2 ground, the 0.1.2 visibility clear.
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(4)
-    expect(css.match(/\}/g)).toHaveLength(4)
-    // Every additive block stays well inside the 12-line entry budget.
+    expect(css.match(/\{/g)).toHaveLength(5)
+    expect(css.match(/\}/g)).toHaveLength(5)
+    // Every additive block stays well inside the 12-line entry budget. The
+    // ground and the visibility clear are two blocks of ONE switchable segment,
+    // so the budget is measured per block, not per segment.
     const selectedStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
     const underlineStart = css.indexOf("html[data-moonset-skin] body [data-active='true']::after")
     const underlineEnd = css.indexOf('}', underlineStart) + 1
     const groundStart = css.indexOf('html[data-moonset-skin] body {')
+    const clearStart = css.indexOf("html[data-moonset-skin] #root :has([data-slot='main'])")
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
     expect(groundStart).toBeGreaterThan(underlineStart)
+    expect(clearStart).toBeGreaterThan(groundStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
-    expect(css.slice(groundStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(groundStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(clearStart).split('\n').length).toBeLessThanOrEqual(12)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
@@ -638,6 +656,89 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     expect(off).not.toMatch(/html\[data-moonset-skin\] body \{/)
     // On is the default and is still the full contract sheet.
     expect(skinCss({ glow: true })).toBe(EXPECTED_CSS)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * the 0.1.2 visibility (the layers in FRONT of the ground)            *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel root)', () => {
+  /**
+   * The visibility block, read the way the engine reads it: from the first
+   * `#root` selector to its closing brace.
+   */
+  function clearRule(): { selectors: string[]; declarations: string[]; raw: string } {
+    const css = skinCss()
+    const start = css.indexOf("html[data-moonset-skin] #root :has([data-slot='main'])")
+    if (start === -1) throw new Error('the sheet carries no visibility block:\n' + css)
+    const open = css.indexOf('{', start)
+    const close = css.indexOf('}', open)
+    const raw = css.slice(start, close + 1)
+    const selectors = raw.slice(0, raw.indexOf('{')).split(',').map((part) => part.trim()).filter(Boolean)
+    const declarations = raw
+      .slice(raw.indexOf('{') + 1, -1)
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+    return { selectors, declarations, raw }
+  }
+
+  it('clears EXACTLY the shell chain above the main slot and the panel root, root-gated', () => {
+    const { selectors } = clearRule()
+    // Verbatim: every shell container that CONTAINS the main slot (the
+    // display:contents root anchor, .frame, .centerCol, .mainPanel) plus the
+    // elected panel root (.root of the conversation, or a global panel's page).
+    // No host class name (every one is hashed per build), no wildcard, no
+    // attribute-substring hack.
+    expect(selectors).toEqual([
+      "html[data-moonset-skin] #root :has([data-slot='main'])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+    ])
+    // P2: the root attribute gates every selector, so an orphaned sheet is inert.
+    for (const selector of selectors) expect(selector.startsWith('html[data-moonset-skin] ')).toBe(true)
+    // Only structure (#root) and the renderer's documented seam (data-slot); no
+    // class name, no !important. The gate is also what wins: (1,2,1) / (1,3,1)
+    // against the host's own .frame / .centerCol / .root (0,1,0), and (0,2,0)
+    // for [data-windows-titlebar] .centerCol.
+    expect(selectors.join(' ')).not.toContain('.')
+    expect(skinCss()).not.toContain('!important')
+  })
+
+  it('addresses the chain by CONTAINMENT, so a shell-depth change cannot blind it', () => {
+    const { selectors } = clearRule()
+    // The audited chain (installed 0.2.2-rc.5: ui-renderer + ui-layout + ui-conversation):
+    //   #root > div[data-slot='root'] > div.frame > div.centerCol
+    //         > div.mainPanel > div[data-slot='main'] > div.root
+    // BOTH data-slot anchors are display:contents, so their number is a renderer
+    // detail: a depth-counting selector (a chain of child combinators) goes blind
+    // on the first wrapper change — which is exactly the invisible-ground failure
+    // this milestone fixes. Containment cannot drift that way.
+    const hops = (selector: string): number => selector.split('>').length - 1
+    expect(hops(selectors[0])).toBe(0)
+    expect(selectors[0].endsWith(":has([data-slot='main'])")).toBe(true)
+    // A descendant can never contain its own ancestor, so no card, message body,
+    // field or composer surface inside the panel can ever match selector one.
+    // The panel root is the anchor's DIRECT child: one hop, and nothing deeper.
+    expect(hops(selectors[1])).toBe(1)
+    expect(selectors[1].endsWith('> div')).toBe(true)
+    expect(selectors[1]).toContain("[data-slot='main']")
+  })
+
+  it('clears the COLOUR only, and rides the same switch as the ground', () => {
+    const { declarations, raw } = clearRule()
+    // One declaration, the LONGHAND: a background shorthand would wipe every
+    // other layer the host put on the same element (an image, a shadow), and a
+    // layout property here would be the §11.4 regression.
+    expect(declarations).toEqual(['background-color: transparent'])
+    expect(raw).not.toMatch(/^\s*background:/m)
+    expect(declarations.some((declaration) => /^(?:display|position|grid|flex|width|height|margin|padding|overflow)/.test(declaration))).toBe(false)
+    // Off means the whole segment disappears — the clear must not outlive the
+    // ground it exists to reveal (0.1.1 parity, D4).
+    const off = skinCss({ glow: false })
+    expect(off).not.toContain('background-color: transparent')
+    expect(off).not.toContain('#root')
+    expect(off).toBe(EXPECTED_BASE_CSS)
   })
 })
 

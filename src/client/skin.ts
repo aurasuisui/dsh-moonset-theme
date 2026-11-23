@@ -90,6 +90,35 @@ export interface SkinOptions {
  * inlined (`calc(N% * 1)`), never routed through an intermediate custom
  * property — see {@link skinCss} for the Chromium evidence behind that rule
  * (0.1.2 D2).
+ *
+ * M1.5 appends the second half: the VISIBILITY block. A `body` background is
+ * the bottom of the paint order, and the host paints `--dsw-alias-bg-base` on
+ * every shell layer between it and the conversation. The chain, read out of the
+ * INSTALLED sources (0.2.2-rc.5) and of the renderer's outlet contract:
+ *
+ *   #root > div[data-slot='root']  display:contents, no box
+ *         > div.frame              background: bg-base (sidebar-fill on Windows)
+ *         > div.centerCol          background: bg-base on the caption/vibrancy shells
+ *         > div.mainPanel          no background
+ *         > div[data-slot='main']  display:contents, no box
+ *         > div.root               background: bg-base   <- the conversation
+ *
+ * i.e. the frame, the centre column and the panel root. Clearing exactly those
+ * COLOURS is what lets M1's ground through (user report on the installed build:
+ * "完全看不到光晕"); their images and shadows stay, and no layout property is
+ * written (§11.4).
+ *
+ * The selectors do NOT count levels, on purpose: both `data-slot` anchors are
+ * `display: contents`, so the shell's depth is a renderer detail that can grow
+ * or lose a wrapper without changing a single visible pixel.
+ * `:has([data-slot='main'])` matches only the shell containers that CONTAIN the
+ * main anchor — a descendant can never contain its own ancestor, so no card,
+ * message or field inside the panel is ever one of them — and
+ * `[data-slot='main'] > div` is the elected panel root (the conversation's
+ * `.root`, or a global panel's page). Depth stops there. `#root` is the
+ * shell's fixed mount point (`index.html`), and `[data-slot]` is the
+ * renderer's documented addressable seam; every host class name is hashed per
+ * build and therefore unusable.
  */
 const GLOW_RULES: readonly string[] = [
   '/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The',
@@ -100,6 +129,13 @@ const GLOW_RULES: readonly string[] = [
   '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),',
   '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),',
   '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
+  '}',
+  '/* 0.1.2 visibility: the host paints bg-base on the shell chain above the main',
+  '   panel and on the panel root itself, which hide the ground above; clear the',
+  '   COLOUR of exactly those layers (images/shadows stay, layout untouched). */',
+  "html[data-moonset-skin] #root :has([data-slot='main']),",
+  "html[data-moonset-skin] #root [data-slot='main'] > div {",
+  '  background-color: transparent;',
   '}',
 ]
 
@@ -180,6 +216,27 @@ const GLOW_RULES: readonly string[] = [
  * property changes, i.e. the knob "dies" (0.1.2 D2). The ground also lives in
  * its own segment ({@link GLOW_RULES}) so the M2 switch can drop the WHOLE
  * rule — alpha 0 would still composite (0.1.2 §一).
+ *
+ * M1.5: a ground on `body` is only visible if nothing opaque paints over it,
+ * and on the installed build every shell layer above the conversation does —
+ * `.frame`, `.centerCol` (on the caption/vibrancy shells) and the grid's
+ * panel root all carry `background: var(--dsw-alias-bg-base)` (audited in
+ * `AppFrame.module.css`, `ConversationRoot.module.css`,
+ * `TaskManagerPage.module.css`). The visibility block therefore clears
+ * `background-color` on the shell chain and on the panel root, and stops there:
+ * the canvas behind them is ours, the surfaces inside them (cards, message
+ * bodies, fields, the composer card) keep their own paint — {@link GLOW_RULES}
+ * carries the audited chain and why the selectors do not count levels.
+ *
+ * It is the ONE place where §11.4's "no structural selector" gives way, and it
+ * gives way for the reason this layer exists at all: those surfaces carry no
+ * stable attribute — `data-global-panel` sits on the main panel only while a
+ * global panel is open, and `.frame` / `.centerCol` / `.root` are hashed class
+ * names. Structure (`#root`, the shell's fixed mount point in `index.html`)
+ * plus the renderer's documented `[data-slot='main']` seam is therefore the only
+ * stable address. No wildcard, no class name, no `!important`, no layout
+ * property — and it rides the SAME switch as the ground: `glow: false` drops
+ * both halves, so the 0.1.1 sheet is still returned byte-for-byte (D4).
  *
  * How the exception maps onto §一 P5's whitelist:
  *
