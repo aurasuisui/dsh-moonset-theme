@@ -1274,4 +1274,22 @@ describe('M1 设置区 — 选中按钮可读性（G1）', () => {
       'brand-primary + label-on-color in dark = ' + collapsed.toFixed(2) + ':1',
     ).toBeLessThan(4.5)
   })
+
+  it('rides the same accent on the strength sliders (M1.5)', () => {
+    // The range input's accentColor was the same brand-primary ink as the button
+    // fill: in dark it painted a near-white track and thumb. The two sliders are
+    // part of the accent seat family, so they read the same rung the fill does.
+    const { mount } = mountSection({ view: () => VIEW })
+    const tree = mount.mount()
+    try {
+      const sliders = elementsUnder(tree).filter((node) => node.type === 'input' && node.props.type === 'range')
+      expect(sliders).toHaveLength(2)
+      for (const slider of sliders) {
+        expect(styleOf(slider).accentColor).toBe('var(--dsw-static-deepseek-400)')
+        expect(styleOf(slider).accentColor).not.toContain('brand-primary')
+      }
+    } finally {
+      mount.unmount()
+    }
+  })
 })

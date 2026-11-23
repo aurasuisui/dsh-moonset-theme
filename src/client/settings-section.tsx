@@ -227,6 +227,11 @@ function react(): ReactSurface {
  * switch or a peer theme carries the button with it — on the OFFICIAL table the
  * pair is `#7AAAFF` on `#0F1115` = 8.12:1 — and no literal colour is written
  * here (P5). `tests/live.spec.ts` re-measures all of this from the palettes.
+ *
+ * **M1.5 — the strength slider rides the same rung.** Its `accentColor` was the
+ * same `brand-primary` ink, so in the dark scheme the range input painted a
+ * near-white track and thumb instead of the accent. Same fix, same token: the
+ * slider is part of the active/accent seat family, not a neutral one.
  */
 const CONTAINER_STYLE: Readonly<Record<string, string>> = {
   display: 'flex',
@@ -299,7 +304,7 @@ const STRENGTH_ROW_STYLE: Readonly<Record<string, string>> = {
 const SLIDER_STYLE: Readonly<Record<string, string>> = {
   flex: '1',
   minWidth: '80px',
-  accentColor: 'var(--dsw-alias-brand-primary)',
+  accentColor: 'var(--dsw-static-deepseek-400)',
 }
 const VALUE_STYLE: Readonly<Record<string, string>> = {
   fontSize: '12px',
