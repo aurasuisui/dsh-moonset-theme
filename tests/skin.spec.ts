@@ -149,28 +149,27 @@ const EXPECTED_BASE_CSS = [
   "}",
   "html[data-moonset-skin] body [data-variant='bash'] {",
   "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-green-500) 65%, var(--dsw-alias-label-primary));",
-  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 40%, var(--dsw-alias-label-secondary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 25%, var(--dsw-alias-label-secondary));",
   "}",
   "html[data-moonset-skin] body [data-variant='read'],",
   "html[data-moonset-skin] body [data-variant='write'],",
   "html[data-moonset-skin] body [data-variant='edit'] {",
   "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-deepseek-400) 65%, var(--dsw-alias-label-primary));",
-  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 40%, var(--dsw-alias-label-secondary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 25%, var(--dsw-alias-label-secondary));",
   "}",
   "html[data-moonset-skin] body [data-variant='search'] {",
   "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-amber-600) 65%, var(--dsw-alias-label-primary));",
-  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 40%, var(--dsw-alias-label-secondary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 25%, var(--dsw-alias-label-secondary));",
   "}",
   "html[data-moonset-skin] body [data-variant='think'] {",
   "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-violet-400) 65%, var(--dsw-alias-label-primary));",
-  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 40%, var(--dsw-alias-label-secondary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 25%, var(--dsw-alias-label-secondary));",
   "}",
   "/* failed step (exit != 0 / signal): the class hue loses to the error colour. */",
   "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),",
   "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
   "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
   "  color: var(--dsw-alias-state-error-primary);",
-  "  font-weight: 500;",
   "}",
 ].join('\n')
 
@@ -1501,7 +1500,7 @@ describe('skinCss — 0.1.3 M2 工作步骤行（终端配色）', () => {
         'color-mix(in srgb, var(' + entry.family + ') 65%, var(--dsw-alias-label-primary))',
       )
       expect(hueOf(rule, '--dsh-moonset-step-args')).toBe(
-        'color-mix(in srgb, var(' + entry.family + ') 40%, var(--dsw-alias-label-secondary))',
+        'color-mix(in srgb, var(' + entry.family + ') 25%, var(--dsw-alias-label-secondary))',
       )
     }
   })
@@ -1568,10 +1567,8 @@ describe('skinCss — 0.1.3 M2 工作步骤行（终端配色）', () => {
       "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *",
       "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone]",
     ])
-    expect(failed.declarations).toEqual([
-      'color: var(--dsw-alias-state-error-primary)',
-      'font-weight: 500',
-    ])
+    // Colour only: the on-device pass rejected the 500 weight the first cut added.
+    expect(failed.declarations).toEqual(['color: var(--dsw-alias-state-error-primary)'])
   })
 
   it('puts the failed-step rule last, so no later class can out-order it', () => {
@@ -1632,13 +1629,41 @@ describe('skinCss — 0.1.3 M2 工作步骤行（终端配色）', () => {
         for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
           const canvas = colourOf(table, table['--dsw-alias-bg-base'])
           const ratio = contrastRatio(colourOf(table, value), canvas)
-          // Measured: shell 6.48/11.32 · 6.22/9.20, files 6.71/10.03 · 6.20/8.59,
-          // search 7.61/9.93 · 6.85/8.47, reasoning 5.06/8.25 · 5.20/7.57.
+          // Measured (name, then arguments): shell 6.48/11.32 and 7.09/9.20,
+          // files 6.71/10.03 and 7.02/8.86, search 7.61/9.93 and 7.53/8.76,
+          // reasoning 5.06/8.25 and 6.27/8.19.
           expect(
             ratio,
             scheme + ' ' + entry.label + ' ' + role + ' = ' + ratio.toFixed(2) + ':1',
           ).toBeGreaterThanOrEqual(4.5)
         }
+      }
+    }
+  })
+
+  it('keeps the name and its arguments visibly apart inside one row', () => {
+    // The on-device complaint after the first M2b pass was "the arguments read as
+    // the same colour as the name" (40% of the family left files/light only 14.3
+    // sRGB units away). The pair now has to clear 20 units, or a 1.5 contrast step.
+    for (const entry of CLASSES) {
+      const rule = classRule(entry.variant)
+      for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+        const name = colourOf(table, hueOf(rule, '--dsh-moonset-step-name'))
+        const args = colourOf(table, hueOf(rule, '--dsh-moonset-step-args'))
+        const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+        const rgb = Math.sqrt((name.r - args.r) ** 2 + (name.g - args.g) ** 2 + (name.b - args.b) ** 2)
+        const step = Math.abs(contrastRatio(name, canvas) - contrastRatio(args, canvas))
+        // Measured at 25%: shell 46.7/43.1, files 30.2/37.4, search 58.7/60.5,
+        // reasoning 43.9/33.2 sRGB units (light/dark) — the minimum is 30.2.
+        expect(
+          rgb >= 20 || step >= 1.5,
+          scheme + ' ' + entry.label + ' rgb distance=' + rgb.toFixed(1) + ', contrast step=' + step.toFixed(2),
+        ).toBe(true)
+        // ...while the arguments still carry a visible tint of their class: a
+        // plain label-secondary would mean "the content has no colour".
+        const plain = colourOf(table, table['--dsw-alias-label-secondary'])
+        const tint = Math.sqrt((args.r - plain.r) ** 2 + (args.g - plain.g) ** 2 + (args.b - plain.b) ** 2)
+        expect(tint, scheme + ' ' + entry.label + ' tint=' + tint.toFixed(1)).toBeGreaterThan(10)
       }
     }
   })

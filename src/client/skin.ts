@@ -677,17 +677,25 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * `color-mix(in srgb, <family> N%, <label token>)`: the label tokens flip with
  * the scheme, so ONE declaration darkens the hue on light and lightens it on
  * dark (the same trick the active button uses, 0.1.3 M1). 65% for the name,
- * 40% for the arguments (the dimmer step). Measured on the canvas, light /
- * dark: shell 6.48 / 11.32 and 6.22 / 9.20, files 6.71 / 10.03 and 6.20 / 8.59,
- * search 7.61 / 9.93 and 6.85 / 8.47, reasoning 5.06 / 8.25 and 5.20 / 7.57 —
- * every cell clears AA in both schemes.
+ * 25% for the arguments: the on-device pass found 40% left the arguments reading
+ * as the same colour as the name, so the pair now differs by at least 30 RGB
+ * units (measured minimum 30.2, files/light) while the arguments keep a visible
+ * tint of their class (>= 15.5 RGB units away from a plain label). Measured on
+ * the canvas, light / dark — name first, arguments second: shell 6.48 / 11.32
+ * and 7.09 / 9.20, files 6.71 / 10.03 and 7.02 / 8.86, search 7.61 / 9.93 and
+ * 7.53 / 8.76, reasoning 5.06 / 8.25 and 6.27 / 8.19 — every cell clears AA in
+ * both schemes.
  *
  * The mono face is `--ds-font-family-code` (the theme layer's code stack, the
  * same one the host's own diff totals read). A FAILED step (non-zero exit or a
  * terminating signal) wins over its class: name, arguments and the exit capsule
  * (`[data-tone]`) all take `--dsw-alias-state-error-primary` — 6.41:1 / 8.10:1
  * on the canvas, 5.28 / 6.93 on the capsule's own background — and that rule
- * sits LAST so a later class cannot out-order it. A SUCCESS capsule does not
+ * sits LAST so a later class cannot out-order it. COLOUR ONLY: the on-device
+ * pass rejected the 500 weight the first cut added, so the failed line is not
+ * bold and no rule in the sheet writes `font-weight`.
+ *
+ * A SUCCESS capsule does not
  * exist in this build: the exit badge renders only while `terminalFailed()` is
  * true (`dsh-client-ui-tool/…/terminal-card-model.ts:96-112`;
  * `ExitCodeBadge.tsx:12` hard-codes `tone="neutral"`), so nothing is painted for
@@ -797,28 +805,27 @@ export function skinCss(options: SkinOptions = {}): string {
     '}',
     "html[data-moonset-skin] body [data-variant='bash'] {",
     '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-green-500) 65%, var(--dsw-alias-label-primary));',
-    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 40%, var(--dsw-alias-label-secondary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 25%, var(--dsw-alias-label-secondary));',
     '}',
     "html[data-moonset-skin] body [data-variant='read'],",
     "html[data-moonset-skin] body [data-variant='write'],",
     "html[data-moonset-skin] body [data-variant='edit'] {",
     '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-deepseek-400) 65%, var(--dsw-alias-label-primary));',
-    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 40%, var(--dsw-alias-label-secondary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 25%, var(--dsw-alias-label-secondary));',
     '}',
     "html[data-moonset-skin] body [data-variant='search'] {",
     '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-amber-600) 65%, var(--dsw-alias-label-primary));',
-    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 40%, var(--dsw-alias-label-secondary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 25%, var(--dsw-alias-label-secondary));',
     '}',
     "html[data-moonset-skin] body [data-variant='think'] {",
     '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-violet-400) 65%, var(--dsw-alias-label-primary));',
-    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 40%, var(--dsw-alias-label-secondary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 25%, var(--dsw-alias-label-secondary));',
     '}',
     '/* failed step (exit != 0 / signal): the class hue loses to the error colour. */',
     "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
     '  color: var(--dsw-alias-state-error-primary);',
-    '  font-weight: 500;',
     '}',
   ]
   if (options.glow !== false) {
