@@ -44,9 +44,12 @@ import { BOOT_SHEET_SELECTOR } from '../src/client/boot-cleanup'
 import { SKIN_REBUILD_MS, apply } from '../src/client/index'
 import { MOONSET_DARK, MOONSET_LIGHT, MOONSET_TOKEN_OVERRIDES } from '../src/client/palettes'
 import {
+  DEFAULT_GLOW_HUE,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH,
   GLOW_ALPHA_AT_FULL,
+  GLOW_HUES,
+  GLOW_HUE_AT_FULL,
   GLOW_SCOPES,
   GLOW_STRENGTH_MAX,
   GLOW_STRENGTH_MIN,
@@ -56,12 +59,14 @@ import {
   darkGlowAlphas,
   glowAlphas,
   mountSkin,
+  resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
   skinCss,
   syncSkin,
   unmountSkin,
   updateSkin,
+  type GlowHue,
   type GlowScope,
   type SkinRoot,
   type SkinSheetElement,
@@ -1142,6 +1147,98 @@ describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
     expect(updateSkin({ scope: 'main' }, fresh)).toBe(true)
     expect(fresh.attached()).toHaveLength(1)
     expect(fresh.attached()[0].textContent).toBe(skinCss({ scope: 'main' }))
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * M4: 光晕色相 (five hues, one shared control)                        *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — M4 光晕色相', () => {
+  /** The light ground rule of one sheet (the dark override starts after it). */
+  function lightGround(sheet: string): string {
+    return sheet.slice(sheet.indexOf('html[data-moonset-skin] body {'), sheet.indexOf('/* 0.1.2 ground (dark)'))
+  }
+
+  /** The dark ground rule of one sheet. */
+  function darkGround(sheet: string): string {
+    const start = sheet.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {')
+    return sheet.slice(start, sheet.indexOf('}', start) + 1)
+  }
+
+  it('offers five hues and lets each one repaint the indigo family only', () => {
+    expect(GLOW_HUES).toEqual(['accent', 'accentDark', 'accentSoft', 'accentSoftDark', 'nightBlue'])
+    for (const hue of GLOW_HUES) {
+      const form = GLOW_HUE_AT_FULL[hue]
+      const sheet = skinCss({ hue })
+      const light = lightGround(sheet)
+      const dark = darkGround(sheet)
+      // LIGHT: the moon halo and the wash take this hue's light token; the amber
+      // glint keeps its own token and its own 3% — the hue control must not move
+      // it, because amber is a different role, not a different hue.
+      expect(light).toContain(`var(${form.light})`)
+      expect(light).toContain('var(--dsw-static-amber-500) 3%, transparent')
+      // DARK: all THREE indigo footprints plus the wash use this hue's dark token
+      // — one hue, three sizes, whatever the user picked.
+      expect(dark).toContain(`var(${form.dark})`)
+      expect(dark).not.toContain('amber')
+      // No literal colour may enter through the table.
+      expect(sheet).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+      expect(sheet.split('\n').length).toBeLessThanOrEqual(60)
+    }
+    // The two "soft" forms are the SAME tokens at a fraction of the alpha.
+    expect(GLOW_HUE_AT_FULL.accentSoft.light).toBe(GLOW_HUE_AT_FULL.accent.light)
+    expect(GLOW_HUE_AT_FULL.accentSoftDark.light).toBe(GLOW_HUE_AT_FULL.accentDark.light)
+    expect(GLOW_HUE_AT_FULL.accentSoft.factor).toBe(0.56)
+    expect(GLOW_HUE_AT_FULL.accentSoftDark.factor).toBe(0.75)
+  })
+
+  it('multiplies strength AND the hue factor, then formats a literal percentage', () => {
+    // The combined table: strength (0-200) × hue factor (1 / 1 / 0.56 / 0.75 / 1)
+    // × the full-strength row. Every number is produced in JS, so the sheet only
+    // ever carries literals — never a calc() and never a var() hop.
+    const moonAt = (strength: number, hue: GlowHue): string => glowAlphas(strength, hue).moon
+    for (const strength of [0, 50, 100, 150, 200]) {
+      expect(moonAt(strength, 'accent')).toBe(`${(16 * strength) / 100}%`)
+      expect(moonAt(strength, 'nightBlue')).toBe(`${(16 * strength) / 100}%`)
+      expect(moonAt(strength, 'accentSoft')).toBe(`${Math.round(16 * strength * 0.56) / 100}%`)
+      expect(moonAt(strength, 'accentSoftDark')).toBe(`${Math.round(16 * strength * 0.75) / 100}%`)
+      // The amber is NOT scaled by the hue: it is the same 3% at every hue.
+      for (const hue of GLOW_HUES) {
+        expect(glowAlphas(strength, hue).warm).toBe(`${(3 * strength) / 100}%`)
+      }
+    }
+    // The card's own numbers, spelled out: accentSoft @100% = 8.96% (≈9%), @50% =
+    // 4.48% (≈4.5%); accentSoftDark @100% = 12%.
+    expect(glowAlphas(100, 'accentSoft').moon).toBe('8.96%')
+    expect(glowAlphas(50, 'accentSoft').moon).toBe('4.48%')
+    expect(glowAlphas(100, 'accentSoftDark')).toEqual({ moon: '12%', warm: '3%', wash: '1.13%' })
+    // DARK scales the same way (core / halo / bottom reflection / wash).
+    expect(darkGlowAlphas(100, 'accentSoft')).toEqual({ moon: '11.2%', core: '6.72%', floor: '2.24%', wash: '0.56%' })
+    expect(darkGlowAlphas(100, 'accentSoftDark')).toEqual({ moon: '15%', core: '9%', floor: '3%', wash: '0.75%' })
+    // ...and the emitted sheet carries those literals.
+    expect(skinCss({ hue: 'accentSoft', strength: 100 })).toContain('deepseek-500) 8.96%, transparent')
+    expect(skinCss({ hue: 'accentSoftDark', strength: 200 })).toContain('deepseek-400) 24%, transparent')
+  })
+
+  it('defaults to accent and leaves the 0.1.2 sheet byte-identical', () => {
+    // The control starts on the form the user already approved: `accent` is the
+    // M3 pair (light deepseek-500 / dark deepseek-400), so adding the selector
+    // cannot change a pixel before the user touches it.
+    expect(DEFAULT_GLOW_HUE).toBe('accent')
+    expect(skinCss()).toBe(skinCss({ hue: 'accent' }))
+    expect(skinCss({ hue: 'accent' })).toBe(EXPECTED_CSS)
+    expect(GLOW_HUE_AT_FULL.accent).toEqual({
+      light: '--dsw-static-deepseek-500',
+      dark: '--dsw-static-deepseek-400',
+      factor: 1,
+    })
+    // A value this version does not know falls back to the default, exactly like
+    // the scope and the strength (a hand-edited document must not repaint).
+    expect(resolveGlowHue(undefined)).toBe(DEFAULT_GLOW_HUE)
+    expect(resolveGlowHue('violet')).toBe(DEFAULT_GLOW_HUE)
+    expect(resolveGlowHue(null)).toBe(DEFAULT_GLOW_HUE)
+    expect(resolveGlowHue('nightBlue')).toBe('nightBlue')
   })
 })
 

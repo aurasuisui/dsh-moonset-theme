@@ -39,7 +39,7 @@
  * elements it renders carry a `style` attribute, never the document root.
  */
 import type { MoonsetChoice } from './choice.ts'
-import { GLOW_STRENGTH_MAX, GLOW_STRENGTH_MIN, type GlowScope } from './skin.ts'
+import { GLOW_STRENGTH_MAX, GLOW_STRENGTH_MIN, type GlowHue, type GlowScope } from './skin.ts'
 
 /** One option the section renders: the value it applies and its localized label. */
 export interface MoonsetOptionLabel {
@@ -53,6 +53,14 @@ export interface MoonsetOptionLabel {
 export interface MoonsetScopeLabel {
   /** The scope this button applies. */
   readonly value: GlowScope
+  /** Localized button text. */
+  readonly label: string
+}
+
+/** One 光晕色相 button (M4): the hue it applies and its localized label. */
+export interface MoonsetHueLabel {
+  /** The hue this button applies. */
+  readonly value: GlowHue
   /** Localized button text. */
   readonly label: string
 }
@@ -77,6 +85,10 @@ export interface MoonsetSectionLabels {
   readonly scopeOptions: readonly MoonsetScopeLabel[]
   /** M2: the strength row's label (the value is appended as a percentage). */
   readonly strengthTitle: string
+  /** M4: the 光晕色相 row heading. */
+  readonly hueTitle: string
+  /** M4: the five hue buttons, in display order. */
+  readonly hueOptions: readonly MoonsetHueLabel[]
   /** M2: one line explaining what the scope changes. */
   readonly hint: string
 }
@@ -97,6 +109,8 @@ export interface MoonsetSectionView {
   readonly glow: boolean
   /** M2: the glow strength in percent (0-200). */
   readonly glowStrength: number
+  /** M4: the hue the ground mixes from. */
+  readonly glowHue: GlowHue
 }
 
 /** The props this component takes — nothing else is wired to it. */
@@ -109,6 +123,8 @@ export interface MoonsetSectionProps {
   readonly onToggleGlow: (next: boolean) => void
   /** M2: set the glow strength (0-200). */
   readonly onStrength: (next: number) => void
+  /** M4: persist one 光晕色相 pick. */
+  readonly onHue: (hue: GlowHue) => void
   /** Localized copy. */
   readonly labels: MoonsetSectionLabels
   /**
@@ -275,6 +291,7 @@ export function MoonsetSection({
   onScope,
   onToggleGlow,
   onStrength,
+  onHue,
   labels,
   subscribe,
   read,
@@ -317,6 +334,12 @@ export function MoonsetSection({
     const next = !read().glow
     setView({ ...read(), glow: next })
     onToggleGlow(next)
+  }
+
+  /** M4: the hue row, same optimistic shape as the scope row. */
+  const pickHue = (next: GlowHue): void => {
+    setView({ ...read(), glowHue: next })
+    onHue(next)
   }
 
   /**
@@ -388,6 +411,23 @@ export function MoonsetSection({
             'aria-pressed': option.value === view.glowScope,
             onClick: () => { pickScope(option.value) },
             style: option.value === view.glowScope ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
+          },
+          option.label,
+        )),
+      ),
+      // ── M4: the hue ───────────────────────────────────────────────────────
+      React.createElement('div', { style: ROW_LABEL_STYLE }, labels.hueTitle),
+      React.createElement(
+        'div',
+        { style: ROW_STYLE, role: 'group', 'aria-label': labels.hueTitle },
+        ...labels.hueOptions.map((option) => React.createElement(
+          'button',
+          {
+            key: option.value,
+            type: 'button',
+            'aria-pressed': option.value === view.glowHue,
+            onClick: () => { pickHue(option.value) },
+            style: option.value === view.glowHue ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
           },
           option.label,
         )),

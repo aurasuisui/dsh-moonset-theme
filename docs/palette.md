@@ -43,7 +43,10 @@
 右下琥珀暖光混自 `--dsw-static-amber-500`（= `moon`），两者都以固定百分比与
 `transparent` 混出。**M3 起琥珀只是点缀**（16% : 3%，且椭圆收到右下角 46%），
 **暗色则只用一种靛蓝**：三层同色 `--dsw-static-deepseek-400`（深一档）加一条更薄的 wash，
-不再引入紫罗兰或琥珀——层次靠半径/位置/α 做，不靠加色相。规则形状与 alpha 数字见
+不再引入紫罗兰或琥珀——层次靠半径/位置/α 做，不靠加色相。**M4 起色相可选**（5 档：
+`accent` / `accentDark` / `accentSoft` / `accentSoftDark` / `nightBlue`）：浅色换月晕与 wash、
+暗色换三层 + wash，琥珀恒 3% 不跟着变；默认 `accent` 就是上面这两条 token，所以不改变现有观感。
+规则形状与 alpha 数字见
 [architecture §11](architecture.md#11-css-注入白名单p5-例外登记)。
 
 **证据**：`themes/moonset-palette.json`；`tests/palettes.spec.ts` 的

@@ -100,8 +100,8 @@ import {
   type MoonsetSectionLabels,
   type MoonsetSectionView,
 } from './settings-section.tsx'
-import { GLOW_SCOPES, mountSkin, syncSkin, unmountSkin, updateSkin } from './skin.ts'
-import type { GlowScope, SkinOptions } from './skin.ts'
+import { GLOW_HUES, GLOW_SCOPES, mountSkin, syncSkin, unmountSkin, updateSkin } from './skin.ts'
+import type { GlowHue, GlowScope, SkinOptions } from './skin.ts'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
 import { tolerantRegistration } from './registration-tolerance.ts'
 
@@ -144,6 +144,7 @@ export { MOONSET_LOCALE_NS, en, zh } from './locales.ts'
 export type { MoonsetLocaleKey } from './locales.ts'
 export { MoonsetSection } from './settings-section.tsx'
 export type {
+  MoonsetHueLabel,
   MoonsetOptionLabel,
   MoonsetScopeLabel,
   MoonsetSectionFace,
@@ -152,9 +153,12 @@ export type {
   MoonsetSectionView,
 } from './settings-section.tsx'
 export {
+  DEFAULT_GLOW_HUE,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH,
   GLOW_ALPHA_AT_FULL,
+  GLOW_HUES,
+  GLOW_HUE_AT_FULL,
   GLOW_SCOPES,
   GLOW_STRENGTH_MAX,
   GLOW_STRENGTH_MIN,
@@ -164,6 +168,7 @@ export {
   darkGlowAlphas,
   glowAlphas,
   mountSkin,
+  resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
   skinCss,
@@ -171,7 +176,7 @@ export {
   unmountSkin,
   updateSkin,
 } from './skin.ts'
-export type { GlowScope, SkinOptions, SkinRoot, SkinSheetElement } from './skin.ts'
+export type { GlowHue, GlowScope, SkinOptions, SkinRoot, SkinSheetElement } from './skin.ts'
 
 /** The locale namespace as a literal type (interface keys cannot be computed). */
 type MoonsetNamespace = 'settings.moonset'
@@ -246,6 +251,17 @@ function sectionLabels(t: SectionTranslate): MoonsetSectionLabels {
       label: t(scope === 'conversation' ? 'glow.scope.conversation' : scope === 'main' ? 'glow.scope.main' : 'glow.scope.all'),
     })),
     strengthTitle: t('glow.strength'),
+    // M4 光晕色相: derived from GLOW_HUES for the same reason the scopes are — a
+    // sixth hue would be a type error, not a missing button.
+    hueTitle: t('glow.hue.title'),
+    hueOptions: GLOW_HUES.map((hue) => ({
+      value: hue,
+      label: t(hue === 'accent' ? 'glow.hue.accent'
+        : hue === 'accentDark' ? 'glow.hue.accentDark'
+        : hue === 'accentSoft' ? 'glow.hue.accentSoft'
+        : hue === 'accentSoftDark' ? 'glow.hue.accentSoftDark'
+        : 'glow.hue.nightBlue'),
+    })),
     hint: t('glow.hint'),
   }
 }
@@ -309,7 +325,12 @@ function wireSettings(ctx: ClientContext): void {
   /** The options the sheet is built from, read live from the durable store. */
   const skinOptions = (): SkinOptions => {
     const current = glow.read()
-    return { glow: current.glow, scope: current.scope, strength: current.strength }
+    return {
+      glow: current.glow,
+      scope: current.scope,
+      strength: current.strength,
+      hue: current.hue,
+    }
   }
   /** The pending sheet rebuild (cleared by the teardown). */
   let rebuildTimer: ReturnType<typeof setTimeout> | undefined
@@ -353,6 +374,13 @@ function wireSettings(ctx: ClientContext): void {
   /** Set the glow strength (0-200, the slider's own bounds). */
   const setStrength = (next: number): void => {
     glow.write({ strength: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  /** Set the glow hue (M4). The amber glint is not affected by this control. */
+  const setHue = (hue: GlowHue): void => {
+    glow.write({ hue })
     scheduleSkinRebuild()
     notifyView()
   }
@@ -791,6 +819,7 @@ function wireSettings(ctx: ClientContext): void {
       glowScope: current.scope,
       glow: current.glow,
       glowStrength: current.strength,
+      glowHue: current.hue,
     }
   }
 
@@ -802,6 +831,7 @@ function wireSettings(ctx: ClientContext): void {
     onScope: setScope,
     onToggleGlow: setGlowOn,
     onStrength: setStrength,
+    onHue: setHue,
     labels: sectionLabels(t),
     subscribe,
     read,

@@ -542,6 +542,26 @@ Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength,
 0/1.5/3/4.5/6、wash 0/0.75/1.5/2.25/3；暗色 → 月晕 0/10/20/30/40、核心 0/6/12/18/24、反光 0/2/4/6/8、
 wash 0/0.5/1/1.5/2。
 
+**M4：光晕色相（5 档，浅色与深色共用一个选择）**：`glowHue` 是第四个 volatile 字段，
+默认 `accent`——它就是 0.1.2 已批准的那一对（浅 `deepseek-500` / 暗 `deepseek-400`），所以
+加控件**不改变任何一个像素**，用户自己切。每一项给**每个方案各一个 token** 加一个 alpha 乘数：
+乘数与 `glowStrength` 相乘后再在 JS 里格式化成字面百分比（`accentSoft` @100% = 8.96%，
+@50% = 4.48%，取两位小数）。
+
+| 值 | 按钮文案 | 浅色 token | 暗色 token | 乘数 |
+|---|---|---|---|---|
+| `accent`（默认） | 强调 · 浅 | `--dsw-static-deepseek-500` | `--dsw-static-deepseek-400` | 1 |
+| `accentDark` | 强调 · 深 | `--dsw-static-deepseek-400` | `--dsw-static-deepseek-400` | 1 |
+| `accentSoft` | 柔和 · 浅 | 同 `accent` | 同 `accent` | **0.56** |
+| `accentSoftDark` | 柔和 · 深 | 同 `accentDark` | 同 `accentDark` | **0.75** |
+| `nightBlue` | 夜空蓝 | `--dsw-static-blue-500` | `--dsw-static-blue-500` | 1 |
+
+暗色的三层（核心 / 月晕 / 反光）与 wash 一起换成所选 token，保持「**单色相多层**」；浅色只换
+月晕与 wash，**右下角琥珀恒 3% 不受色相影响**（它是另一个角色，不是另一种色相）。行数不变
+（47 行），因为只是换 token 名。注意本调色板把官方阶梯重新映射过：色卡上的 `#2563EB` 在这
+张表里是 `--dsw-static-blue-500` = `#4F46E5`（浅）/ `#818CF8`（暗），`nightBlue` 因此与
+`accent` 观感接近——要更深的夜空蓝把那一格换成 `blue-600` 即可（一个字符串）。
+
 **底部白带（M2 修）**：用户报 C 模式底部有一条亮带。定位到宿主在会话列底部画的遮罩带：
 `ConversationRoot.module.css` 的 `.root[data-phase='active'] .composerSeat` 用
 `linear-gradient(180deg, color-mix(bg-base 0%, transparent) 0px, bg-base 36px)` 把转写
@@ -663,7 +683,7 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（46 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（49 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
 `src/client/index.ts` 的

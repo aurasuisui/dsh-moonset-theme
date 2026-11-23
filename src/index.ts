@@ -54,6 +54,13 @@ const CHOICE_VALUES = ['off', 'light', 'dark', 'follow'] as const
  */
 const GLOW_SCOPE_VALUES = ['conversation', 'main', 'all'] as const
 
+/**
+ * The M4 glow hues — the same restatement rule as the other two unions: the
+ * client half owns the table (tokens + multipliers), and
+ * `tests/settings.spec.ts` cross-checks this union against `GLOW_HUES`.
+ */
+const GLOW_HUE_VALUES = ['accent', 'accentDark', 'accentSoft', 'accentSoftDark', 'nightBlue'] as const
+
 /** The subset of a schemastery node this module probes. */
 interface VolatileCapable {
   volatile?: () => unknown
@@ -99,6 +106,9 @@ export const Config = Schema.object({
   // its own surface. `all` stays selectable as the fully transparent mode.
   glowScope: maybeVolatile(Schema.union([...GLOW_SCOPE_VALUES]).default('main')),
   glowStrength: maybeVolatile(Schema.number().min(0).max(200).default(100)),
+  // `accent` keeps the 0.1.2 look exactly (light `deepseek-500`, dark
+  // `deepseek-400`); the other four are the colour card's forms.
+  glowHue: maybeVolatile(Schema.union([...GLOW_HUE_VALUES]).default('accent')),
 })
 
 /**

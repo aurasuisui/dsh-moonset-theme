@@ -14,7 +14,7 @@ import {
   createDurableGlow,
   type MoonsetSettingsSection,
 } from '../src/client/durable'
-import { DEFAULT_GLOW_SCOPE, DEFAULT_GLOW_STRENGTH, GLOW_SCOPES } from '../src/client/skin'
+import { DEFAULT_GLOW_HUE, DEFAULT_GLOW_SCOPE, DEFAULT_GLOW_STRENGTH, GLOW_HUES, GLOW_SCOPES } from '../src/client/skin'
 import { apply } from '../src/client/index'
 import { MOONSET_LOCALE_NS, en, zh } from '../src/client/locales'
 import { Config, MOONSET_ENTRY_ID as HOST_ENTRY_ID } from '../src/index'
@@ -663,10 +663,12 @@ describe('host settings contract — the Config the form is projected from', () 
       volatile: true,
     })
     expect(dict.glowScope.meta).toMatchObject({ default: DEFAULT_GLOW_SCOPE, volatile: true })
+    expect(dict.glowHue.meta).toMatchObject({ default: DEFAULT_GLOW_HUE, volatile: true })
 
-    // The scope union is the client's list, in the same order: a document value
+    // The unions are the client's lists, in the same order: a document value
     // the client cannot read is exactly what this check prevents.
     expect((dict.glowScope.list ?? []).map((entry) => entry.value)).toEqual([...GLOW_SCOPES])
+    expect((dict.glowHue.list ?? []).map((entry) => entry.value)).toEqual([...GLOW_HUES])
   })
 })
 
@@ -676,7 +678,7 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
   it('answers the shipped defaults before any form has spoken', () => {
     const harness = makeContext()
     const glow = createDurableGlow(harness.ctx)
-    expect(glow.read()).toEqual({ glow: true, scope: DEFAULT_GLOW_SCOPE, strength: 100 })
+    expect(glow.read()).toEqual({ glow: true, scope: DEFAULT_GLOW_SCOPE, strength: 100, hue: DEFAULT_GLOW_HUE })
     // A host with no form still lets the session switch: the value is answered
     // locally (it just cannot be persisted), and the failure is a WARNING at the
     // flush — never a throw, and never a diary of every pointer move.
@@ -698,7 +700,7 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
     const harness = makeContext({ forms: form })
     const glow = createDurableGlow(harness.ctx)
     try {
-      expect(glow.read()).toEqual({ glow: false, scope: 'main', strength: 40 })
+      expect(glow.read()).toEqual({ glow: false, scope: 'main', strength: 40, hue: DEFAULT_GLOW_HUE })
     } finally {
       glow.dispose()
     }
@@ -715,7 +717,7 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
       glow.write({ strength: 180 })
       // The local answer is immediate (the sheet follows at 150 ms, the write at
       // 300 ms), and nothing has reached the document yet.
-      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180 })
+      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180, hue: DEFAULT_GLOW_HUE })
       expect(form.sets).toEqual([])
       await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
       expect(form.sets).toEqual([
@@ -724,7 +726,7 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
       ])
       // The echo confirms what was already answered.
       await Promise.resolve()
-      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180 })
+      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180, hue: DEFAULT_GLOW_HUE })
       expect(glow.writes).toBe(2)
     } finally {
       vi.useRealTimers()
@@ -746,6 +748,30 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
         { field: 'glowScope', value: 'main' },
         { field: 'glowStrength', value: 200 },
       ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('persists the M4 hue like the other fields, and reads it back', async () => {
+    vi.useFakeTimers()
+    try {
+      const form = new FakeForm({})
+      const harness = makeContext({ forms: form })
+      const glow = createDurableGlow(harness.ctx)
+      expect(glow.read().hue).toBe(DEFAULT_GLOW_HUE)
+      glow.write({ hue: 'nightBlue' })
+      // The local answer is immediate; the document follows the 300 ms window.
+      expect(glow.read().hue).toBe('nightBlue')
+      expect(form.sets).toEqual([])
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
+      expect(form.sets).toEqual([{ field: 'glowHue', value: 'nightBlue' }])
+      await Promise.resolve()
+      expect(glow.read().hue).toBe('nightBlue')
+      // A value this build does not know is narrowed before it can reach the
+      // sheet (a hand-edited document must not repaint the ground).
+      glow.write({ hue: 'violet' as unknown as 'accent' })
+      expect(glow.read().hue).toBe(DEFAULT_GLOW_HUE)
     } finally {
       vi.useRealTimers()
     }

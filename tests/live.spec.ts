@@ -5,7 +5,7 @@ import { STATUS_SEPARATOR, describeState, type MoonsetChoice } from '../src/clie
 import { RESTORE_WINDOW_MS, WRITE_DEBOUNCE_MS } from '../src/client/durable'
 import { apply } from '../src/client/index'
 import { en, zh, type MoonsetLocaleKey } from '../src/client/locales'
-import { GLOW_SCOPES, type GlowScope } from '../src/client/skin'
+import { GLOW_HUES, GLOW_SCOPES, type GlowHue, type GlowScope } from '../src/client/skin'
 import {
   MoonsetSection,
   type MoonsetSectionFace,
@@ -534,14 +534,20 @@ const LABELS: MoonsetSectionProps['labels'] = {
     label: zh[`glow.scope.${scope}` as MoonsetLocaleKey],
   })),
   strengthTitle: zh['glow.strength'],
+  hueTitle: zh['glow.hue.title'],
+  hueOptions: GLOW_HUES.map((hue) => ({
+    value: hue,
+    label: zh[`glow.hue.${hue}` as MoonsetLocaleKey],
+  })),
   hint: zh['glow.hint'],
 }
 
 /** The three M2 fields a view carries, at their contract defaults (M3: B `main`). */
-const GLOW_FIELDS: Pick<MoonsetSectionView, 'glowScope' | 'glow' | 'glowStrength'> = {
+const GLOW_FIELDS: Pick<MoonsetSectionView, 'glowScope' | 'glow' | 'glowStrength' | 'glowHue'> = {
   glowScope: 'main',
   glow: true,
   glowStrength: 100,
+  glowHue: 'accent',
 }
 
 /**
@@ -555,6 +561,7 @@ function mountSection(spec: {
   readonly onScope?: (scope: GlowScope) => void
   readonly onToggleGlow?: (next: boolean) => void
   readonly onStrength?: (next: number) => void
+  readonly onHue?: (hue: GlowHue) => void
 }): { mount: HookMount; listeners: Set<() => void> } {
   const listeners = new Set<() => void>()
   const props: MoonsetSectionProps = {
@@ -562,6 +569,7 @@ function mountSection(spec: {
     onScope: spec.onScope ?? (() => {}),
     onToggleGlow: spec.onToggleGlow ?? (() => {}),
     onStrength: spec.onStrength ?? (() => {}),
+    onHue: spec.onHue ?? (() => {}),
     labels: LABELS,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
@@ -851,6 +859,49 @@ describe('M5.3 跟随自愈 — 覆盖层与偏好各修一处', () => {
   })
 })
 
+// ── M4: 光晕色相 ────────────────────────────────────────────────────────────
+
+describe('M4 设置区 — 光晕色相按钮组', () => {
+  /** The hue buttons, in document order. */
+  function hueButtons(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'button'
+      && LABELS.hueOptions.some((option) => textOf(node) === option.label))
+  }
+
+  it('renders one button per hue, with the current one pressed', () => {
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS, glowHue: 'nightBlue' }
+    const { mount } = mountSection({ view: () => view })
+    const tree = mount.mount()
+    try {
+      const buttons = hueButtons(tree)
+      expect(buttons.map((button) => textOf(button))).toEqual(LABELS.hueOptions.map((option) => option.label))
+      // Exactly one pressed, and it is the live hue — not the default.
+      expect(buttons.map((button) => button.props['aria-pressed'])).toEqual([false, false, false, false, true])
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('calls onHue and moves the pressed state in the same render', () => {
+    let view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const hues: GlowHue[] = []
+    const { mount } = mountSection({ view: () => view, onHue: (hue) => { hues.push(hue) } })
+    const tree = mount.mount()
+    try {
+      expect(hueButtons(tree).map((button) => button.props['aria-pressed'])).toEqual([true, false, false, false, false])
+      press(tree, zh['glow.hue.accentSoft'])
+      expect(hues).toEqual(['accentSoft'])
+      // The store has not moved (the view is optimistic by design, like the
+      // scope buttons); the pressed state already has.
+      expect(view.glowHue).toBe('accent')
+      const pressed = hueButtons(mount.update()).filter((button) => button.props['aria-pressed'] === true)
+      expect(pressed.map((button) => textOf(button))).toEqual([zh['glow.hue.accentSoft']])
+    } finally {
+      mount.unmount()
+    }
+  })
+})
+
 // ── M2: 地面范围 / 环境光晕 / 强度 ───────────────────────────────────────────
 
 describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
@@ -868,7 +919,7 @@ describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
   }
 
   it('renders the three scope buttons, the switch and the slider from read()', () => {
-    const view: MoonsetSectionView = { choice: 'light', status: 'mock', glow: true, glowScope: 'main', glowStrength: 150 }
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS, glowStrength: 150 }
     const { mount } = mountSection({ view: () => view })
     const tree = mount.mount()
     try {

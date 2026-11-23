@@ -44,7 +44,13 @@ export const zh = {
   'glow.scope.main': '主区',
   'glow.scope.all': '全透',
   'glow.strength': '强度',
-  'glow.hint': '会话区：只透会话列；主区：再透外壳与三列（侧栏仍有自己的面）；全透：连侧栏与底部一起透。强度 0 等于只剩底色。',
+  'glow.hue.title': '光晕色相',
+  'glow.hue.accent': '强调 · 浅',
+  'glow.hue.accentDark': '强调 · 深',
+  'glow.hue.accentSoft': '柔和 · 浅',
+  'glow.hue.accentSoftDark': '柔和 · 深',
+  'glow.hue.nightBlue': '夜空蓝',
+  'glow.hint': '会话区：只透会话列；主区：再透外壳与三列（侧栏仍有自己的面）；全透：连侧栏与底部一起透。强度 0 等于只剩底色；色相只换靛蓝那一系，琥珀点缀不动。',
 } as const
 
 /** English dictionary — every `zh` key, no extras (checked at registration). */
@@ -70,7 +76,13 @@ export const en = {
   'glow.scope.main': 'Main',
   'glow.scope.all': 'All',
   'glow.strength': 'Strength',
-  'glow.hint': 'Conversation keeps the glow to the conversation column; Main lets the shell and the three columns through (the sidebar keeps its own surface); All is fully transparent, sidebar and bottom included. Strength 0 leaves only the base colour.',
+  'glow.hue.title': 'Glow hue',
+  'glow.hue.accent': 'Accent · light',
+  'glow.hue.accentDark': 'Accent · dark',
+  'glow.hue.accentSoft': 'Soft · light',
+  'glow.hue.accentSoftDark': 'Soft · dark',
+  'glow.hue.nightBlue': 'Night blue',
+  'glow.hint': 'Conversation keeps the glow to the conversation column; Main lets the shell and the three columns through (the sidebar keeps its own surface); All is fully transparent, sidebar and bottom included. Strength 0 leaves only the base colour; the hue only repaints the indigo family — the amber glint is untouched.',
 } as const
 
 /** Every key the section renders (the namespace's dictionary union). */

@@ -53,10 +53,13 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveChoice, type MoonsetChoice } from './choice.ts'
 import {
+  DEFAULT_GLOW_HUE,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH,
+  resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
+  type GlowHue,
   type GlowScope,
 } from './skin.ts'
 
@@ -105,6 +108,8 @@ export interface MoonsetSettingsSection {
   glowScope?: unknown
   /** M2 强度: 0-200 when the document carries it. */
   glowStrength?: unknown
+  /** M4 光晕色相: one of `GLOW_HUES` when the document carries it. */
+  glowHue?: unknown
 }
 
 /** The small durable surface the settings section and the boot path consume. */
@@ -491,6 +496,8 @@ export interface MoonsetGlow {
   readonly scope: GlowScope
   /** The glow strength in percent (0-200). */
   readonly strength: number
+  /** The hue the ground mixes from (M4). */
+  readonly hue: GlowHue
 }
 
 /** The small durable surface the skin rebuild and the settings section consume. */
@@ -514,6 +521,7 @@ const DEFAULT_GLOW: MoonsetGlow = {
   glow: true,
   scope: DEFAULT_GLOW_SCOPE,
   strength: DEFAULT_GLOW_STRENGTH,
+  hue: DEFAULT_GLOW_HUE,
 }
 
 /**
@@ -530,6 +538,7 @@ function resolveGlow(section: MoonsetSettingsSection | undefined): MoonsetGlow {
     glow: typeof section?.glow === 'boolean' ? section.glow : DEFAULT_GLOW.glow,
     scope: resolveGlowScope(section?.glowScope),
     strength: resolveGlowStrength(section?.glowStrength),
+    hue: resolveGlowHue(section?.glowHue),
   }
 }
 
@@ -540,7 +549,7 @@ function resolveGlow(section: MoonsetSettingsSection | undefined): MoonsetGlow {
  * @returns whether every field agrees.
  */
 function sameGlow(a: MoonsetGlow, b: MoonsetGlow): boolean {
-  return a.glow === b.glow && a.scope === b.scope && a.strength === b.strength
+  return a.glow === b.glow && a.scope === b.scope && a.strength === b.strength && a.hue === b.hue
 }
 
 /**
@@ -636,6 +645,7 @@ export function createDurableGlow(ctx: ClientContext): DurableGlow {
     if (patch.glow !== undefined) fields.push(['glow', patch.glow])
     if (patch.scope !== undefined) fields.push(['glowScope', patch.scope])
     if (patch.strength !== undefined) fields.push(['glowStrength', patch.strength])
+    if (patch.hue !== undefined) fields.push(['glowHue', patch.hue])
     for (const [field, value] of fields) {
       writes += 1
       try {
@@ -698,10 +708,11 @@ export function createDurableGlow(ctx: ClientContext): DurableGlow {
       if (disposed) return
       // A mutable local: MoonsetGlow's fields are readonly for the CONSUMER, and
       // the patch being built here is exactly the writable half.
-      const next: { glow?: boolean; scope?: GlowScope; strength?: number } = {}
+      const next: { glow?: boolean; scope?: GlowScope; strength?: number; hue?: GlowHue } = {}
       if (patch.glow !== undefined) next.glow = patch.glow
       if (patch.scope !== undefined) next.scope = resolveGlowScope(patch.scope)
       if (patch.strength !== undefined) next.strength = resolveGlowStrength(patch.strength)
+      if (patch.hue !== undefined) next.hue = resolveGlowHue(patch.hue)
       if (Object.keys(next).length === 0) return
       pending = { ...pending, ...next }
       if (timer !== undefined) clearTimeout(timer)
