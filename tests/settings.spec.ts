@@ -603,11 +603,14 @@ describe('unload — the fiber disposers take everything down (M5)', () => {
     expect(harness.locale.namespaces.size).toBe(0)
   })
 
-  it('owns exactly the three M5 effects on top of the theme registration', () => {
+  it('owns exactly the theme registration, the skin sheet and the three M5 effects', () => {
     const harness = makeContext()
     apply(harness.ctx)
     expect(harness.effectLabels).toEqual([
       'moonset: light/dark theme registrations',
+      // 0.1.1: the skin's own effect, entered right after the registrations so
+      // the sheet lives exactly as long as its plugin (P2).
+      'moonset: skin sheet',
       'moonset: settings dictionaries',
       'moonset: settings choice',
       'moonset: settings section',

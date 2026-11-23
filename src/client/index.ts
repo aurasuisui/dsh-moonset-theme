@@ -15,7 +15,12 @@
  *     so a peer owning an id costs a skip, never the user's whole plugin set;
  *  2. the settings dictionaries (M5) — one namespace, zh + en;
  *  3. the choice controller (M5) — durable form + boot restore + follow layer;
- *  4. the settings section (M5) — `settings.section`, three buttons.
+ *  4. the settings section (M5) — `settings.section`, three buttons;
+ *  5. the skin layer (0.1.1) — the root attribute plus ONE injected stylesheet
+ *     (`skin.ts`), mounted after the registrations and torn down by the same
+ *     `ctx.effect`, so "plugin active" and "skin present" are exactly one
+ *     interval and no sheet can outlive its owner (P2). It installs no listener
+ *     and no loop (P1); what may enter that sheet is the P5 whitelist.
  *
  * Nothing here switches the theme preference on its own initiative: a boot
  * restore only re-applies a choice the user already MADE (a stored `off` is
@@ -89,6 +94,7 @@ import {
   type MoonsetSectionLabels,
   type MoonsetSectionView,
 } from './settings-section.tsx'
+import { mountSkin, unmountSkin } from './skin.ts'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
 import { tolerantRegistration } from './registration-tolerance.ts'
 
@@ -137,6 +143,15 @@ export type {
   MoonsetSectionProps,
   MoonsetSectionView,
 } from './settings-section.tsx'
+export {
+  SKIN_ATTR,
+  SKIN_SHEET_ATTR,
+  SKIN_SHEET_SELECTOR,
+  mountSkin,
+  skinCss,
+  unmountSkin,
+} from './skin.ts'
+export type { SkinRoot, SkinSheetElement } from './skin.ts'
 
 /** The locale namespace as a literal type (interface keys cannot be computed). */
 type MoonsetNamespace = 'settings.moonset'
@@ -205,6 +220,17 @@ export function apply(ctx: ClientContext): void {
   // the registrations the fiber's lifetime, so unloading the plugin releases
   // them and a re-activation registers them again.
   ctx.effect(() => registerMoonsetThemes(ctx.theme), 'moonset: light/dark theme registrations')
+  // 0.1.1 skin layer (P1/P2): one root attribute plus one sheet, entered and
+  // left with the fiber. Mounted unconditionally — the skin has no switch of its
+  // own yet (0.1.2/0.1.3 add them), and a sheet that outlived its plugin would
+  // be a rule with no owner. Mount/unmount are idempotent and total; a document
+  // that refuses the write loses the skin, never the boot (see skin.ts).
+  ctx.effect(() => {
+    mountSkin()
+    return () => {
+      unmountSkin()
+    }
+  }, 'moonset: skin sheet')
   wireSettings(ctx)
 }
 

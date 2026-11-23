@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-import { MOONSET_CLASSES, MOONSET_DARK, MOONSET_LIGHT } from '../src/client/palettes'
+import {
+  MOONSET_CLASSES,
+  MOONSET_DARK,
+  MOONSET_LIGHT,
+  MOONSET_TOKEN_OVERRIDES,
+} from '../src/client/palettes'
 
 /**
  * M3 contract: the two Moonset tables must cover the installed 228-token
@@ -289,10 +294,20 @@ describe('moonset token tables', () => {
   })
 
   it('copies every var()/color-mix() expression verbatim so class A carries it', () => {
+    // 0.1.1 exception: TOKEN_OVERRIDES replaces a B1 expression on purpose (the
+    // selected sidebar row). The generator refuses any other override, and each
+    // listed token must still resolve through the same scheme table.
+    const overridden = new Set(MOONSET_TOKEN_OVERRIDES)
+    expect(overridden.size).toBe(2)
     let checked = 0
     for (const scheme of SCHEMES) {
       for (const [token, value] of Object.entries(official[scheme])) {
         if (classifyValue(token, value) !== 'expression') continue
+        if (overridden.has(token)) {
+          expect(TABLES[scheme][token], scheme + ' ' + token).not.toBe(value)
+          expect(VALUE_SHAPE.test(TABLES[scheme][token]), scheme + ' ' + token).toBe(true)
+          continue
+        }
         checked += 1
         expect(TABLES[scheme][token], scheme + ' ' + token).toBe(value)
       }

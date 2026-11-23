@@ -13,7 +13,10 @@
  *        The 00..1000 direction is constant, so the official alias layer
  *        (light reads the light end, dark the dark end) keeps working.
  *   B1   var()/color-mix() expressions: copied verbatim - the static they
- *        reference is in this same table, so they follow class A.
+ *        reference is in this same table, so they follow class A. Two tokens
+ *        (0.1.1, the selected sidebar row) are listed in TOKEN_OVERRIDES
+ *        instead and exported as MOONSET_TOKEN_OVERRIDES; they are counted
+ *        as B1 because that is the class of the OFFICIAL value.
  *   B2   pure neutral literals: alpha kept, tinted with the scheme own
  *        ink/canvas end (NEUTRAL_ENDPOINTS in the generator).
  *   B3   chroma literals: replaced through the explicit CHROMA_LITERALS table.
@@ -31,7 +34,7 @@ export type MoonsetTokenTable = Record<string, string>
 export interface MoonsetTokenClasses {
   /** A: --dsw-static-* primitives rebuilt from the family ladders. */
   static: number
-  /** B1: official var()/color-mix() expressions, copied verbatim. */
+  /** B1: official var()/color-mix() expressions copied verbatim (overrides excepted). */
   expression: number
   /** B2: pure neutral literals, alpha kept and tinted with ink/canvas. */
   neutralLiteral: number
@@ -185,8 +188,8 @@ export const MOONSET_LIGHT: MoonsetTokenTable = {
   '--dsw-specific-menu': 'var(--dsw-menu-surface-fill)',
   '--dsw-specific-selector': 'var(--dsw-static-neutral-bluish-60)',
   '--dsw-specific-sidebar-fill': 'var(--dsw-static-neutral-bluish-50)',
-  '--dsw-specific-sidebar-nav-item-active': 'var(--dsw-static-neutral-bluish-100)',
-  '--dsw-specific-sidebar-nav-item-active-accent': 'var(--dsw-static-deepseek-100)',
+  '--dsw-specific-sidebar-nav-item-active': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))',
+  '--dsw-specific-sidebar-nav-item-active-accent': 'var(--dsw-static-deepseek-500)',
   '--dsw-specific-sidebar-right-flash': 'var(--dsw-alias-brand-primary-new-colorprimary-new-color)',
   '--dsw-specific-tip': 'var(--dsw-static-neutral-bluish-60)',
   '--dsw-static-amber-100': '#F7EDE3',
@@ -417,8 +420,8 @@ export const MOONSET_DARK: MoonsetTokenTable = {
   '--dsw-specific-menu': 'var(--dsw-menu-surface-fill)',
   '--dsw-specific-selector': 'var(--dsw-static-neutral-bluish-800)',
   '--dsw-specific-sidebar-fill': 'var(--dsw-static-neutral-bluish-900)',
-  '--dsw-specific-sidebar-nav-item-active': 'var(--dsw-static-neutral-bluish-750)',
-  '--dsw-specific-sidebar-nav-item-active-accent': 'var(--dsw-static-neutral-bluish-800)',
+  '--dsw-specific-sidebar-nav-item-active': 'color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))',
+  '--dsw-specific-sidebar-nav-item-active-accent': 'var(--dsw-static-deepseek-500)',
   '--dsw-specific-sidebar-right-flash': 'var(--dsw-static-neutral-00)',
   '--dsw-specific-tip': 'var(--dsw-static-neutral-bluish-800)',
   '--dsw-static-amber-100': '#F4D892',
@@ -504,6 +507,19 @@ export const MOONSET_DARK: MoonsetTokenTable = {
   '--dsw-static-violet-400': '#7C7FF2',
   '--dsw-static-violet-600': '#5355C8',
 }
+
+/**
+ * Tokens whose value is a deliberate Moonset delta, not the official value.
+ *
+ * Every other token is the official value copied verbatim (B1) or rebuilt
+ * from the palette (A/B2/B3); these few are replaced on purpose, and the
+ * reasons live beside TOKEN_OVERRIDES in the generator. 0.1.1: the two
+ * selected-sidebar-row tokens (accent wash + accent label).
+ */
+export const MOONSET_TOKEN_OVERRIDES: readonly string[] = [
+  '--dsw-specific-sidebar-nav-item-active',
+  '--dsw-specific-sidebar-nav-item-active-accent',
+]
 
 /** Per-scheme class counts (A + B1 + B2 + B3 = 228, B4 = 0). */
 export const MOONSET_CLASSES: Record<MoonsetScheme, MoonsetTokenClasses> = {

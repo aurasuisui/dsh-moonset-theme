@@ -17,6 +17,7 @@
 - [8. M5.2：adopt() 回声与再断言（必读）](#8-m52adopt-回声与再断言必读)
 - [9. 卸载与重载](#9-卸载与重载)
 - [10. 复核命令](#10-复核命令)
+- [11. CSS 注入白名单（P5 例外登记）](#11-css-注入白名单p5-例外登记)
 
 ## 1. 两半区与数据流
 
@@ -110,6 +111,13 @@ lib/client.js（页面）           theme.register ×2、overrideTokens 跟随�
    110 dark）/ B2（纯中性字面量，14/16）/ B3（有彩字面量，23/20），B4 必须 0——
    出现 B4 时生成器**拒绝写文件**并 exit 1。输出 `src/client/palettes.ts`，纯数据、
    按字母序、无时间戳，两次运行逐字节相同。
+
+0.1.1 起生成器多了一个**显式覆盖表** `TOKEN_OVERRIDES`：官方值是 B1 表达式、但
+我们要换值的 token（当前两个：选中行底色与强调色）在那里逐条列出，**计数仍按官方值
+所属的类统计**（所以 A=82 / B1=109,110 不变），换过的名字导出成
+`MOONSET_TOKEN_OVERRIDES` 供测试引用。未知键、`--dsw-static-*` 键、与
+`CHROMA_LITERALS` 撞车、值里引用了表外 token 的条目，生成器直接 exit 1——不猜、
+不兜底。
 
 一条容易误解的规则：B1「表达式照抄」不是回落到官方色。被引用的 static 就在同一张表
 里，解析后自然跟随 A；7 个 `--dsw-alias-json-tree-*` 是字面量，被**逐个**列进
@@ -235,6 +243,10 @@ Client 只能在其脚本加载**之后**才 `register`/`setTheme`，因此官�
 不可信）、`off`、以及任何不认识的值。值里出现 `<>\{};` 或控制字符的 token 会被
 丢弃并 warn（当前 228 条全部通过正则）。
 
+**另一条注入通道**：皮肤层（0.1.1）**不参与首帧**，它是 `html[data-moonset-skin]`
+加一张 `<style data-dsh-moonset-skin>`，由 `src/client/skin.ts` 独占；规则白名单见
+[§11](#11-css-注入白名单p5-例外登记)，token 侧的两个选中行覆盖见 §3 的 `TOKEN_OVERRIDES`。
+
 **撤表**：`src/client/boot-cleanup.ts` 用 `style[data-dsh-moonset-boot]` 精确删除这张
 表，调用点是启动恢复、用户点击、以及 choice effect 的 teardown。表必须死在这三个
 时刻，否则它的双选择器会永远压住官方 token 块，之后**任何**主题切换都不生效。
@@ -334,7 +346,8 @@ adopt() {
 
 ## 9. 卸载与重载
 
-所有注册都挂在 `ctx.effect`（或 `ctx.inject` 的 fiber）上，卸载即释放：两个主题注册、字典、choice effect
+所有注册都挂在 `ctx.effect`（或 `ctx.inject` 的 fiber）上，卸载即释放：两个主题注册、
+皮肤表（`moonset: skin sheet`：摘根属性 + 删表）、字典、choice effect
 （订阅 + 跟随层 + 表单 + 撤表）、设置区。释放顺序上 `dispose` 先 flush 再释放表单，
 所以「点了但还没落盘」的选择不会丢。注册记忆化让重复安装的两份 fiber 共享一次注册，
 **先释放的那次生效、后一次 no-op**（已记录的现场行为，见
@@ -349,10 +362,109 @@ node scripts/extract-dsw-tokens.mjs      # 读安装态 app.asar → themes/dsw-
 git checkout -- themes/dsw-tokens.json   # 该脚本非幂等：meta.extractedAt 每次都会变
 node scripts/verify-tokens.mjs           # 期望 missing=0 retired=1 live=228
 node scripts/generate-palettes.mjs       # 重生成 src/client/palettes.ts（应无 diff）
-pnpm test                                # 105 passed / 7 files
+pnpm test                                # 132 passed / 9 files
 node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 PASS
 ```
 
 `extract` 的 `meta.extractedAt` 每次重写都会让文件变脏，跑完审计要还原（M2 的记录债）。
 `generate-palettes` 是幂等的：`tests/palettes.spec.ts` 直接用 `renderModule(buildPalettes())`
 与已提交文件逐字比较，所以「不写盘也能证明可复现」。
+
+## 11. CSS 注入白名单（P5 例外登记）
+
+契约 §一 P5 是「token 优先，CSS 只补 token 表达不了的」。这一节登记的就是
+**「表达不了」的那几件**，以及它们唯一的注入通道。判据只有一句：
+**token 能表达的，写进 CSS 就是返工**；不在下表里的 CSS 改动，一律退回 token。
+
+### 11.1 为什么允许 CSS（为什么 token 在这里失效）
+
+`--dsw-*` 是自定义属性，只能落在**宿主已经用到的**地方。三类面天生没有座位：
+
+- **文本选区**：`::selection` 是 UA 伪元素，浏览器直接画默认蓝；安装态 0.2.2-rc.5 的
+  9 张主题样式表里 `::selection` **0 命中**，没有任何 token 被它消费。只改 `--dsw-*`
+  不会让选区变紫——这就是「必须注入 CSS」的实测依据（契约 D2）。
+- **地面渐变**：`body` 的多层 `background`（wash + 双光斑）是图层结构，不是单色，
+  一个 token 装不下（0.1.2）。
+- **材质面**：`backdrop-filter` 必须落在**背靠内容**的平面上，且按 P4 画在自有
+  `::before` 上（0.1.3）。
+
+### 11.2 通道：一个根属性 + 一张表（P2）
+
+| 件 | 值 | 说明 |
+|---|---|---|
+| 根属性 | `html[data-moonset-skin]` | 布尔式（值为空串）；既是开关信号，也是将来按属性门控的选择器前缀 |
+| 样式表 | `<style data-dsh-moonset-skin>` | **单表单例**；标识写在属性上，DevTools 里一眼可辨（M1 的「带标识」） |
+| 写入口 | `src/client/skin.ts` | `mountSkin()` / `unmountSkin()`，此外没有第三处写 DOM |
+| 表内容 | `skinCss()` | **纯函数**，不读 document / 时间 / 调色板，所以能逐字断言 |
+| 生命周期 | `ctx.effect('moonset: skin sheet')` | 挂载与卸载同一次 effect；表不可能活得比插件久 |
+
+`mountSkin()` 先写根属性、再做单例检查（已在就返回，绝不建第二张），然后
+`head.appendChild`；`unmountSkin()` 先摘属性、再循环删掉所有带我们标识的表——包括
+别人多塞的那张（热重载、第二份插件、手粘的节点），直到删不出为止。两者都幂等，
+且在没有 `document` 的环境（Node 侧单元测试）里是静默 no-op，不抛。
+
+**零常驻 JS（P1）**：`skin.ts` 里没有 `addEventListener` / `requestAnimationFrame` /
+`ResizeObserver` / `setInterval`；全部登记只有两个时刻——插件激活与卸载。
+
+### 11.3 白名单：允许的三类
+
+| 类 | 形状 | 为什么 token 做不到 | 版本 |
+|---|---|---|---|
+| **选区** | `html body ::selection` | UA 伪元素，无 token 座位 | 0.1.1 |
+| **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
+| **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
+
+当前登记（0.1.1，全表就这一条规则，5 行）：
+
+```css
+/* dsh-moonset[0.1.1]: skin layer — P5 whitelist, ::selection only */
+html body ::selection {
+  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 28%, transparent);
+  color: var(--dsw-alias-label-primary);
+}
+```
+
+三个选择上的理由：
+
+1. **强调色用 `--dsw-static-deepseek-500`，不是 `--dsw-alias-brand-primary`**。后者
+   在官方表里是 `var(--dsw-static-neutral-bluish-1000)`（浅）/ `-50`（暗），即**中性
+   墨色**，照抄进本表后依然是墨色；蓝紫强调在本调色板里是 `deepseek` 阶梯的 500
+   （= 16 锚点的 `accent`：浅 `#4338CA` / 暗 `#818CF8`）。契约 §一 A 节写的
+   `brand-primary` 在这里会画出一条灰选区，改用 accent 才是「紫」。
+2. **文字用 `--dsw-alias-label-primary`**：它是正文标签那一档（对比度契约 ≥7:1），
+   在紫底上仍是正文可读色，且浅深各自跟随。
+3. **选择器 `html body ::selection`（0,0,2）**：压过任何第三方 `::selection`
+   （0,0,1）；表又是在宿主样式之后插入的，同特异性也赢。宿主 9 张表零命中，所以
+   当前没有实战冲突（D2 的兜底留在这里）。
+
+**与 token 的分工**：选中行（「淡紫底 + 紫字」）走的是 **token**，不进白名单——它是
+生成器 `TOKEN_OVERRIDES` 的两个条目（`--dsw-specific-sidebar-nav-item-active` =
+`color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))`，
+`…-active-accent` = `var(--dsw-static-deepseek-500)`，见 §3）。白名单只收 token
+表达不了的；两者不重叠。
+
+### 11.4 禁止什么（写进来就是回退）
+
+- **改布局**：`display` / `position` / `grid` / `flex` / 尺寸 / `margin` /
+  `padding` / `overflow` 一律不许；
+- **碰宿主 DOM 结构**：不增删宿主节点、不注入 `html.style` / `body.style`、不用
+  结构性选择器「修」宿主组件；允许的 DOM 写只有两笔——根上摘挂一个属性、head 里
+  增删一张表（`unmount` 之后零残留）；
+- **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
+- **堆第二张表**：要扩就改 `skinCss()`，两处声明就是两份真相（P2）；
+- **写死颜色**：白名单里的每个颜色必须由 `var(--dsw-*)` 混出，否则跟随/主题切换会掉队
+  （P5）。
+
+### 11.5 新增一条白名单项的门槛
+
+1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
+2. 规则总数 ≤ 20 行、单选择器、无 `!important`、无 `@media`；
+3. 颜色只从 token 混出；
+4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
+5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
+
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（12 条：挂载、单例、逐字 CSS、
+预算、装饰色取自 token、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与
+fiber teardown 卸载）；`src/client/index.ts` 的 `moonset: skin sheet` effect；
+生成器的 `TOKEN_OVERRIDES`（选中行 token 侧）；安装态 0.2.2-rc.5 的 9 张主题样式表
+`::selection` 0 命中。

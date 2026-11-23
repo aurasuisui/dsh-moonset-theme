@@ -46,6 +46,12 @@
  *   B4  anything else. The generator refuses to write a file: it prints the key
  *       and the raw value and exits 1. There is no silent pass-through.
  *
+ * 0.1.1 adds one more exit beside B4: a token whose OFFICIAL value is a B1
+ * expression may still be emitted with OUR value, listed explicitly in
+ * TOKEN_OVERRIDES. That is the token half of the skin layer (the selected
+ * sidebar row), and the counts keep describing the OFFICIAL class so the audit
+ * stays comparable. Nothing is inferred from a token name here either.
+ *
  * Re-run after editing the palette or the position tables:
  *   node scripts/generate-palettes.mjs
  */
@@ -396,6 +402,81 @@ export const CHROMA_LITERALS = {
 }
 
 /* ------------------------------------------------------------------ *
+ * class B1 exceptions — deliberate token deltas (0.1.1)               *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Tokens whose emitted value is NOT the official one even though the official
+ * value is a var()/color-mix() expression (class B1, "copied verbatim").
+ *
+ * 0.1.1 is the first consumer. Upstream paints the selected sidebar row with a
+ * neutral rung (--dsw-static-neutral-bluish-100 / -750) and its label with a
+ * second neutral rung, i.e. the selected row is GREY. A skin that asks for a
+ * pale-violet wash with violet text cannot ride the neutral ladder, so the two
+ * tokens are replaced here. Both replacements are CSS expressions built from
+ * tokens that are already in this same table, which is what keeps them
+ * scheme-correct without a second source of truth:
+ *
+ *   --dsw-static-deepseek-500   the accent anchor (light #4338CA, dark #818CF8)
+ *   --dsw-alias-bg-base         the canvas the alias layer reads
+ *
+ * Rules enforced by validateOverrides() below (the run fails, never guesses):
+ *   - the key exists in themes/dsw-tokens.json and is NOT a --dsw-static-*
+ *     primitive (the ladder owns those, a delta there would repaint the app);
+ *   - the key has no CHROMA_LITERALS entry (one owner per token);
+ *   - the value is var(--dsw-...) / color-mix(in srgb, ...) only;
+ *   - every var() it references exists in the same table;
+ *   - the value actually differs from the official one.
+ */
+export const TOKEN_OVERRIDES = {
+  /*
+   * The selected row background: accent 10% over the canvas. 10% keeps the row
+   * a wash (not a chip) in both schemes; a heavier share reads as a button.
+   */
+  '--dsw-specific-sidebar-nav-item-active':
+    'color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))',
+  /*
+   * The selected row's label and icon: the accent used AS TEXT, so the row is
+   * violet-on-pale-violet instead of the neutral rung upstream picks.
+   */
+  '--dsw-specific-sidebar-nav-item-active-accent':
+    'var(--dsw-static-deepseek-500)',
+}
+
+/** The shape an override value may take: one var() reference or one color-mix(). */
+const OVERRIDE_VALUE = /^(?:var\(--dsw-[a-z0-9-]+\)|color-mix\(in srgb, [\s\S]+\))$/
+
+/**
+ * Reject an override the table cannot honour. Called once per run from
+ * buildPalettes(); a bad entry aborts the run instead of emitting a value no
+ * reviewer would see.
+ * @param officialKeys - the official token names (the complete 228-key list).
+ */
+export function validateOverrides(officialKeys) {
+  const known = new Set(officialKeys)
+  for (const token of Object.keys(TOKEN_OVERRIDES)) {
+    const value = TOKEN_OVERRIDES[token]
+    if (!known.has(token)) {
+      throw new Error('TOKEN_OVERRIDES entry ' + token + ' is not in themes/dsw-tokens.json')
+    }
+    if (token.indexOf('--dsw-static-') === 0) {
+      throw new Error('TOKEN_OVERRIDES entry ' + token + ' replaces a --dsw-static-* primitive; the ladder owns those')
+    }
+    if (CHROMA_LITERALS[token] !== undefined) {
+      throw new Error('TOKEN_OVERRIDES entry ' + token + ' also has a CHROMA_LITERALS entry: one owner per token')
+    }
+    if (OVERRIDE_VALUE.test(value) === false) {
+      throw new Error('TOKEN_OVERRIDES entry ' + token + ' must be var(--dsw-...) or color-mix(in srgb, ...): ' + value)
+    }
+    for (const reference of value.matchAll(/var\((--dsw-[a-z0-9-]+)\)/g)) {
+      if (known.has(reference[1]) === false) {
+        throw new Error('TOKEN_OVERRIDES entry ' + token + ' references a token that is not in the table: ' + reference[1])
+      }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * classification                                                      *
  * ------------------------------------------------------------------ */
 
@@ -456,6 +537,9 @@ function neutralLiteralValue(scheme, value, palette) {
 export function buildPalettes() {
   const board = loadPalette()
   const official = loadOfficial()
+  // Fail before any work: an override the table cannot honour is a contract
+  // break, not a warning.
+  validateOverrides(official.keys)
   const palette = {}
   for (const scheme of SCHEMES) {
     const parsed = {}
@@ -470,11 +554,27 @@ export function buildPalettes() {
     dark: { static: 0, expression: 0, neutralLiteral: 0, chromaLiteral: 0, unmapped: 0 },
   }
   const unmapped = []
+  const usedOverrides = new Set()
 
   for (const scheme of SCHEMES) {
     for (const token of official.keys) {
       const value = official[scheme][token]
       const kind = classify(token, value)
+      if (Object.prototype.hasOwnProperty.call(TOKEN_OVERRIDES, token)) {
+        // 0.1.1 exception: our value replaces the official B1 expression, while
+        // the count still records the OFFICIAL class (see TOKEN_OVERRIDES).
+        if (kind !== 'expression') {
+          throw new Error('TOKEN_OVERRIDES entry ' + token + ' must target a B1 expression, got class ' + kind)
+        }
+        const replacement = TOKEN_OVERRIDES[token]
+        if (replacement === value) {
+          throw new Error('TOKEN_OVERRIDES entry ' + token + ' is identical to the official value: nothing to override')
+        }
+        tables[scheme][token] = replacement
+        classes[scheme][kind] += 1
+        usedOverrides.add(token)
+        continue
+      }
       if (kind === 'static') {
         tables[scheme][token] = staticValue(scheme, token.slice('--dsw-static-'.length), palette[scheme])
       } else if (kind === 'expression') {
@@ -508,6 +608,11 @@ export function buildPalettes() {
   const stale = Object.keys(CHROMA_LITERALS).filter(function (token) { return usedLiterals.has(token) === false })
   if (stale.length > 0) {
     throw new Error('CHROMA_LITERALS has entries no scheme consumed: ' + stale.join(', '))
+  }
+
+  const unusedOverrides = Object.keys(TOKEN_OVERRIDES).filter(function (token) { return usedOverrides.has(token) === false })
+  if (unusedOverrides.length > 0) {
+    throw new Error('TOKEN_OVERRIDES has entries no scheme consumed: ' + unusedOverrides.join(', '))
   }
 
   for (const scheme of SCHEMES) {
@@ -545,7 +650,10 @@ const HEADER = [
   ' *        The 00..1000 direction is constant, so the official alias layer',
   ' *        (light reads the light end, dark the dark end) keeps working.',
   ' *   B1   var()/color-mix() expressions: copied verbatim - the static they',
-  ' *        reference is in this same table, so they follow class A.',
+  ' *        reference is in this same table, so they follow class A. Two tokens',
+  ' *        (0.1.1, the selected sidebar row) are listed in TOKEN_OVERRIDES',
+  ' *        instead and exported as MOONSET_TOKEN_OVERRIDES; they are counted',
+  ' *        as B1 because that is the class of the OFFICIAL value.',
   ' *   B2   pure neutral literals: alpha kept, tinted with the scheme own',
   ' *        ink/canvas end (NEUTRAL_ENDPOINTS in the generator).',
   ' *   B3   chroma literals: replaced through the explicit CHROMA_LITERALS table.',
@@ -572,7 +680,7 @@ export function renderModule(built) {
   lines.push('export interface MoonsetTokenClasses {')
   lines.push('  /** A: --dsw-static-* primitives rebuilt from the family ladders. */')
   lines.push('  static: number')
-  lines.push('  /** B1: official var()/color-mix() expressions, copied verbatim. */')
+  lines.push('  /** B1: official var()/color-mix() expressions copied verbatim (overrides excepted). */')
   lines.push('  expression: number')
   lines.push('  /** B2: pure neutral literals, alpha kept and tinted with ink/canvas. */')
   lines.push('  neutralLiteral: number')
@@ -592,6 +700,18 @@ export function renderModule(built) {
     }
     lines.push('}')
   }
+  lines.push('')
+  lines.push('/**')
+  lines.push(' * Tokens whose value is a deliberate Moonset delta, not the official value.')
+  lines.push(' *')
+  lines.push(' * Every other token is the official value copied verbatim (B1) or rebuilt')
+  lines.push(' * from the palette (A/B2/B3); these few are replaced on purpose, and the')
+  lines.push(' * reasons live beside TOKEN_OVERRIDES in the generator. 0.1.1: the two')
+  lines.push(' * selected-sidebar-row tokens (accent wash + accent label).')
+  lines.push(' */')
+  lines.push('export const MOONSET_TOKEN_OVERRIDES: readonly string[] = [')
+  for (const token of Object.keys(TOKEN_OVERRIDES).sort()) lines.push('  ' + quote(token) + ',')
+  lines.push(']')
   lines.push('')
   lines.push('/** Per-scheme class counts (A + B1 + B2 + B3 = 228, B4 = 0). */')
   lines.push('export const MOONSET_CLASSES: Record<MoonsetScheme, MoonsetTokenClasses> = {')
@@ -631,6 +751,8 @@ export function report(built) {
       '  keys=' + Object.keys(tables[scheme]).length,
     )
   }
+  const overrides = Object.keys(TOKEN_OVERRIDES).sort()
+  out.push('  overrides B1=' + overrides.length + (overrides.length === 0 ? '' : ': ' + overrides.join(', ')))
   return out.join('\n')
 }
 
