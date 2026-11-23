@@ -13,10 +13,11 @@
  *  - GROUND — the 0.1.2 wash + two viewport-fixed spots: root-gated, token-only,
  *    both radial layers at their contract alphas, the strength factor inlined,
  *    and the WHOLE rule absent when the (M2) switch says off;
- *  - VISIBILITY — M1.5: the host's three opaque layers in front of the ground
- *    (the frame, the centre column, the main-panel root) get
- *    `background-color: transparent`, addressed by structure + the renderer's
- *    `[data-slot='main']` seam only, with the depth capped at the panel root;
+ *  - VISIBILITY — M1.5: the host's opaque layers in front of the ground (the
+ *    frame, the centre column, the conversation root) get
+ *    `background-color: transparent`, addressed by CONTAINMENT on two
+ *    independent anchors — the renderer's `[data-slot='main']` and the
+ *    conversation's `[data-composer-seat]` — never by counting depth;
  *  - SELECTED ITEMS — the selected row's LABEL is the accent, hooked on the four
  *    stable attributes the real UI renders (never a host class name), root-
  *    gated so it outranks the host's own selected-tab colour, and readable on
@@ -109,11 +110,15 @@ const EXPECTED_GLOW_CSS = [
   '}',
   // M1.5: the visibility half — the host's own opaque layers are cleared so the
   // ground above can be seen (see the "0.1.2 visibility" describe below).
-  '/* 0.1.2 visibility: the host paints bg-base on the shell chain above the main',
-  '   panel and on the panel root itself, which hide the ground above; clear the',
-  '   COLOUR of exactly those layers (images/shadows stay, layout untouched). */',
-  "html[data-moonset-skin] #root :has([data-slot='main']),",
-  "html[data-moonset-skin] #root [data-slot='main'] > div {",
+  '/* 0.1.2 visibility (plan C, all-transparent): the host paints bg-base on the',
+  '   shell chain, the columns and every panel root, and the sidebar draws',
+  "   sidebar-fill; clear the COLOUR of exactly those carriers — cards, bubbles,",
+  '   the composer and menus keep their own paint, no layout property is written. */',
+  "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),",
+  "html[data-moonset-skin] #root :has([data-composer-seat]),",
+  "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom']),",
+  "html[data-moonset-skin] #root [data-slot='main'] > div,",
+  "html[data-moonset-skin] #root [data-slot='sidebar'] > div {",
   '  background-color: transparent;',
   '}',
 ].join('\n')
@@ -344,7 +349,7 @@ describe('skinCss — the whitelisted rules', () => {
     const underlineStart = css.indexOf("html[data-moonset-skin] body [data-active='true']::after")
     const underlineEnd = css.indexOf('}', underlineStart) + 1
     const groundStart = css.indexOf('html[data-moonset-skin] body {')
-    const clearStart = css.indexOf("html[data-moonset-skin] #root :has([data-slot='main'])")
+    const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
     expect(groundStart).toBeGreaterThan(underlineStart)
@@ -670,30 +675,49 @@ describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel roo
    */
   function clearRule(): { selectors: string[]; declarations: string[]; raw: string } {
     const css = skinCss()
-    const start = css.indexOf("html[data-moonset-skin] #root :has([data-slot='main'])")
+    const start = css.indexOf('html[data-moonset-skin] #root :has(')
     if (start === -1) throw new Error('the sheet carries no visibility block:\n' + css)
     const open = css.indexOf('{', start)
     const close = css.indexOf('}', open)
     const raw = css.slice(start, close + 1)
-    const selectors = raw.slice(0, raw.indexOf('{')).split(',').map((part) => part.trim()).filter(Boolean)
     const declarations = raw
       .slice(raw.indexOf('{') + 1, -1)
       .split(';')
       .map((part) => part.trim())
       .filter(Boolean)
+    // Split the selector list on TOP-LEVEL commas only: a :has(a, b) argument
+    // list carries commas of its own and must stay one selector.
+    const selectors: string[] = []
+    let depth = 0
+    let current = ''
+    for (const character of raw.slice(0, raw.indexOf('{'))) {
+      if (character === '(') depth += 1
+      if (character === ')') depth -= 1
+      if (character === ',' && depth === 0) {
+        if (current.trim() !== '') selectors.push(current.trim())
+        current = ''
+        continue
+      }
+      current += character
+    }
+    if (current.trim() !== '') selectors.push(current.trim())
     return { selectors, declarations, raw }
   }
 
   it('clears EXACTLY the shell chain above the main slot and the panel root, root-gated', () => {
     const { selectors } = clearRule()
     // Verbatim: every shell container that CONTAINS the main slot (the
-    // display:contents root anchor, .frame, .centerCol, .mainPanel) plus the
-    // elected panel root (.root of the conversation, or a global panel's page).
+    // display:contents root anchor, .frame, .centerCol, .mainPanel), every
+    // container of the conversation's composer seat (which reaches .root even if
+    // the panel entry gains a wrapper), and the elected panel root itself.
     // No host class name (every one is hashed per build), no wildcard, no
     // attribute-substring hack.
     expect(selectors).toEqual([
-      "html[data-moonset-skin] #root :has([data-slot='main'])",
+      "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])",
       "html[data-moonset-skin] #root [data-slot='main'] > div",
+      "html[data-moonset-skin] #root [data-slot='sidebar'] > div",
     ])
     // P2: the root attribute gates every selector, so an orphaned sheet is inert.
     for (const selector of selectors) expect(selector.startsWith('html[data-moonset-skin] ')).toBe(true)
@@ -701,28 +725,53 @@ describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel roo
     // class name, no !important. The gate is also what wins: (1,2,1) / (1,3,1)
     // against the host's own .frame / .centerCol / .root (0,1,0), and (0,2,0)
     // for [data-windows-titlebar] .centerCol.
-    expect(selectors.join(' ')).not.toContain('.')
+    // No class name may appear. Quoted attribute values are stripped first:
+    // `[data-slot='shell.bottom']` legitimately contains a dot.
+    expect(selectors.join(' ').replace(/'[^']*'/g, "''")).not.toContain('.')
     expect(skinCss()).not.toContain('!important')
   })
 
-  it('addresses the chain by CONTAINMENT, so a shell-depth change cannot blind it', () => {
+  it('addresses the carriers by CONTAINMENT, so a shell-depth change cannot blind it', () => {
     const { selectors } = clearRule()
-    // The audited chain (installed 0.2.2-rc.5: ui-renderer + ui-layout + ui-conversation):
-    //   #root > div[data-slot='root'] > div.frame > div.centerCol
-    //         > div.mainPanel > div[data-slot='main'] > div.root
-    // BOTH data-slot anchors are display:contents, so their number is a renderer
-    // detail: a depth-counting selector (a chain of child combinators) goes blind
-    // on the first wrapper change — which is exactly the invisible-ground failure
-    // this milestone fixes. Containment cannot drift that way.
+    // The audited chain, from the INSTALLED 0.2.2-rc.5 bundles:
+    //   body > #root                      (the shell's React container)
+    //        > div[data-slot='root']      display:contents — RootOutlet's anchor
+    //        > div.frame > div.centerCol  the two layers that paint bg-base
+    //        > div.mainPanel              no background
+    //        > div[data-slot='main']      display:contents — SlotOutlet's anchor
+    //        > div.root                   background: bg-base — the conversation
+    // The anchors are emitted by the RENDERER (`dsh-client-ui-renderer`, which
+    // renders {"data-slot": slotKey} / {"data-slot": 'root'} with
+    // ANCHOR_STYLE = {display:'contents'}), NOT by ui-layout — that package only
+    // calls renderSlot('main', …), so a `data-slot` grep there finds nothing and
+    // proves nothing. Both anchors are display:contents, so their number is a
+    // renderer detail: a selector counting child combinators goes blind on the
+    // first wrapper change, which is exactly the invisible-ground failure this
+    // milestone fixes. Containment cannot drift that way.
     const hops = (selector: string): number => selector.split('>').length - 1
+    // The carrier set, by containment: everything that CONTAINS one of the three
+    // shell slots (root anchor, frame, the three columns, the panel), everything
+    // that contains the conversation's composer seat (the conversation root and
+    // its containers), and the frame's slot-holding bottom cell.
     expect(hops(selectors[0])).toBe(0)
-    expect(selectors[0].endsWith(":has([data-slot='main'])")).toBe(true)
-    // A descendant can never contain its own ancestor, so no card, message body,
-    // field or composer surface inside the panel can ever match selector one.
-    // The panel root is the anchor's DIRECT child: one hop, and nothing deeper.
-    expect(hops(selectors[1])).toBe(1)
-    expect(selectors[1].endsWith('> div')).toBe(true)
-    expect(selectors[1]).toContain("[data-slot='main']")
+    expect(selectors[0]).toContain("[data-slot='sidebar']")
+    expect(selectors[0]).toContain("[data-slot='rightbar']")
+    // The second anchor is INSIDE the conversation (`data-composer-seat` is
+    // rendered by ui-conversation on the composer seat), so its ancestor set
+    // reaches `.root` without assuming where `.root` sits relative to the main
+    // anchor. A descendant can never contain its own ancestor, so no card,
+    // message body, code block or field can match any of the :has() selectors.
+    expect(hops(selectors[1])).toBe(0)
+    expect(selectors[1].endsWith(':has([data-composer-seat])')).toBe(true)
+    // The bottom cell paints bg-base too; its slot anchor is its DIRECT child.
+    expect(selectors[2]).toBe("html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])")
+    // Two carrier roots are the anchors' DIRECT children: one hop, nothing deeper.
+    expect(hops(selectors[3])).toBe(1)
+    expect(selectors[3].endsWith('> div')).toBe(true)
+    expect(selectors[3]).toContain("[data-slot='main']")
+    expect(hops(selectors[4])).toBe(1)
+    expect(selectors[4].endsWith('> div')).toBe(true)
+    expect(selectors[4]).toContain("[data-slot='sidebar']")
   })
 
   it('clears the COLOUR only, and rides the same switch as the ground', () => {

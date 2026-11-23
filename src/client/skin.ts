@@ -94,31 +94,76 @@ export interface SkinOptions {
  * M1.5 appends the second half: the VISIBILITY block. A `body` background is
  * the bottom of the paint order, and the host paints `--dsw-alias-bg-base` on
  * every shell layer between it and the conversation. The chain, read out of the
- * INSTALLED sources (0.2.2-rc.5) and of the renderer's outlet contract:
+ * INSTALLED 0.2.2-rc.5 bundles (not inferred from class names — those are
+ * hashed per build):
  *
- *   #root > div[data-slot='root']  display:contents, no box
- *         > div.frame              background: bg-base (sidebar-fill on Windows)
- *         > div.centerCol          background: bg-base on the caption/vibrancy shells
- *         > div.mainPanel          no background
- *         > div[data-slot='main']  display:contents, no box
- *         > div.root               background: bg-base   <- the conversation
+ *   body
+ *    > #root                     the React container — the shell mounts into it
+ *                                (`getElementById('root')` in the web-frontend
+ *                                bundle; the renderer's `mountApp` owns the root)
+ *    > div[data-slot='root']     display:contents — RootOutlet's anchor
+ *    > div.frame                 background: bg-base (sidebar-fill on Windows)
+ *    > div.centerCol             background: bg-base when [data-windows-titlebar]
+ *    > div.mainPanel             no background
+ *    > div[data-slot='main']     display:contents — SlotOutlet's anchor
+ *    > div.root                  background: bg-base   <- the conversation
  *
- * i.e. the frame, the centre column and the panel root. Clearing exactly those
- * COLOURS is what lets M1's ground through (user report on the installed build:
- * "完全看不到光晕"); their images and shadows stay, and no layout property is
- * written (§11.4).
+ * `html` and `#root` are audited transparent: no host sheet paints either (the
+ * only `html` background rule is `[data-platform='darwin']`) and no shipped
+ * bundle writes an inline one, so the `body` background propagates to the
+ * canvas and M1's ground IS painted — before M1.5 it was simply covered by the
+ * opaque carriers below. Clearing exactly those COLOURS is what lets it through
+ * (user report on the installed build: "完全看不到光晕"); their images and
+ * shadows stay, and no layout property is written (§11.4).
  *
- * The selectors do NOT count levels, on purpose: both `data-slot` anchors are
- * `display: contents`, so the shell's depth is a renderer detail that can grow
- * or lose a wrapper without changing a single visible pixel.
- * `:has([data-slot='main'])` matches only the shell containers that CONTAIN the
- * main anchor — a descendant can never contain its own ancestor, so no card,
- * message or field inside the panel is ever one of them — and
- * `[data-slot='main'] > div` is the elected panel root (the conversation's
- * `.root`, or a global panel's page). Depth stops there. `#root` is the
- * shell's fixed mount point (`index.html`), and `[data-slot]` is the
- * renderer's documented addressable seam; every host class name is hashed per
- * build and therefore unusable.
+ * Scope (the "plan C" decision): EVERY carrier surface — the shell chain, the
+ * three columns, the sidebar's own fill layer and every panel page root — not
+ * only the conversation column. The judgement is "fills a column or the whole
+ * screen", never "wraps a piece of content":
+ *
+ *   cleared:  div[data-slot='root'], .frame, .sidebarCol, .centerCol,
+ *             .rightbarCol (darwin only), .bottomRow, .mainPanel, .root of the
+ *             conversation, SidebarRoot's .root (a second sidebar-fill layer,
+ *             audited in SidebarRoot.module.css) and a global panel page root;
+ *   kept:     cards, message bubbles, code blocks, the composer card, menu
+ *             popovers (they portal to `body`, outside `#root` entirely), and
+ *             the rightbar's inner panes (terminal/file tree — content).
+ *
+ * The selectors do NOT count levels, on purpose. The anchors are emitted by the
+ * RENDERER, not by ui-layout: `dsh-client-ui-renderer/lib/client.js` renders
+ * `{"data-slot": slotKey}` in SlotOutlet, `{"data-slot": 'root'}` in
+ * RootOutlet, both with `ANCHOR_STYLE = {display:'contents'}` — ui-layout only
+ * calls `renderSlot('main', …)`, so grepping `data-slot` in THAT bundle finds
+ * nothing and proves nothing. Because the anchors are `display: contents`,
+ * the shell's depth is a renderer detail that can grow or lose a wrapper
+ * without changing a single visible pixel; a selector counting child
+ * combinators goes blind on the first such change, which is exactly the
+ * invisible-ground failure this block fixes. Containment (plus two
+ * `> div` roots, the anchors' direct children) is used instead:
+ *
+ *   :has([main, sidebar, rightbar])  every carrier that CONTAINS one of the
+ *                                    three shell slots: the root anchor, the
+ *                                    frame, the three columns, the main panel —
+ *                                    i.e. the layers that paint bg-base or
+ *                                    sidebar-fill;
+ *   :has([data-composer-seat])       the conversation's own containers up to
+ *                                    and including `.root` (ui-conversation
+ *                                    renders the seat with that attribute), so
+ *                                    `.root` is reached even if a wrapper ever
+ *                                    appears between the anchor and it;
+ *   :has(> [data-slot='shell.bottom'])  the frame's bottom cell (its second grid
+ *                                    row), which also paints bg-base;
+ *   [data-slot='main'] > div          the elected panel root: the conversation's
+ *                                    `.root`, or a global panel's page —
+ *                                    `[data-global-panel]` sits on the main panel
+ *                                    only while a panel is open, so the flat
+ *                                    anchor child is the stable spelling;
+ *   [data-slot='sidebar'] > div       SidebarRoot's own root, the second layer
+ *                                    that draws sidebar-fill.
+ *
+ * A descendant can never contain its own ancestor, so no card, message, code
+ * block or field inside the panel is ever one of the `:has()` sets: the
+ * clear stops at the carrier roots, and every host class name stays unused.
  */
 const GLOW_RULES: readonly string[] = [
   '/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The',
@@ -130,11 +175,15 @@ const GLOW_RULES: readonly string[] = [
   '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),',
   '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
   '}',
-  '/* 0.1.2 visibility: the host paints bg-base on the shell chain above the main',
-  '   panel and on the panel root itself, which hide the ground above; clear the',
-  '   COLOUR of exactly those layers (images/shadows stay, layout untouched). */',
-  "html[data-moonset-skin] #root :has([data-slot='main']),",
-  "html[data-moonset-skin] #root [data-slot='main'] > div {",
+  '/* 0.1.2 visibility (plan C, all-transparent): the host paints bg-base on the',
+  '   shell chain, the columns and every panel root, and the sidebar draws',
+  "   sidebar-fill; clear the COLOUR of exactly those carriers — cards, bubbles,",
+  '   the composer and menus keep their own paint, no layout property is written. */',
+  "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),",
+  "html[data-moonset-skin] #root :has([data-composer-seat]),",
+  "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom']),",
+  "html[data-moonset-skin] #root [data-slot='main'] > div,",
+  "html[data-moonset-skin] #root [data-slot='sidebar'] > div {",
   '  background-color: transparent;',
   '}',
 ]
@@ -218,25 +267,30 @@ const GLOW_RULES: readonly string[] = [
  * rule — alpha 0 would still composite (0.1.2 §一).
  *
  * M1.5: a ground on `body` is only visible if nothing opaque paints over it,
- * and on the installed build every shell layer above the conversation does —
- * `.frame`, `.centerCol` (on the caption/vibrancy shells) and the grid's
- * panel root all carry `background: var(--dsw-alias-bg-base)` (audited in
- * `AppFrame.module.css`, `ConversationRoot.module.css`,
- * `TaskManagerPage.module.css`). The visibility block therefore clears
- * `background-color` on the shell chain and on the panel root, and stops there:
- * the canvas behind them is ours, the surfaces inside them (cards, message
- * bodies, fields, the composer card) keep their own paint — {@link GLOW_RULES}
- * carries the audited chain and why the selectors do not count levels.
+ * and on the installed build every carrier surface does — `.frame`,
+ * `.sidebarCol` + SidebarRoot's `.root` (sidebar-fill), `.centerCol` and
+ * `.rightbarCol` on the caption/vibrancy shells, `.bottomRow`, the conversation
+ * root and every global panel page root all carry a `background` (audited in
+ * `AppFrame.module.css`, `SidebarRoot.module.css`,
+ * `ConversationRoot.module.css`, `TaskManagerPage.module.css`). `html` and
+ * `#root` are transparent (no host rule, no inline write), so the ground is
+ * painted and was simply buried. The visibility block clears `background-color`
+ * on exactly those carriers — the whole screen, in the user's "plan C" decision
+ * — and stops there: the surfaces inside them (cards, bubbles, code blocks, the
+ * composer card, menu popovers) keep their own paint — {@link GLOW_RULES}
+ * carries the audited chain, the bundle evidence for the anchors, the exact
+ * cleared/kept lists and why the selectors do not count levels.
  *
  * It is the ONE place where §11.4's "no structural selector" gives way, and it
  * gives way for the reason this layer exists at all: those surfaces carry no
  * stable attribute — `data-global-panel` sits on the main panel only while a
  * global panel is open, and `.frame` / `.centerCol` / `.root` are hashed class
  * names. Structure (`#root`, the shell's fixed mount point in `index.html`)
- * plus the renderer's documented `[data-slot='main']` seam is therefore the only
- * stable address. No wildcard, no class name, no `!important`, no layout
- * property — and it rides the SAME switch as the ground: `glow: false` drops
- * both halves, so the 0.1.1 sheet is still returned byte-for-byte (D4).
+ * plus the two renderer/app anchors (`[data-slot='main']`, and the conversation's
+ * `[data-composer-seat]` as an independent second address) are the only stable
+ * handles. No wildcard, no class name, no `!important`, no layout property —
+ * and it rides the SAME switch as the ground: `glow: false` drops both halves,
+ * so the 0.1.1 sheet is still returned byte-for-byte (D4).
  *
  * How the exception maps onto §一 P5's whitelist:
  *

@@ -406,16 +406,17 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 **零常驻 JS（P1）**：`skin.ts` 里没有 `addEventListener` / `requestAnimationFrame` /
 `ResizeObserver` / `setInterval`；全部登记只有两个时刻——插件激活与卸载。
 
-### 11.3 白名单：允许的四类
+### 11.3 白名单：允许的五类
 
 | 类 | 形状 | 为什么 token 做不到 | 版本 |
 |---|---|---|---|
 | **选区** | `html body ::selection` | UA 伪元素，无 token 座位 | 0.1.1 |
 | **选中项文字色** | 稳定属性钩子上的 `color`（见下表） | 宿主把选中容器的文字色直接写成 `--dsw-alias-label-primary`，值内联在规则里，**不能从一个 token 重新指向** | 0.1.1 |
 | **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
+| **地面可见性**（C 全透） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent` | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点 | 0.1.2 M1.5 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.2，全表四条规则，28 行）：
+当前登记（0.1.2 + M1.5，全表五条规则，39 行）：
 
 ```css
 /* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
@@ -445,6 +446,17 @@ html[data-moonset-skin] body {
     radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),
     radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),
     linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
+}
+/* 0.1.2 visibility (plan C, all-transparent): the host paints bg-base on the
+   shell chain, the columns and every panel root, and the sidebar draws
+   sidebar-fill; clear the COLOUR of exactly those carriers — cards, bubbles,
+   the composer and menus keep their own paint, no layout property is written. */
+html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),
+html[data-moonset-skin] #root :has([data-composer-seat]),
+html[data-moonset-skin] #root :has(> [data-slot='shell.bottom']),
+html[data-moonset-skin] #root [data-slot='main'] > div,
+html[data-moonset-skin] #root [data-slot='sidebar'] > div {
+  background-color: transparent;
 }
 ```
 
@@ -485,6 +497,36 @@ Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength,
 **开关 = 整条规则消失**：地面在 `skinCss()` 里是独立一段（`GLOW_RULES`），
 `skinCss({ glow: false })` 返回 0.1.1 那张 19 行的表——不是 alpha 归零（0 alpha 仍参与
 合成，0.1.2 §一）。M2 只需把这个选项接到 `Config`，不用再拆规则。
+
+**地面可见性（0.1.2 M1.5，第三条的另一半）**：M1 把光晕画在 `body` 上，但真机「完全看不到」——因为宿主把 `--dsw-alias-bg-base` 画在它上面三层。安装态 0.2.2-rc.5 的 DOM 链（从 bundle 读出，不是按类名推测）：
+
+```text
+body
+ > #root                    ← 壳的 React 容器（web-frontend bundle 里的 getElementById('root')）
+ > div[data-slot='root']    ← display:contents，RootOutlet 的锚点
+ > div.frame                ← background: bg-base（Windows 下是 sidebar-fill）
+ > div.centerCol            ← [data-windows-titlebar] 下是 bg-base
+ > div.mainPanel            ← 无背景
+ > div[data-slot='main']    ← display:contents，SlotOutlet 的锚点
+ > div.root                 ← background: bg-base，会话根
+```
+
+`html` 与 `#root` 都**没有**背景（宿主样式表零命中，也没有内联写入），所以 `body` 的背景会传播到画布、地面确实在画——只是被上面这些承载层盖住。规则只写 **`background-color: transparent`**（不是 `background` 简写：宿主可能在同一元素上放了 image 或阴影，简写会一并抹掉），且不碰任何布局属性。
+
+**范围是用户拍板的「方案 C 全透」**：不只会话列。判据一条——**只清「铺满一列或一屏」的承载层，不清「包住一小块内容」的容器**。下表就是 C 模式下面面透的清单（也是「哪些面会透」的验收口径）：
+
+选择器**不数层级**。锚点由**渲染器**发出：`dsh-client-ui-renderer/lib/client.js` 里 `SlotOutlet` 渲染 `{"data-slot": slotKey}`、`RootOutlet` 渲染 `{"data-slot": 'root'}`，两者都带 `ANCHOR_STYLE = { display: 'contents' }`；而 `ui-layout` 只调用 `renderSlot('main', …)`——**在 layout bundle 里 grep `data-slot` 是零命中，这不能证明 DOM 里没有**（M1.5 首版正是这么误判过一次，见 §八 证据日志）。两个 `display:contents` 锚点意味着深度是渲染器细节，随时可能多或少于一层包装，所以用**包含关系**取祖先：
+
+| 面 | 宿主现在由谁画 | 清它的选择器 |
+|---|---|---|
+| 外壳 `.frame`、三列 `.sidebarCol` / `.centerCol` / `.rightbarCol`、主面板 `.mainPanel` | `bg-base`（Windows 下 `.frame` 是 `sidebar-fill`、`.centerCol` 是 `bg-base`；darwin 下 `.centerCol` / `.rightbarCol` 是 `bg-base`） | `:has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` —— 包含任一外壳槽锚点的都是承载层 |
+| 会话列（`.root` 及其容器） | `bg-base` | `:has([data-composer-seat])` + `[data-slot='main'] > div` |
+| 侧栏 | `.sidebarCol` 与 `SidebarRoot` 的 `.root` **各画一层** `--dsw-specific-sidebar-fill` | 前者由外壳选择器覆盖，后者由 `[data-slot='sidebar'] > div` 清 |
+| 底部栏 `.bottomRow` | `bg-base` | `:has(> [data-slot='shell.bottom'])`（该槽锚点是它的直接子节点） |
+| 全局面板页（设置 / 插件 / 任务） | 面板 page 根画 `bg-base` | `[data-slot='main'] > div`；`[data-global-panel]` 只在面板打开时存在，不是稳定拼写，故不用它定位 |
+| **不清**（内容面） | 卡片、消息气泡、代码块、输入卡、右栏内的终端/文件树等 pane、菜单弹层（menu 挂在 `body` 上，根本不在 `#root` 里） | — |
+
+后代永远不可能是自己祖先的祖先，所以 `:has()` 那几条永远不会命中卡片、消息或代码块；两条 `> div` 只取锚点的**直接子节点**（承载根），也不再往下数层级。
 
 **选中项文字色这一条的前因**：0.1.1 首验把选中行底色换成淡紫之后，文字仍是墨色
 （宿主用 `--dsw-alias-label-primary` 写在选中容器上），观感是「紫底黑字」。任务列表、
@@ -549,7 +591,11 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
   `padding` / `overflow` 一律不许；
 - **碰宿主 DOM 结构**：不增删宿主节点、不注入 `html.style` / `body.style`、不用
   结构性选择器「修」宿主组件；允许的 DOM 写只有两笔——根上摘挂一个属性、head 里
-  增删一张表（`unmount` 之后零残留）；
+  增删一张表（`unmount` 之后零残留）。**唯一例外**是 §11.3 第五类「地面可见性」：
+  结构性选择器只允许出现在那一条里，只允许用 `#root` 与 `[data-slot]` /
+  `[data-composer-seat]` 定位（可直接取槽锚点的父/子一层，但不再往下数层级），
+  只允许写 `background-color: transparent`，范围止于「铺满一列或一屏」的承载层，
+  并且随 `glow: false` 一并消失；借它改结构、尺寸或位置仍然是回退；
 - **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
 - **堆第二张表**：要扩就改 `skinCss()`，两处声明就是两份真相（P2）；
 - **写死颜色**：白名单里的每个颜色必须由 `var(--dsw-*)` 混出，否则跟随/主题切换会掉队
@@ -563,9 +609,10 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（30 条：挂载、单例、逐字 CSS、
-预算、装饰/地面色取自 token、地面双光斑与强度内联、开关整条消失、卸载零残留、重复挂载、
-无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；`src/client/index.ts` 的
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（33 条：挂载、单例、逐字 CSS、
+预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
+开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
+`src/client/index.ts` 的
 `moonset: skin sheet` effect；
 生成器的 `TOKEN_OVERRIDES`（选中行 token 侧）；安装态 0.2.2-rc.5 的 9 张主题样式表
 `::selection` 0 命中。
