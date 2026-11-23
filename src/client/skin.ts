@@ -127,21 +127,48 @@ export const DEFAULT_GLOW_HUE: GlowHue = 'accent'
  *
  * The four accent forms are the colour card's: `accent` / `accentDark` are the
  * anchor rung in each scheme, `accentSoft` / `accentSoftDark` are the same two
- * at a fraction of the alpha (16% → 8.96% / 12%), and `nightBlue` swaps the
- * family for the official blue. The DEFAULT pair is exactly what 0.1.2 shipped
- * (light `deepseek-500`, dark `deepseek-400`), so adding the control cannot
- * change the look the user already approved.
+ * at a fraction of the alpha (16% → 8.96% / 12%), and `nightBlue` is the skin's
+ * own anchor (see {@link NIGHT_BLUE_TOKEN} — the table has no blue). The
+ * DEFAULT pair is exactly what 0.1.2 shipped (light `deepseek-500`, dark
+ * `deepseek-400`), so adding the control cannot change the look the user already
+ * approved.
  *
  * The multiplier is applied to the HUE layers only (moon halo, dark core / halo
  * / bottom reflection and both washes). The amber glint is a different role and
  * keeps its own 3% — the hue control must not move it.
  */
+/**
+ * The skin-owned night-blue anchor — the sheet's ONLY literal colour.
+ *
+ * Why a literal at all: the 228-key table has no usable blue. Every `blue-*`
+ * rung is remapped onto this palette's indigo ladder (`blue-500` = `#4F46E5`
+ * light / `#818CF8` dark, `blue-600` = `#413BB9` / `#6B74CE` — all indigo), the
+ * `deepseek-*` family is the accent itself, `violet-400` is purple, and there is
+ * no `sky`/`cyan` family in the table AT ALL. The user's 夜空蓝 therefore had to
+ * come from the skin layer (0.1.2 §11.3's fifth whitelist class, "hue anchor").
+ *
+ * It is declared TWICE in the sheet (light on `html[data-moonset-skin]`, dark on
+ * the host's `body[data-ds-dark-theme]` marker) and used by `nightBlue` alone.
+ * `tests/skin.spec.ts` is the guard: apart from those two declarations the sheet
+ * may not contain a single `#` literal.
+ */
+export const NIGHT_BLUE_TOKEN = '--dsh-moonset-night'
+
+/** The night-blue anchor in the light scheme (the official brand blue). */
+export const NIGHT_BLUE_LIGHT = '#2563EB'
+
+/** The night-blue anchor in the dark scheme (the same hue, lightened for it). */
+export const NIGHT_BLUE_DARK = '#60A5FA'
+
 export const GLOW_HUE_AT_FULL: Readonly<Record<GlowHue, { light: string; dark: string; factor: number }>> = {
   accent: { light: '--dsw-static-deepseek-500', dark: '--dsw-static-deepseek-400', factor: 1 },
   accentDark: { light: '--dsw-static-deepseek-400', dark: '--dsw-static-deepseek-400', factor: 1 },
   accentSoft: { light: '--dsw-static-deepseek-500', dark: '--dsw-static-deepseek-400', factor: 0.56 },
   accentSoftDark: { light: '--dsw-static-deepseek-400', dark: '--dsw-static-deepseek-400', factor: 0.75 },
-  nightBlue: { light: '--dsw-static-blue-500', dark: '--dsw-static-blue-500', factor: 1 },
+  // The only entry that is NOT a token from the 228-key table: the skin's own
+  // anchor (above). Both schemes read the same property, whose value flips with
+  // the scheme in the two declarations `groundRules` emits.
+  nightBlue: { light: NIGHT_BLUE_TOKEN, dark: NIGHT_BLUE_TOKEN, factor: 1 },
 }
 
 /**
@@ -475,6 +502,17 @@ function groundRules(strength: number, hue: GlowHue = DEFAULT_GLOW_HUE): readonl
   const light = glowAlphas(strength, hue)
   const dark = darkGlowAlphas(strength, hue)
   return [
+    // M5: the ONE literal colour the sheet owns (see NIGHT_BLUE_TOKEN). It is
+    // declared here, inside the switchable ground segment, so `glow: false` takes
+    // it — and the nightBlue option it serves — with it.
+    '/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the',
+    '   skin owns exactly ONE literal colour, used by the nightBlue option. */',
+    'html[data-moonset-skin] {',
+    `  ${NIGHT_BLUE_TOKEN}: ${NIGHT_BLUE_LIGHT};`,
+    '}',
+    'html[data-moonset-skin] body[data-ds-dark-theme] {',
+    `  ${NIGHT_BLUE_TOKEN}: ${NIGHT_BLUE_DARK};`,
+    '}',
     '/* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the',
     '   strength is resolved in JS, so every alpha below is a LITERAL percentage. */',
     'html[data-moonset-skin] body {',

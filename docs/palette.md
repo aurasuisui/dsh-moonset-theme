@@ -46,6 +46,9 @@
 不再引入紫罗兰或琥珀——层次靠半径/位置/α 做，不靠加色相。**M4 起色相可选**（5 档：
 `accent` / `accentDark` / `accentSoft` / `accentSoftDark` / `nightBlue`）：浅色换月晕与 wash、
 暗色换三层 + wash，琥珀恒 3% 不跟着变；默认 `accent` 就是上面这两条 token，所以不改变现有观感。
+**`nightBlue` 是唯一带字面色的一项**：本表里没有能当夜空蓝用的键（blue-500/600 全是靛、
+`sky`/`cyan` 家族不存在），所以皮肤层自带 `--dsh-moonset-night`（浅 `#2563EB` / 暗 `#60A5FA`），
+只给这一项用，登记在 architecture §11.3 第五类「色相锚点」。
 规则形状与 alpha 数字见
 [architecture §11](architecture.md#11-css-注入白名单p5-例外登记)。
 

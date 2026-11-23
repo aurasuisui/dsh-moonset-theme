@@ -406,7 +406,7 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 **零常驻 JS（P1）**：`skin.ts` 里没有 `addEventListener` / `requestAnimationFrame` /
 `ResizeObserver` / `setInterval`；全部登记只有两个时刻——插件激活与卸载。
 
-### 11.3 白名单：允许的五类
+### 11.3 白名单：允许的六类
 
 | 类 | 形状 | 为什么 token 做不到 | 版本 |
 |---|---|---|---|
@@ -414,9 +414,10 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **选中项文字色** | 稳定属性钩子上的 `color`（见下表） | 宿主把选中容器的文字色直接写成 `--dsw-alias-label-primary`，值内联在规则里，**不能从一个 token 重新指向** | 0.1.1 |
 | **地面渐变** | `html[data-moonset-skin] body { background: … }`（浅色三层）+ `… body[data-ds-dark-theme] { background: … }`（暗色四层，同一靛蓝色相） | 多层图层 + 视口固定 + 两套方案，单 token 装不下 | 0.1.2 / M3 |
 | **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
+| **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `nightBlue` 读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.2 + M1.5 + M2 + M3，全表七条规则，47 行 / C 档 49 行）：
+当前登记（0.1.2 + M1.5…M5，全表九条规则，55 行 / C 档 57 行）：
 
 ```css
 /* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
@@ -437,6 +438,14 @@ html[data-moonset-skin] body [aria-pressed='true'] {
    label colour. Only the plugins tab renders an ::after on such an element. */
 html[data-moonset-skin] body [data-active='true']::after {
   background: var(--dsw-static-deepseek-500);
+}
+/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the
+   skin owns exactly ONE literal colour, used by the nightBlue option. */
+html[data-moonset-skin] {
+  --dsh-moonset-night: #2563EB;
+}
+html[data-moonset-skin] body[data-ds-dark-theme] {
+  --dsh-moonset-night: #60A5FA;
 }
 /* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the
    strength is resolved in JS, so every alpha below is a LITERAL percentage. */
@@ -554,13 +563,25 @@ wash 0/0.5/1/1.5/2。
 | `accentDark` | 强调 · 深 | `--dsw-static-deepseek-400` | `--dsw-static-deepseek-400` | 1 |
 | `accentSoft` | 柔和 · 浅 | 同 `accent` | 同 `accent` | **0.56** |
 | `accentSoftDark` | 柔和 · 深 | 同 `accentDark` | 同 `accentDark` | **0.75** |
-| `nightBlue` | 夜空蓝 | `--dsw-static-blue-500` | `--dsw-static-blue-500` | 1 |
+| `nightBlue` | 夜空蓝 | `var(--dsh-moonset-night)` = `#2563EB` | `var(--dsh-moonset-night)` = `#60A5FA` | 1 |
 
 暗色的三层（核心 / 月晕 / 反光）与 wash 一起换成所选 token，保持「**单色相多层**」；浅色只换
-月晕与 wash，**右下角琥珀恒 3% 不受色相影响**（它是另一个角色，不是另一种色相）。行数不变
-（47 行），因为只是换 token 名。注意本调色板把官方阶梯重新映射过：色卡上的 `#2563EB` 在这
-张表里是 `--dsw-static-blue-500` = `#4F46E5`（浅）/ `#818CF8`（暗），`nightBlue` 因此与
-`accent` 观感接近——要更深的夜空蓝把那一格换成 `blue-600` 即可（一个字符串）。
+月晕与 wash，**右下角琥珀恒 3% 不受色相影响**（它是另一个角色，不是另一种色相）。
+
+**`nightBlue` 为什么自带一个字面色（M5，§11.3 第五类）**：这张 228 键表里没有任何一处能当
+「夜空蓝」用——`--dsw-static-blue-500` = `#4F46E5`（浅）/ `#818CF8`（暗）、`blue-600` =
+`#413BB9` / `#6B74CE`，**全是靛**（官方阶梯被本调色板重新映射过）；`deepseek-*` 就是强调色
+本身；`violet-400` 更紫；`sky` / `cyan` 家族在表里根本不存在。所以皮肤层自己带一个锚点：
+
+```css
+html[data-moonset-skin] { --dsh-moonset-night: #2563EB; }
+html[data-moonset-skin] body[data-ds-dark-theme] { --dsh-moonset-night: #60A5FA; }
+```
+
+这是**整张皮肤表里唯一的两个字面色**，且**只被 `nightBlue` 消费**：两处声明之外，规则里出现
+的任何颜色都必须是 token（`tests/skin.spec.ts` 的白名单断言：整张表恰好两个 `#` 字面量，
+而且梯度里不许直接写它们）。锚点放在可关闭的地面段里，所以 `glow: false` 会连同它一起消失。
+行数 47 → 55（两条 3 行的声明 + 2 行注释 + 空白），仍 ≤60。
 
 **底部白带（M2 修）**：用户报 C 模式底部有一条亮带。定位到宿主在会话列底部画的遮罩带：
 `ConversationRoot.module.css` 的 `.root[data-phase='active'] .composerSeat` 用
@@ -664,7 +685,7 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
   `padding` / `overflow` 一律不许；
 - **碰宿主 DOM 结构**：不增删宿主节点、不注入 `html.style` / `body.style`、不用
   结构性选择器「修」宿主组件；允许的 DOM 写只有两笔——根上摘挂一个属性、head 里
-  增删一张表（`unmount` 之后零残留）。**唯一例外**是 §11.3 第五类「地面可见性」：
+  增删一张表（`unmount` 之后零残留）。**唯一例外**是 §11.3 第四类「地面可见性」：
   结构性选择器只允许出现在那一条里，只允许用 `#root` 与 `[data-slot]` /
   `[data-composer-seat]` 定位（可直接取槽锚点的父/子一层，但不再往下数层级），
   只允许写 `background-color: transparent`（唯二例外是 M2 的底部遮罩带：允许一条
@@ -673,7 +694,9 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 - **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
 - **堆第二张表**：要扩就改 `skinCss()`，两处声明就是两份真相（P2）；
 - **写死颜色**：白名单里的每个颜色必须由 `var(--dsw-*)` 混出，否则跟随/主题切换会掉队
-  （P5）。
+  （P5）。**唯一例外**是 §11.3 第五类「色相锚点」的 `--dsh-moonset-night`：它只能出现在
+  那两条声明里（浅 `#2563EB` / 暗 `#60A5FA`），只能被 `nightBlue` 以 `var()` 读取，地方一律
+  不许出现 `#` 开头的字面颜色（有白名单断言钉住）；
 
 ### 11.5 新增一条白名单项的门槛
 
@@ -683,7 +706,7 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（49 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（51 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
 `src/client/index.ts` 的

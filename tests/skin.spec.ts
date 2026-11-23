@@ -55,6 +55,7 @@ import {
   GLOW_STRENGTH_MIN,
   SKIN_ATTR,
   SKIN_SHEET_ATTR,
+  NIGHT_BLUE_TOKEN,
   SKIN_SHEET_SELECTOR,
   darkGlowAlphas,
   glowAlphas,
@@ -114,8 +115,16 @@ const EXPECTED_BASE_CSS = [
   '}',
 ].join('\n')
 
-/** The 0.1.2 ground segment (light + the dark override), restated verbatim. */
+/** The 0.1.2 ground segment (night anchor + light + the dark override), verbatim. */
 const EXPECTED_GLOW_CSS = [
+  '/* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the',
+  '   skin owns exactly ONE literal colour, used by the nightBlue option. */',
+  'html[data-moonset-skin] {',
+  '  --dsh-moonset-night: #2563EB;',
+  '}',
+  'html[data-moonset-skin] body[data-ds-dark-theme] {',
+  '  --dsh-moonset-night: #60A5FA;',
+  '}',
   '/* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the',
   '   strength is resolved in JS, so every alpha below is a LITERAL percentage. */',
   'html[data-moonset-skin] body {',
@@ -359,32 +368,37 @@ describe('skinCss — the whitelisted rules', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
-    // 60 since M3: the dark scheme is its own four-layer composition.
+    // 60 since M3 (the dark composition) — the night anchor pairs add two more
+    // rules without coming close to the ceiling.
     expect(lines.length).toBeLessThanOrEqual(60)
-    // Seven blocks: text selection, the selected-item label colour, the selected
-    // tab's underline, the light ground, the DARK ground override, the visibility
-    // clear, and the M2 bottom-band entry (an image, not a colour).
+    // Nine blocks: text selection, the selected-item label colour, the selected
+    // tab's underline, the night anchor (light), the night anchor (dark), the
+    // light ground, the DARK ground override, the visibility clear, and the M2
+    // bottom-band entry (an image, not a colour).
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(7)
-    expect(css.match(/\}/g)).toHaveLength(7)
+    expect(css.match(/\{/g)).toHaveLength(9)
+    expect(css.match(/\}/g)).toHaveLength(9)
     // Every additive block stays well inside the 12-line entry budget. The two
     // grounds and the visibility clear are blocks of ONE switchable segment, so
     // the budget is measured per block, not per segment.
     const selectedStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
     const underlineStart = css.indexOf("html[data-moonset-skin] body [data-active='true']::after")
     const underlineEnd = css.indexOf('}', underlineStart) + 1
+    const anchorStart = css.indexOf('/* 0.1.2 hue anchor (M5)')
     const groundStart = css.indexOf('html[data-moonset-skin] body {')
     const darkStart = css.indexOf('/* 0.1.2 ground (dark)')
     const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
     const bandStart = css.indexOf('/* 0.1.2 bottom band (M2)')
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
-    expect(groundStart).toBeGreaterThan(underlineStart)
+    expect(anchorStart).toBeGreaterThan(underlineEnd)
+    expect(groundStart).toBeGreaterThan(anchorStart)
     expect(darkStart).toBeGreaterThan(groundStart)
     expect(clearStart).toBeGreaterThan(darkStart)
     expect(bandStart).toBeGreaterThan(clearStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(anchorStart, groundStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(groundStart, darkStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(darkStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(clearStart, bandStart).split('\n').length).toBeLessThanOrEqual(12)
@@ -394,12 +408,14 @@ describe('skinCss — the whitelisted rules', () => {
     expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
   })
 
-  it('takes every colour from a token and writes no literal', () => {
+  it('takes every colour from a token — except the ONE night anchor (M5)', () => {
     const css = skinCss()
 
-    // Every declaration reads a `--dsw-*` token: the accent at several
-    // opacities, the moon anchor for the light glint, the darker indigo for the
-    // dark composition, and the canvas under both grounds. Nothing is literal.
+    // Every declaration reads a `--dsw-*` token or the skin's own `--dsh-moonset-`
+    // one: the accent at several opacities, the moon anchor for the light glint,
+    // the darker indigo for the dark composition, and the canvas under both
+    // grounds. The night anchor is the single exception, and it is a
+    // `var(--dsh-moonset-night)` reference — not a hex — everywhere it is used.
     const tokens = css.match(/var\(--dsw-[a-z0-9-]+\)/g) ?? []
     expect(new Set(tokens)).toEqual(new Set([
       `var(${ACCENT})`,
@@ -411,8 +427,18 @@ describe('skinCss — the whitelisted rules', () => {
     // accent halo + amber glint + accent wash + canvas. Dark: four deepseek-400
     // layers + canvas.
     expect(tokens).toHaveLength(13)
-    // Nothing opaque: no hex, no rgb()/hsl() literal anywhere in the sheet.
-    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    // The anchor is DECLARED in every sheet (it is a custom property, unused by
+    // the other four hues) and REFERENCED only by the nightBlue ground.
+    expect(css).toContain('--dsh-moonset-night: #2563EB;')
+    expect(skinCss({ hue: 'nightBlue' })).toContain('var(--dsh-moonset-night)')
+    expect(skinCss({ hue: 'accent' })).not.toContain('var(--dsh-moonset-night)')
+    // THE WHITELIST (M5): the sheet may carry exactly TWO hex literals — the two
+    // declarations of the night anchor, one per scheme, and nothing else.
+    const hexes = [...css.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((match) => match[0])
+    expect(hexes).toEqual(['#2563EB', '#60A5FA'])
+    expect(css).toContain('--dsh-moonset-night: #2563EB;')
+    expect(css).toContain('--dsh-moonset-night: #60A5FA;')
+    // Nothing opaque beyond those two: no rgb()/hsl() literal anywhere.
     expect(css).not.toMatch(/\b(?:rgba?|hsla?)\(/)
   })
 
@@ -657,8 +683,11 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     // A second ground rule, gated on our root attribute AND the host's own dark
     // marker (`body[data-ds-dark-theme]`, the official design-platform switch),
     // so it only applies to the dark scheme and outranks the light rule there.
-    expect(css.match(/html\[data-moonset-skin\] body\[data-ds-dark-theme\] \{/g)).toHaveLength(1)
-    const start = css.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {')
+    // The marker now appears in TWO rules (this one and the night anchor above),
+    // so the slice starts from the ground comment.
+    const groundAt = css.indexOf('/* 0.1.2 ground (dark)')
+    const start = css.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
+    expect(start).toBeGreaterThan(groundAt)
     const end = css.indexOf('}', start) + 1
     const dark = css.slice(start, end)
     // Four layers, top-first: the tight core, the wide halo under it, the
@@ -718,7 +747,8 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     // so a second indigo step in the dark block is a regression, not a style
     // choice. This test is the guard: only deepseek-400 (and the canvas).
     const css = skinCss()
-    const start = css.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {')
+    const groundAt = css.indexOf('/* 0.1.2 ground (dark)')
+    const start = css.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
     const dark = css.slice(start, css.indexOf('}', start) + 1)
     expect(dark).not.toContain('amber')
     expect(dark).not.toContain('deepseek-500')
@@ -1160,9 +1190,10 @@ describe('skinCss — M4 光晕色相', () => {
     return sheet.slice(sheet.indexOf('html[data-moonset-skin] body {'), sheet.indexOf('/* 0.1.2 ground (dark)'))
   }
 
-  /** The dark ground rule of one sheet. */
+  /** The dark GROUND rule of one sheet (the night anchor rule comes first). */
   function darkGround(sheet: string): string {
-    const start = sheet.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {')
+    const groundAt = sheet.indexOf('/* 0.1.2 ground (dark)')
+    const start = sheet.indexOf('html[data-moonset-skin] body[data-ds-dark-theme] {', groundAt)
     return sheet.slice(start, sheet.indexOf('}', start) + 1)
   }
 
@@ -1182,8 +1213,10 @@ describe('skinCss — M4 光晕色相', () => {
       // — one hue, three sizes, whatever the user picked.
       expect(dark).toContain(`var(${form.dark})`)
       expect(dark).not.toContain('amber')
-      // No literal colour may enter through the table.
-      expect(sheet).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+      // No literal colour may enter through the table: the only hexes in any
+      // sheet are the night anchor's two declarations (M5's whitelist).
+      const hexes = [...sheet.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((match) => match[0])
+      expect(hexes).toEqual(['#2563EB', '#60A5FA'])
       expect(sheet.split('\n').length).toBeLessThanOrEqual(60)
     }
     // The two "soft" forms are the SAME tokens at a fraction of the alpha.
@@ -1219,6 +1252,45 @@ describe('skinCss — M4 光晕色相', () => {
     // ...and the emitted sheet carries those literals.
     expect(skinCss({ hue: 'accentSoft', strength: 100 })).toContain('deepseek-500) 8.96%, transparent')
     expect(skinCss({ hue: 'accentSoftDark', strength: 200 })).toContain('deepseek-400) 24%, transparent')
+  })
+
+  it('owns the night-blue anchor: declared twice, read by nightBlue only', () => {
+    // The 228-key table has no usable blue (every `blue-*` rung is remapped onto
+    // this palette's indigo): the skin therefore owns ONE literal colour and
+    // registers it in §11.3. It is declared for both schemes and consumed by the
+    // `nightBlue` ground alone.
+    const sheet = skinCss({ hue: 'nightBlue' })
+    const light = lightGround(sheet)
+    const dark = darkGround(sheet)
+    expect(light).toContain(`var(${NIGHT_BLUE_TOKEN})`)
+    expect(dark).toContain(`var(${NIGHT_BLUE_TOKEN})`)
+    // One declaration per scheme, and the dark one hangs off the host marker so
+    // it can only win in dark mode.
+    expect(sheet).toContain('html[data-moonset-skin] {\n  --dsh-moonset-night: #2563EB;\n}')
+    expect(sheet).toContain('html[data-moonset-skin] body[data-ds-dark-theme] {\n  --dsh-moonset-night: #60A5FA;\n}')
+    // The hex is NEVER used directly in a gradient: every use is the variable.
+    expect(light).not.toContain('#2563EB')
+    expect(dark).not.toContain('#60A5FA')
+    // The other four hues declare the anchor but never read it.
+    for (const hue of GLOW_HUES) {
+      if (hue === 'nightBlue') continue
+      const other = skinCss({ hue })
+      expect(lightGround(other)).not.toContain(`var(${NIGHT_BLUE_TOKEN})`)
+      expect(darkGround(other)).not.toContain(`var(${NIGHT_BLUE_TOKEN})`)
+    }
+  })
+
+  it('ships the night anchor inside the switchable segment, in every scope', () => {
+    // The anchor lives in the ground segment, so `glow: false` takes it (and the
+    // nightBlue option it serves) with it — the pre-glow sheet stays literal-free.
+    const off = skinCss({ glow: false })
+    expect(off).not.toContain(NIGHT_BLUE_TOKEN)
+    expect(off).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    for (const scope of GLOW_SCOPES) {
+      const sheet = skinCss({ scope })
+      expect(sheet).toContain('--dsh-moonset-night: #2563EB;')
+      expect(sheet).toContain('--dsh-moonset-night: #60A5FA;')
+    }
   })
 
   it('defaults to accent and leaves the 0.1.2 sheet byte-identical', () => {
