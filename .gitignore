@@ -25,3 +25,6 @@ Thumbs.db
 # Release tarballs (npm pack output)
 *.tgz
 
+
+# 草稿箱：未定稿的方案/调研，不进版本库
+.drafts/
