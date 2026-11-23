@@ -63,9 +63,14 @@ lib/client.js（页面）           theme.register ×2、overrideTokens 跟随�
 
 `package.json` 里真正被宿主读取的四个字段：
 
-- `name` = `dsh-moonset-theme`；`version` = `0.1.0`；`private: true`（不发 npm）。
+- `name` = `@aurasuisui/dsh-moonset-theme`；`version` = `0.1.0`；已发布到 npm
+  （`publishConfig.access = public`，`prepack` 构建）。`name` 是**装载契约**：
+  `dsh-client-modules` 以包名为键匹配 `__ModuleLoader__` 的注册 id，
+  `tests/smoke.spec.ts` 断言 `lib/client.js` 里的 id 与 `package.json` 的 `name` 一致。
 - `dsh.bundle.patch` = `./cordis.patch.yml`：一个 `insert` 行，
-  `id: dsh-moonset` / `name: dsh-moonset-theme`。**这个 id 就是插件的 profile 条目 id**。
+  `id: dsh-moonset` / `name: '@aurasuisui/dsh-moonset-theme'`。**`id` 是插件的
+  profile 条目 id，与包名解耦**；`name` 必须是可解析的包 specifier（宿主拿它去
+  profile 的 `node_modules` 里找），所以它跟着包名走。
 - `dsh.client.inject`：客户端半区需要的四个包（ui-renderer、locale、ui-theme、
   ui-settings）；少一个就可能在启动日志里看到 `entry(s) did not activate`
   （见 [backlog-v0.2.md](backlog-v0.2.md) 的 `dsh.client.inject` 条目）。

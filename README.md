@@ -25,9 +25,27 @@ Moonset（月落）是 DeepSeek Harness Web GUI 的一套浅色/深色主题：�
 
 ## 怎么装
 
-前置：Node ≥ 20、pnpm、能跑的 DSH。0.1.0 是按**桌面壳**的 `profiles/desktop` 落盘的
-（M7.1 记录；重启后的目视复验还没做）。
-**必须先构建**：仓库不提交 `lib/`，没有 `prepare` 脚本，`link:` 装进去的包没有产物就用不了。
+### 从 npm 安装（推荐，0.1.0 起可用）
+
+`@aurasuisui/dsh-moonset-theme` 已发布到 npm，产物（`lib/`、`cordis.patch.yml`、
+sourcemap、截图）都在包里，安装时不需要构建：
+
+```powershell
+# 桌面壳的 profile 只能由桌面壳自带的 CLI 管理（npm 全局的 dsh 会拒绝 desktop）。
+$dsh = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
+& $dsh plugin --profile desktop add @aurasuisui/dsh-moonset-theme
+```
+
+**先完全退出桌面壳**再执行（profile 的 `package.json` 有文件锁）。装完重开桌面壳，
+设置里就会出现「Moonset 主题」。web profile 用同一条命令，把 `--profile desktop`
+换掉即可。
+
+卸载：`& $dsh plugin --profile desktop remove @aurasuisui/dsh-moonset-theme`。
+
+### 从本地仓库安装（开发用）
+
+**必须先构建**：`link:` 指向的是工作副本，仓库不提交 `lib/`。
+（`npm publish` 和 `dsh plugin add git+https://…` 走 `prepare` 钩子自动构建，本地 link 不走。）
 
 ```powershell
 # 0) 在仓库根构建产物（lib/index.js 与 lib/client.js）
@@ -44,10 +62,10 @@ New-Item -ItemType Junction -Path (Join-Path $profile 'plugins\dsh-moonset-theme
 Copy-Item (Join-Path $profile 'package.json') (Join-Path $profile ('package.json.bak-moonset-' + (Get-Date -Format 'yyyyMMddHHmmss')))
 
 # 3) profile 里要有这三处（本机 0.1.0 落盘后的实际位置）：
-#      package.json  dependencies   "dsh-moonset-theme": "link:plugins/dsh-moonset-theme"   (第 12 行)
-#      package.json  dsh.profile.bundles 末尾  "dsh-moonset-theme"                          (第 42 行)
-#      cordis.patch.yml  - id: dsh-moonset / name: dsh-moonset-theme                        (第 816-817 行，
-#                        这条 insert 行由本仓库的 bundle patch（cordis.patch.yml）提供)
+#      package.json  dependencies   "@aurasuisui/dsh-moonset-theme": "link:plugins/dsh-moonset-theme"
+#      package.json  dsh.profile.bundles 末尾  "@aurasuisui/dsh-moonset-theme"
+#      cordis.patch.yml  - id: dsh-moonset / name: '@aurasuisui/dsh-moonset-theme'
+#                        这条 insert 行由本仓库的 bundle patch（cordis.patch.yml）提供
 
 # 4) 让 profile 解析这条 link，然后重启桌面壳
 Push-Location $profile; pnpm install; Pop-Location

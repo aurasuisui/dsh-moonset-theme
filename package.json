@@ -1,8 +1,7 @@
 {
-  "name": "dsh-moonset-theme",
+  "name": "@aurasuisui/dsh-moonset-theme",
   "description": "Moonset (月落) light/dark themes for the DeepSeek Harness web GUI — two palettes registered into the official theme system.",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "engines": {
     "node": ">=20",
@@ -33,15 +32,38 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
+    "CHANGELOG.md",
+    "assets",
     "*.map"
   ],
   "scripts": {
     "build": "tsdown",
+    "prepare": "tsdown",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:tests": "tsc --noEmit -p tsconfig.vitest.json",
     "test": "vitest run"
   },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "theme",
+    "dark-theme",
+    "light-theme",
+    "moonset"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aurasuisui/dsh-moonset-theme.git"
+  },
+  "homepage": "https://github.com/aurasuisui/dsh-moonset-theme#readme",
+  "bugs": {
+    "url": "https://github.com/aurasuisui/dsh-moonset-theme/issues"
+  },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
     "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",

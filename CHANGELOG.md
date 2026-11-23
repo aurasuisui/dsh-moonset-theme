@@ -6,7 +6,22 @@
 
 ## 0.1.0 — 2026-11-22
 
-首个可用版本（0.1.0，private，不发 npm）。
+首个可用版本。
+
+**发布形态**：以 `@aurasuisui/dsh-moonset-theme@0.1.0` 发布到 npm
+（`publishConfig.access = public`；`prepare` 钩子构建，`files` 含 `lib/`、
+`cordis.patch.yml`、README、LICENSE、CHANGELOG、`assets/` 与 sourcemap）。
+为了让这个包真的能被装进 profile，0.1.0 相比开发期落盘版本改了三处身份：
+
+- 包名 `dsh-moonset-theme` → `@aurasuisui/dsh-moonset-theme`，并去掉 `private`；
+- `cordis.patch.yml` 的 insert 行 `name` 改为 scoped 包名——宿主用这个 specifier
+  去 profile 里解析，写成短名会解析不到；
+- 客户端 bundle（`tsdown.config.ts`）的 `__ModuleLoader__` id 改成同一个 scoped 名——
+  `dsh-client-modules` 以包名为键，id 漂移会抛
+  `bundle <url> loaded without registering "<name>"`。
+
+这三处一致性现在由 `tests/smoke.spec.ts` 断言。插件 row id 仍是 `dsh-moonset`，
+主题 id 仍是 `moonset-light` / `moonset-dark`，都不随包名变化。
 
 ### 新增
 

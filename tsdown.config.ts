@@ -1,7 +1,11 @@
 import { clientBundle } from './tsdown.client.ts'
 
+// The module-loader id must equal the package name verbatim: dsh-client-modules
+// keys the boot graph by package name and throws
+// `bundle <url> loaded without registering "<name>"` when the id drifts.
+// Scoped names keep the scope ("@scope/name"), not the bare folder name.
 export default clientBundle(
-  'dsh-moonset-theme',
+  '@aurasuisui/dsh-moonset-theme',
   ['src/index.ts'],
   {
     lib: {
