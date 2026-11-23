@@ -632,7 +632,7 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * `.tab[data-active='true']` (0,2,0), which is exactly the plugins-tab label
  * the first real-machine pass left ink; `html[data-moonset-skin] body
  * [data-active='true']` is (0,2,2) and wins. No `!important`, no wildcard
- * subtree selector: muted children (timestamps, summaries) set their own colour
+ * subtree sweep: muted children (timestamps, summaries) set their own colour
  * and keep it, so only the primary label turns violet. Measured contrast of the
  * accent label on the selected-row wash: light 6.45:1, dark 5.58:1.
  *
@@ -653,6 +653,53 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * task row) is deliberately NOT whitelisted — "expanded" is not "selected" and
  * the same attribute sits on every menu trigger and disclosure, so colouring it
  * would repaint states the skin should not touch.
+ *
+ * The 0.1.3 M2 block is the whitelist's step-row entry: the four STEP ROW
+ * implementations the installed client renders (the generic tool row
+ * `ToolRow`, the bash row, the reasoning row and the generic command card)
+ * all publish the SAME two stable hooks — the row root carries
+ * `[data-variant][data-state]`, and the "`·`" between the tool name and its
+ * arguments is `[data-shimmer-decoration]` — while the tool name and the
+ * arguments/path cells themselves carry only hashed class names. The rule
+ * therefore addresses the two cells RELATIVELY to that dot: the element whose
+ * next sibling is the dot is the name (`:has(+ …)`), the sibling after it is
+ * the arguments (`+ *`). The one universal selector in the sheet is that
+ * sibling position, not a sweep: it cannot escape the row, and the expanded body
+ * is a SIBLING of the disclosure row, so it is outside the rule by construction.
+ *
+ * The HUE is per KIND of step (0.1.3 M2b): the class rules set two custom
+ * properties on the row (`--dsh-moonset-step-name` / `-args`) and the two cell
+ * rules read them, so adding a class is one more declaration block instead of
+ * two more cell rules. Classes: shell `[data-variant='bash']` green, files
+ * (`read` / `write` / `edit`) blue-violet, `search` amber, `think` violet;
+ * `code` and `others` fall back to the accent, which is ALSO the unknown-tool
+ * colour because it is the property's fallback value. Every hue is a
+ * `color-mix(in srgb, <family> N%, <label token>)`: the label tokens flip with
+ * the scheme, so ONE declaration darkens the hue on light and lightens it on
+ * dark (the same trick the active button uses, 0.1.3 M1). 65% for the name,
+ * 25% for the arguments: the on-device pass found 40% left the arguments reading
+ * as the same colour as the name, so the pair now differs by at least 30 RGB
+ * units (measured minimum 30.2, files/light) while the arguments keep a visible
+ * tint of their class (>= 15.5 RGB units away from a plain label). Measured on
+ * the canvas, light / dark — name first, arguments second: shell 6.48 / 11.32
+ * and 7.09 / 9.20, files 6.71 / 10.03 and 7.02 / 8.86, search 7.61 / 9.93 and
+ * 7.53 / 8.76, reasoning 5.06 / 8.25 and 6.27 / 8.19 — every cell clears AA in
+ * both schemes.
+ *
+ * The mono face is `--ds-font-family-code` (the theme layer's code stack, the
+ * same one the host's own diff totals read). A FAILED step (non-zero exit or a
+ * terminating signal) wins over its class: name, arguments and the exit capsule
+ * (`[data-tone]`) all take `--dsw-alias-state-error-primary` — 6.41:1 / 8.10:1
+ * on the canvas, 5.28 / 6.93 on the capsule's own background — and that rule
+ * sits LAST so a later class cannot out-order it. COLOUR ONLY: the on-device
+ * pass rejected the 500 weight the first cut added, so the failed line is not
+ * bold and no rule in the sheet writes `font-weight`.
+ *
+ * A SUCCESS capsule does not
+ * exist in this build: the exit badge renders only while `terminalFailed()` is
+ * true (`dsh-client-ui-tool/…/terminal-card-model.ts:96-112`;
+ * `ExitCodeBadge.tsx:12` hard-codes `tone="neutral"`), so nothing is painted for
+ * the success case (§11.7 records the gap).
  *
  * The 0.1.2 GROUND is one more rule — the whitelist's third entry. It is a
  * single `background` on `body`, root-gated, three layers above the canvas
@@ -710,6 +757,8 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  *   `::selection`  text selection — cannot be expressed as a token (see the
  *                   module doc above), so it is the FIRST whitelist entry;
  *   body ground     (0.1.2) wash + two fixed spots, also whitelisted;
+ *   step rows       (0.1.3 M2) the two terminal-coloured cells of a step row,
+ *                   also whitelisted;
  *   material faces  (0.1.3) `::before` planes, also whitelisted.
  *
  * The selector is `html body ::selection` (0,0,2) so it outranks a plain
@@ -723,7 +772,7 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  */
 export function skinCss(options: SkinOptions = {}): string {
   const rules = [
-    '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
+    '/* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */',
     'html body ::selection {',
     '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
     '  color: var(--dsw-static-deepseek-500);',
@@ -741,6 +790,42 @@ export function skinCss(options: SkinOptions = {}): string {
     '   label colour. Only the plugins tab renders an ::after on such an element. */',
     "html[data-moonset-skin] body [data-active='true']::after {",
     '  background: var(--dsw-static-deepseek-500);',
+    '}',
+    '/* 0.1.3 M2: a step row reads as a terminal line, and each KIND of step carries',
+    '   its own hue (shell green, file blue-violet, search amber, reasoning violet;',
+    '   code and unknown tools keep the accent). Host hooks: [data-variant] on the',
+    '   row, [data-shimmer-decoration] the dot before the arguments. */',
+    "html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration]) {",
+    '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
+    '  font-family: var(--ds-font-family-code);',
+    '}',
+    "html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + * {",
+    '  color: var(--dsh-moonset-step-args, var(--dsw-alias-label-secondary));',
+    '  font-family: var(--ds-font-family-code);',
+    '}',
+    "html[data-moonset-skin] body [data-variant='bash'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-green-500) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 25%, var(--dsw-alias-label-secondary));',
+    '}',
+    "html[data-moonset-skin] body [data-variant='read'],",
+    "html[data-moonset-skin] body [data-variant='write'],",
+    "html[data-moonset-skin] body [data-variant='edit'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-deepseek-400) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 25%, var(--dsw-alias-label-secondary));',
+    '}',
+    "html[data-moonset-skin] body [data-variant='search'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-amber-600) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 25%, var(--dsw-alias-label-secondary));',
+    '}',
+    "html[data-moonset-skin] body [data-variant='think'] {",
+    '  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-violet-400) 65%, var(--dsw-alias-label-primary));',
+    '  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 25%, var(--dsw-alias-label-secondary));',
+    '}',
+    '/* failed step (exit != 0 / signal): the class hue loses to the error colour. */',
+    "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),",
+    "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
+    "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
+    '  color: var(--dsw-alias-state-error-primary);',
     '}',
   ]
   if (options.glow !== false) {

@@ -193,9 +193,45 @@ function react(): ReactSurface {
 }
 
 /**
- * Inline geometry and colour. The tokens are the host's: `brand-primary` /
- * `label-on-color` for the active button, the hairline border and secondary
- * label for the others, so the section reads correctly in every theme.
+ * Inline geometry and colour. The tokens are the host's: the accent for the
+ * active button, the hairline border and the secondary label for the others, so
+ * the section reads correctly in every theme.
+ *
+ * **0.1.3 M1 (G1) — why the active fill is not `brand-primary`.** The shipped
+ * 0.1.2 pair was `--dsw-alias-brand-primary` as the fill and
+ * `--dsw-alias-label-on-color` as the text. `brand-primary` is the scheme's
+ * INK, not a brand accent: `var(--dsw-static-neutral-bluish-1000)` in light
+ * (`#10131C`) but `var(--dsw-static-neutral-bluish-50)` in dark
+ * (`#E8EBF2`, near-white), while the label alias is near-white in BOTH
+ * (`#FAFAFC` / `#EEF0F7`). Dark therefore painted white on white — measured
+ * **1.05:1**, the user's 「白底白字」; light measured 17.8:1 and hid the fault.
+ * A fill is an ACCENT seat (the skin layer's rule for selection is the same), so
+ * it comes from the accent ladder.
+ *
+ * Which rung is not free: one pair of declarations has to clear AA (>= 4.5:1)
+ * in BOTH schemes, and the ladder moves per scheme (light `-500` is `#4338CA`,
+ * dark `-500` is `#818CF8` — the dark ladder is lighter throughout). Measured
+ * on the shipped palettes:
+ *
+ *   `-600` + `label-on-color` (white): 9.47:1 light / 3.68:1 dark  -> below AA
+ *   `-500` + `label-on-color`:          7.58:1 light / 2.62:1 dark  -> below AA
+ *   `-400` + `neutral-bluish-1000`:     4.63:1 light / 8.07:1 dark  -> shipped
+ *
+ * The text token is the neutral ladder's DARKEST rung on purpose: the neutral
+ * 00..1000 direction is constant across schemes (class A in the generator), so
+ * `neutral-bluish-1000` is `#10131C` light / `#08090E` dark — dark in BOTH —
+ * where every `label-*` alias flips with the scheme and would reintroduce the
+ * bug. `-400` is the accent rung that still carries dark text: it resolves per
+ * scheme (`#7A72D9` / `#959EF8`), which is the same "one declaration, two
+ * schemes" trick the skin sheet uses. Both tokens are host-owned, so a theme
+ * switch or a peer theme carries the button with it — on the OFFICIAL table the
+ * pair is `#7AAAFF` on `#0F1115` = 8.12:1 — and no literal colour is written
+ * here (P5). `tests/live.spec.ts` re-measures all of this from the palettes.
+ *
+ * **M1.5 — the strength slider rides the same rung.** Its `accentColor` was the
+ * same `brand-primary` ink, so in the dark scheme the range input painted a
+ * near-white track and thumb instead of the accent. Same fix, same token: the
+ * slider is part of the active/accent seat family, not a neutral one.
  */
 const CONTAINER_STYLE: Readonly<Record<string, string>> = {
   display: 'flex',
@@ -226,9 +262,9 @@ const BUTTON_STYLE: Readonly<Record<string, string>> = {
 }
 const ACTIVE_BUTTON_STYLE: Readonly<Record<string, string>> = {
   ...BUTTON_STYLE,
-  border: '1px solid var(--dsw-alias-brand-primary)',
-  background: 'var(--dsw-alias-brand-primary)',
-  color: 'var(--dsw-alias-label-on-color)',
+  border: '1px solid var(--dsw-static-deepseek-400)',
+  background: 'var(--dsw-static-deepseek-400)',
+  color: 'var(--dsw-static-neutral-bluish-1000)',
 }
 const STATUS_STYLE: Readonly<Record<string, string>> = {
   margin: '0',
@@ -268,7 +304,7 @@ const STRENGTH_ROW_STYLE: Readonly<Record<string, string>> = {
 const SLIDER_STYLE: Readonly<Record<string, string>> = {
   flex: '1',
   minWidth: '80px',
-  accentColor: 'var(--dsw-alias-brand-primary)',
+  accentColor: 'var(--dsw-static-deepseek-400)',
 }
 const VALUE_STYLE: Readonly<Record<string, string>> = {
   fontSize: '12px',

@@ -15,9 +15,9 @@ Moonset（月落）是 DeepSeek Harness Web GUI 的一套浅色/深色主题：�
 - **首帧不闪**：Host 半区在首页渲染时注入一张 <style>，让第一帧就是月落色；
   客户端接管后立刻把这张表删掉，避免它压住后续切换。
 
-它**只做配色**：不改布局、不挂全局钩子、不写 `--dsh-*`，也不做毛玻璃材质或环境光晕
-（用户想要，但那是独立插件，见 [docs/backlog-v0.2.md](docs/backlog-v0.2.md)）。
-版本 `0.1.0`；许可证 MIT。
+**主题 + 轻皮肤**：0.1.1 起管选中态与文本选区，0.1.2 起有一层地面光晕（wash + 光斑，三档地面范围、深浅各一套色相与强度）。
+还没有毛玻璃（排 0.1.4），不改布局、不写 `--dsh-*`、零常驻 JS。
+版本 `0.1.2`；许可证 MIT。
 
 细节文档：[文档索引](docs/README.md) · [架构](docs/architecture.md) ·
 [调色板](docs/palette.md) · [与 catppuccin 的兼容性](docs/compatibility.md) ·
@@ -109,6 +109,9 @@ catppuccin 关掉的），重启后插件不激活，仓库和 link 都还在。
 - **与 catppuccin 同时装**时，同一时刻只能有一方掌权：切到另一方的主题前，先把这一方关掉。
   原因与源码位置见 [docs/compatibility.md](docs/compatibility.md)。
 
+
+**工作步骤行**（代码 / 读取 / 运行命令 / 搜索 / 思考）按类型着色：运行命令=绿、文件类=蓝紫、搜索=琥珀、思考=紫、
+代码与未知工具=强调色；失败行（退出码非 0）只上色不加粗。正文与代码块不受影响。
 ### 0.1.2 起的环境光晕
 
 设置里「Moonset 主题」下方还有一组地面控件：
@@ -131,8 +134,8 @@ catppuccin 关掉的），重启后插件不激活，仓库和 link 都还在。
   截图见 [assets/previews/](assets/previews/)（`01-light.png` / `02-follow.png` / `03-dark.png`）。
   插件以 junction + `link:` 装入 `profiles/desktop`，catppuccin 在该 profile 里已 `disabled: true`。
   自动化侧是 **117 个单元测试**（8 个文件）与 **假宿主共存 6/6**（后者用实装 0.7.5 产物跑）。
-- **只做配色。** 没有毛玻璃材质、没有环境光晕、正文颜色不可调——这三项是 v0.2 的独立
-  插件/功能，见 [docs/backlog-v0.2.md](docs/backlog-v0.2.md)。
+- **还没有毛玻璃。** 地面光晕已有（0.1.2），材质层（`backdrop-filter` + 半透明面）排 0.1.4；
+  正文颜色可调排在更后面。见 [docs/backlog-v0.2.md](docs/backlog-v0.2.md)。
 - **与 catppuccin 互斥掌权。** 可同装（注册表、层、卸载互不影响，已用实装 0.7.5 产物
   验过），但它会回弹第三方主题 id；同一时刻只让一方掌权。见
   [docs/compatibility.md](docs/compatibility.md)。

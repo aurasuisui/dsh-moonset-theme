@@ -406,7 +406,7 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 **零常驻 JS（P1）**：`skin.ts` 里没有 `addEventListener` / `requestAnimationFrame` /
 `ResizeObserver` / `setInterval`；全部登记只有两个时刻——插件激活与卸载。
 
-### 11.3 白名单：允许的六类
+### 11.3 白名单：允许的七类
 
 | 类 | 形状 | 为什么 token 做不到 | 版本 |
 |---|---|---|---|
@@ -415,12 +415,13 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **地面渐变** | `html[data-moonset-skin] body { background: … }`（浅色三层）+ `… body[data-ds-dark-theme] { background: … }`（暗色四层，同一靛蓝色相） | 多层图层 + 视口固定 + 两套方案，单 token 装不下 | 0.1.2 / M3 |
 | **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
 | **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `night` 色相读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
+| **轨迹步骤行**（按类型分色） | 两条格子规则 `html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration])`（工具名）与 `… [data-shimmer-decoration] + *`（参数/路径），读行上发布的两个自定义属性 `--dsh-moonset-step-name/-args`；四条类声明 `… [data-variant='bash' \| 'read' \| 'write' \| 'edit' \| 'search' \| 'think'] { … }`；失败规则 `… [data-state='error']`（两格 + `~ [data-tone]` 胶囊，写在最后） | 步骤行的**工具名**与**参数/路径**两个格子都只有按构建哈希的 CSS Module 类名，没有 `data-*`；但行根有 `[data-variant][data-state]`（工具行还有 `[data-tool]`）、名字与参数之间那颗 `·` 有 `[data-shimmer-decoration]`、退出码胶囊是 `Tag` 的 `[data-tone]`。两格只能**相对那颗点**定位；「每类一个色相」又要**两套方案都成立**，所以色相用 `color-mix(family, label token)` 交给方案自适应，再由行上的自定义属性把「类 → 两格」接起来 | 0.1.3 M2b |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.2 + M1.5…M6，全表九条规则，55 行 / C 档 57 行）：
+当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b，全表十六条规则，91 行 / C 档 93 行）：
 
 ```css
-/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
+/* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */
 html body ::selection {
   background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);
   color: var(--dsw-static-deepseek-500);
@@ -438,6 +439,42 @@ html[data-moonset-skin] body [aria-pressed='true'] {
    label colour. Only the plugins tab renders an ::after on such an element. */
 html[data-moonset-skin] body [data-active='true']::after {
   background: var(--dsw-static-deepseek-500);
+}
+/* 0.1.3 M2: a step row reads as a terminal line, and each KIND of step carries
+   its own hue (shell green, file blue-violet, search amber, reasoning violet;
+   code and unknown tools keep the accent). Host hooks: [data-variant] on the
+   row, [data-shimmer-decoration] the dot before the arguments. */
+html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration]) {
+  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));
+  font-family: var(--ds-font-family-code);
+}
+html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + * {
+  color: var(--dsh-moonset-step-args, var(--dsw-alias-label-secondary));
+  font-family: var(--ds-font-family-code);
+}
+html[data-moonset-skin] body [data-variant='bash'] {
+  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-green-500) 65%, var(--dsw-alias-label-primary));
+  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 25%, var(--dsw-alias-label-secondary));
+}
+html[data-moonset-skin] body [data-variant='read'],
+html[data-moonset-skin] body [data-variant='write'],
+html[data-moonset-skin] body [data-variant='edit'] {
+  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-deepseek-400) 65%, var(--dsw-alias-label-primary));
+  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 25%, var(--dsw-alias-label-secondary));
+}
+html[data-moonset-skin] body [data-variant='search'] {
+  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-amber-600) 65%, var(--dsw-alias-label-primary));
+  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 25%, var(--dsw-alias-label-secondary));
+}
+html[data-moonset-skin] body [data-variant='think'] {
+  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-violet-400) 65%, var(--dsw-alias-label-primary));
+  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 25%, var(--dsw-alias-label-secondary));
+}
+/* failed step (exit != 0 / signal): the class hue loses to the error colour. */
+html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),
+html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,
+html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {
+  color: var(--dsw-alias-state-error-primary);
 }
 /* 0.1.2 hue anchor (M5): the 228-key table carries no usable blue, so the
    skin owns exactly ONE literal colour, read by the `night` hue. */
@@ -492,6 +529,44 @@ html[data-moonset-skin] #root [data-composer-seat] {
 3. **选择器 `html body ::selection`（0,0,2）**：压过任何第三方 `::selection`
    （0,0,1）；表又是在宿主样式之后插入的，同特异性也赢。宿主 9 张表零命中，所以
    当前没有实战冲突（D2 的兜底留在这里）。
+
+**轨迹步骤行（0.1.3 M2b，第六条）**：消息流里的工作步骤行（`代码 · …` / `思考 · …` /
+`读取 · path` / `运行命令 · … • 退出码 1` / `搜索文件内容 · …`）在安装态由**四个**实现渲染，
+但它们发布同一组稳定钩子（源码证据见 §11.7）：行根 `[data-variant][data-state]`
+（`ToolRow.tsx:460` / `bash-sample.tsx:97-108` / `ReasoningRow.tsx:87-93` /
+`GenericCommandCard.tsx:55`）、名字与参数之间那颗 `·` 是 `[data-shimmer-decoration]`、退出码
+胶囊是 `Tag` 的 `[data-tone]`。工具名与参数格子**自身没有稳定属性**（只有哈希类名），所以
+规则相对那颗点定位：`:has(+ [data-shimmer-decoration])` 是名字，`+ *` 是参数。表里唯一的
+通配选择器就是那个 `+ *`——单个兄弟位置，不是「整棵子树扫一遍」；展开后的正文是
+`[data-disclosure-row]` 的**兄弟**，天然在规则之外，正文 `p` / `pre` / `code` 根本不在步骤行里。
+
+**按类型分色**是这一版的重点。色相不写在格子规则里，而是由**类声明块**发布到行上：
+`--dsh-moonset-step-name` 与 `-args` 各一支，两条格子规则读它们（`var(…, 兜底)`），所以
+「加一类」是加一个声明块，不是加两条格子规则。`data-variant` 是**闭集**（`ToolRowVariant`
+七值 + 聊天行的 `think`），`code` 与 `others` 不声明色相、落到格子规则的兜底值——那也正是
+**未知 `data-tool`** 的颜色，因为 `classifyTool()` 一定把它归到某个 variant。
+
+| 类 | `data-variant` | 家族 token | 名字（浅/暗） | 参数（浅/暗） | 对比度 名字 / 参数 | 名字↔参数 色差（浅/暗） |
+|---|---|---|---|---|---|---|
+| 运行命令 | `bash` | `--dsw-static-green-500` | `#09684E` / `#73DBB8` | `#345C5D` / `#92BDBB` | 6.48 / 11.32 · 7.09 / 9.20 | **46.7 / 43.1** |
+| 读取·写入·编辑 | `read` `write` `edit` | `--dsw-static-deepseek-400` | `#555197` / `#B2B9F6` | `#515379` / `#AAB0D3` | 6.71 / 10.03 · 7.02 / 8.86 | **30.2 / 37.4** |
+| 搜索 | `search` | `--dsw-static-amber-600` | `#764611` / `#D8B969` | `#5E4F46` / `#B9B09D` | 7.61 / 9.93 · 7.53 / 8.76 | **58.7 / 60.5** |
+| 思考 | `think` | `--dsw-static-violet-400` | `#6366A8` / `#A2A5F2` | `#565B80` / `#A4A8D1` | 5.06 / 8.25 · 6.27 / 8.19 | **43.9 / 33.2** |
+| 代码·其它·未知 | `code` `others` | 兜底：`--dsw-static-deepseek-500` / `label-secondary` | `#4338CA` / `#818CF8` | `#434959` / `#B1B6C6` | 7.58 / 6.33 · 8.62 / 9.32 | 114.3 / 81.0 |
+| 失败 | 任意 + `data-state='error'` | `--dsw-alias-state-error-primary` | `#B31B3E` / `#F9889A` | 同 | 6.41 / 8.10（胶囊底上 5.28 / 6.93） | — |
+
+每支色相都是 `color-mix(in srgb, <家族> N%, <label token>)`：label token 随方案翻转，所以
+**一条声明同时成立两套方案**（浅色往墨色压暗、暗色往浅色提亮），与 §11.6 的 G1 同一条判据。
+名字取 65%、参数取 **25%**：40% 时真机反馈「参数和工具名一样绿」（`files`/浅色只有 14.3 个
+sRGB 单位），25% 之后每类名字↔参数至少差 **30.2** 个单位、参数仍保留≥15.5 个单位的色相（不是
+纯灰）。失败规则写在段末，色相输了、错误色赢，而且**只上色不加粗**（首版的 500 字重被真机
+否掉，全表不再写 `font-weight`）。等宽用主题层
+`base.css` 在 `:root` 上定义的 `--ds-font-family-code`（宿主自己的 diff 合计也读它），这是
+本表第一个**非 `--dsw-`** 的 token 引用（字体不是颜色，P5 的颜色判据不适用）。用户截图里的
+六种行有五种命中（`代码` / `读取` / `搜索文件内容` / `运行命令` / `思考`）；`上下文注入` 那一行
+连行状态都没有，见 §11.7 缺口 3。**调色板限制**：228 键表里没有 `sky` / `cyan` 家族，
+`blue-*` 又整体重映射到靛蓝梯度，所以「文件蓝」只能用 `deepseek-400`（与强调色的 500 同族、
+差一档亮度）；真正拉得开色相的只有绿 / 琥珀 / 紫三支。
 
 **地面渐变（0.1.2，第三条）**：`html[data-moonset-skin] body` 上**一条** `background`，
 三层（顶→底）：靛蓝月晕 `radial-gradient(ellipse at 50% -10%, accent 16% → transparent 62%)`、
@@ -693,12 +768,19 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
   `padding` / `overflow` 一律不许；
 - **碰宿主 DOM 结构**：不增删宿主节点、不注入 `html.style` / `body.style`、不用
   结构性选择器「修」宿主组件；允许的 DOM 写只有两笔——根上摘挂一个属性、head 里
-  增删一张表（`unmount` 之后零残留）。**唯一例外**是 §11.3 第四类「地面可见性」：
-  结构性选择器只允许出现在那一条里，只允许用 `#root` 与 `[data-slot]` /
-  `[data-composer-seat]` 定位（可直接取槽锚点的父/子一层，但不再往下数层级），
+  增删一张表（`unmount` 之后零残留）。**只有两处例外**：
+  ① §11.3 第四类「地面可见性」：结构性选择器只允许出现在那一条里，只允许用 `#root` 与
+  `[data-slot]` / `[data-composer-seat]` 定位（可直接取槽锚点的父/子一层，但不再往下数层级），
   只允许写 `background-color: transparent`（唯二例外是 M2 的底部遮罩带：允许一条
   `background-image: none`，因为它本身就是 image），范围止于「铺满一列或一屏」的
-  承载层，并且随 `glow: false` 一并消失；借它改结构、尺寸或位置仍然是回退；
+  承载层，并且随 `glow: false` 一并消失；
+  ② §11.3 第六类「轨迹步骤行」：只允许主选择器上的「相对那颗点」的三种位置写法
+  （`:has(+ [data-shimmer-decoration])` / `[data-shimmer-decoration] + *` /
+  `~ [data-tone]`）与按 `[data-variant='…']` 的**类声明块**；格子规则只允许写 `color` /
+  `font-family`（**不写字重**：首版的 `font-weight: 500` 被真机否掉），类声明块只允许写 `--dsh-moonset-step-name` /
+  `--dsh-moonset-step-args` 两个自定义属性（值必须由 `color-mix()` 从 token 混出），
+  不得在选择器里出现 `p` / `pre` / `code` 或 `[data-disclosure-row]`（展开正文是它的兄弟），
+  也不得再往下数层级；两种例外都只借结构，借它改结构、尺寸或位置仍然是回退；
 - **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
 - **堆第二张表**：要扩就改 `skinCss()`，两处声明就是两份真相（P2）；
 - **写死颜色**：白名单里的每个颜色必须由 `var(--dsw-*)` 混出，否则跟随/主题切换会掉队
@@ -709,15 +791,122 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 ### 11.5 新增一条白名单项的门槛
 
 1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
-2. 全表 ≤ 40 行（0.1.2 起；单条新增仍 ≤ 20 行）、单选择器、无 `!important`、无 `@media`；
-3. 颜色只从 token 混出；
+2. 全表 ≤ 95 行（0.1.3 M2b 起；M2 首版 75、0.1.2 时 60、0.1.1 时 40；单条新增仍 ≤ 20 行）、无
+   `!important`、无 `@media`、无 `@supports`；
+3. 颜色只从 token 混出（字体例外：字体不是颜色，允许读主题层的 `--ds-*`，见第六类）；
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（53 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（59 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
-开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
+开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载；
+0.1.3 M2 增 6 条：两格规则逐字、失败行逐字、不出步骤行、等宽只读 `--ds-font-family-code`、
+三个角色在两套方案下均过 AA、成功侧无落点（把这条缺口也钉成断言））；
 `src/client/index.ts` 的
 `moonset: skin sheet` effect；
 生成器的 `TOKEN_OVERRIDES`（选中行 token 侧）；安装态 0.2.2-rc.5 的 9 张主题样式表
 `::selection` 0 命中。
+
+### 11.6 0.1.3 M1 的两条边界（记录，不是新白名单）
+
+M1 的两处文字修复都不扩白名单，但各留下一条「为什么」和一条「改不到」，记在这里，
+免得下一个里程碑重新推一遍。
+
+**G1：active 按钮的底与字走 token，不进本表。** 设置区是我们自己的组件，选中态写在
+`src/client/settings-section.tsx` 的内联样式里，所以底 / 描边 / 字三件都由 `--dsw-*`
+表达（四处共用同一个 `ACTIVE_BUTTON_STYLE`：主题三按钮、地面范围三按钮、两组色相各一个、
+再加环境光晕开关，一次改动覆盖全部 active 座位）。这里同时也是 §11.3 第一类的**反向
+证据**：0.1.2 的 active 底用了 `--dsw-alias-brand-primary`，而它是本调色板的**墨色**——
+浅 `var(--dsw-static-neutral-bluish-1000)` = `#10131C`、暗 `var(--dsw-static-neutral-bluish-50)`
+= `#E8EBF2`（`src/client/palettes.ts:75` / `:307`），字是 `--dsw-alias-label-on-color`
+（`#FAFAFC` / `#EEF0F7`，两边都近白），暗色实测 **1.05:1**，就是用户看到的「白底白字」
+（浅色 17.8:1，反而掩盖了问题）。改法取 accent 阶梯里**还能压住深色字**的那一档：
+
+| active 底 / 字 | 浅色 | 暗色 | 结论 |
+|---|---|---|---|
+| `-600` / `label-on-color`（白） | 9.47:1 | 3.68:1 | 暗色不过 AA |
+| `-500` / `label-on-color` | 7.58:1 | 2.62:1 | 暗色不过 AA |
+| **`-400` / `neutral-bluish-1000`** | **4.63:1** | **8.07:1** | 过 AA，0.1.3 采用 |
+
+两个字色细节值得记住：中性阶梯的 00→1000 方向**两套方案一致**（生成器 class A），所以
+`neutral-bluish-1000` 浅 `#10131C` / 暗 `#08090E`，**两边都是深色**；而所有 `label-*`
+别名都跟着方案翻转，拿它当强调底上的字就会重新变成白字。底取 `-400` 同理：accent 阶梯
+在暗色整体更亮（`-500` 是 `#818CF8`），只有 400 这一档还能让深字过 AA。这对 token 在
+官方表下也成立（`#7AAAFF` on `#0F1115` = 8.12:1），所以换官方主题不掉队；
+`tests/live.spec.ts` 从 `MOONSET_LIGHT` / `MOONSET_DARK` 重算全部数字，改调色板就红。
+
+**G2：选中会话行的时间戳没有稳定钩子，CSS 改不到，记为宿主缺口。** 行标题能变紫，是因为
+行容器本身带 `aria-selected`——那是 §11.3 第二类的合法钩子；时间戳则不行。安装态
+0.2.2-rc.5 的 `@deepseek-ai/dsh-client-ui-workspace` 源码里它是：
+
+```
+src/client/rows/Rows.tsx:736   <span className={css.rowResting}>
+src/client/rows/Rows.tsx:738     <span className={clsx(css.time, primaryStatus.trailingLabel === undefined && css.timestamp)}
+                                    aria-hidden={primaryStatus.trailingLabel === undefined ? undefined : true}>
+```
+
+——`<span>`，不是 `<time>`（整个 `lib/client.js` 里 `datetime` **0 命中**），没有 `data-*`、
+没有 `title`，类名是按构建哈希的 CSS Module；而 `.time`（`Rows.module.css:238`，`color`
+在第 242 行）与 `.rowResting`（301 行，`color` 在第 306 行）各写了一次
+`var(--dsw-alias-label-tertiary)`，行容器上的继承被这两条一起挡住。按 P5 / §11.4，
+`[class*=time]` 与数层级的结构选择器都不许写，所以 0.1.3 只做 G1；等宿主给出
+`<time datetime>` 或 `data-*` 钩子，G2 也只是本表第二类的一条 `color`，不需要新白名单类。
+
+### 11.7 0.1.3 M2 的钩子证据与两条缺口
+
+**四个实现，同一组钩子**（安装态 0.2.2-rc.5；源码随包发布在 `app.asar` 里，行号即包内行号）：
+
+| 行 | 行根 | 名字/参数之间的点 | 退出胶囊 |
+|---|---|---|---|
+| 通用工具行 `ToolRow` | `div[data-variant][data-tool][data-state]`（`dsh-client-ui-tool/src/client/tool/components/ToolRow.tsx:460`） | `span.sep[data-shimmer-decoration]`（同文件 `:262`） | `ExitCodeBadge` 的 `Tag`（`:320`；`components/ExitCodeBadge.tsx:12`） |
+| 运行命令 `BashRow` | `div[data-sample='bash'][data-variant='bash'][data-state]`（`toolviews/bash-sample.tsx:97-108`） | `span.sep[data-shimmer-decoration]`（`:113`） | 同文件 `:121` |
+| 思考 `ReasoningRow` | `div[data-variant='think'][data-state]`（`dsh-client-ui-chat/src/client/chat/ReasoningRow.tsx:87-93`） | `span.separator[data-shimmer-decoration]`（`:70`） | 无 |
+| 通用命令 `GenericCommandCard` | `div[data-variant='others'][data-state]`（同目录 `GenericCommandCard.tsx:55`） | `span.separator[data-shimmer-decoration]`（`:45`） | 无 |
+
+`[data-variant][data-state]` 只出现在这四个行根上：88 个 `lib/client.js` 全文检索里
+`data-variant` 只命中 tool / chat / attachment 三包，而 attachment 的图片按钮没有
+`data-state`。所以这个组合既是作用域，也是「这是一条步骤行」的判据。
+
+**`data-variant` 的全集（闭集，八个）**：`search` / `read` / `bash` / `write` / `edit` /
+`code` / `others`（`tool-call-model.ts:17` 的 `ToolRowVariant`）+ `think`
+（`ReasoningRow.tsx:89`）。`data-tool` 则是**开集**——它是原始工具名，插件 / MCP 工具随时能
+加值——但 `classifyTool()`（同文件 `:135`）一定把它折到上面八个之一：`bash` "bash"、
+`pwsh` "bash"、`read` "read"、`read_image` "read"、`web_fetch` "read"、
+`cordis_*_inspect` "read"、`web_search` / `grep` / `glob` "search"、`write` "write"、
+`edit` / `apply_patch` "edit"、`run_code` "code"、其余 "others"（含全部 keyed toolview 工具：
+`create_goal` / `schedule_*` / `session_*` / `subagent*` / `job_*` / `terminal_*` /
+`team_task_*` / `ask_user_question` / `todo_write` / `office_*` 与任何未知名）。所以兜底不需要
+枚举：`code` / `others` 不声明色相，落格子规则的兜底值就是「未知工具」的颜色。
+
+`data-tool` 本身也可以用来细分（例如 `grep` 与 `glob` 都归 `search`，两者 UI 名分别是
+「搜索文件内容」/「查找文件」），但**颜色按类而不是按工具**：类只有八个、跨版本稳定，
+而 `data-tool` 会随插件增长。
+
+**缺口 1：工具名与参数格子没有自己的钩子。** 两者都由 primitives 的 `DisclosureRow` 渲染
+成 `TextShimmer` 根 `span`，只带按构建哈希的 CSS Module 类名——没有 `data-*`、没有
+`title`、没有 `<time>`。唯一稳定的是名字与参数之间那颗点，所以规则用相对位置
+（`:has(+ …)` / `+ *`）。代价：summary 为空的工具行（`ToolRow.tsx:258` 在
+`summaryText !== ''` 时才渲染那颗点）匹配不到名字规则，那一行的名字停在行色
+（`label-tertiary`）。这是「相对定位」的已知边界。
+
+**缺口 2：成功 / 退出码 0 没有可染的元素。** `terminalExitLabel()` 只在
+`terminalFailed()` 为真时返回标签（`dsh-client-ui-tool/src/client/tool/models/terminal-card-model.ts:96-112`），
+而 `ExitCodeBadge` 的 `Tag` **永远**是 `tone="neutral"`（`components/ExitCodeBadge.tsx:12`）——
+退出码 0 根本不渲染胶囊；唯一的成功信号是行根上的 `[data-state='ok']`，把它染绿等于把
+整条轨迹的每条成功步骤都染绿。另外 `--dsw-alias-state-success-primary` 在浅色画布上只有
+**3.61:1**（它是点/描边的 token，不是文字色）。因此 0.1.3 M2 **只做失败侧**：
+`[data-state='error']` 的 summary 与 `[data-tone]` 胶囊取 `--dsw-alias-state-error-primary`
+（只上色，不加粗）。等宿主给出「成功胶囊」或 `data-exit` / `data-status` 这类钩子，再补绿色
+那一半（`tests/skin.spec.ts` 里那条「paints nothing for a successful exit」把缺口本身钉成断言）。
+
+**缺口 3：`上下文注入` 那一行连行状态都没有。** 它走的是另一条路：`ContextInjectionRow`
+（`dsh-client-ui-chat/src/client/chat/ContextInjectionRow.tsx:51-76`）直接渲染 `DisclosureRow`，
+**没有** `[data-variant][data-state]` 行根，名字与参数之间那颗点也只有 `aria-hidden`（没有
+`data-shimmer-decoration`），所以上面两条规则都够不到它。它有 `data-context-source` /
+`data-context-summary` 两个钩子，但只染参数不染名字会让这一行和兄弟行不一致，因此 0.1.3
+不单独为它开一条规则；等宿主给它一个行状态属性（或把那颗点补上统一的装饰属性）再并进来。
+
+**命名偏差**：契约里写的 `--dsw-static-rose-500` / `--dsw-static-emerald-500` 在 228 键表里
+**不存在**（`rose` / `emerald` 是 Tailwind 名，本平台只有 `red` / `green` 家族）。失败侧改用
+宿主自己也在用的 `--dsw-alias-state-error-primary`（浅 `red-600` `#B31B3E` / 暗 `red-400`
+`#F9889A`），它天生随方案翻转——与 §11.6 的 G1 同一条判据。

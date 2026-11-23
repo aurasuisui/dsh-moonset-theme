@@ -5,6 +5,7 @@ import { STATUS_SEPARATOR, describeState, type MoonsetChoice } from '../src/clie
 import { RESTORE_WINDOW_MS, WRITE_DEBOUNCE_MS } from '../src/client/durable'
 import { apply } from '../src/client/index'
 import { en, zh, type MoonsetLocaleKey } from '../src/client/locales'
+import { MOONSET_DARK, MOONSET_LIGHT } from '../src/client/palettes'
 import { GLOW_HUES, GLOW_SCOPES, type GlowHue, type GlowScope } from '../src/client/skin'
 import {
   MoonsetSection,
@@ -1078,6 +1079,215 @@ describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
       ;(onChange as (event: unknown) => void)({ currentTarget: { value: '150' } })
       expect(strengths).toEqual([150])
       expect(elementsUnder(mount.update()).some((node) => node.type === 'span' && textOf(node) === '150%')).toBe(true)
+    } finally {
+      mount.unmount()
+    }
+  })
+})
+
+// ── M1 (0.1.3): the pressed button's own colours (G1) ────────────────────────
+
+/* ------------------------------------------------------------------ *
+ * a tiny colour helper: the pressed button's fill/label have to clear  *
+ * AA in BOTH schemes, so the ratio is re-measured from the palettes    *
+ * ------------------------------------------------------------------ */
+
+/** One opaque sRGB colour. */
+interface Rgb {
+  r: number
+  g: number
+  b: number
+}
+
+/** Follow `var(--dsw-…)` hops inside one scheme table to a leaf value. */
+function resolveToken(table: Record<string, string>, token: string): string {
+  let value = table[token]
+  for (let hop = 0; hop < 8; hop += 1) {
+    if (value === undefined) throw new Error('missing token ' + token)
+    const ref = /^var\((--dsw-[a-z0-9-]+)\)$/.exec(value.trim())
+    if (ref === null) return value
+    value = table[ref[1]]
+  }
+  throw new Error('var() resolution is too deep for ' + token)
+}
+
+/** `#RRGGBB` → sRGB (every token these cases read resolves to hex). */
+function rgbOf(value: string): Rgb {
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(value)
+  if (hex === null) throw new Error('not a hex colour: ' + value)
+  return {
+    r: parseInt(hex[1].slice(0, 2), 16),
+    g: parseInt(hex[1].slice(2, 4), 16),
+    b: parseInt(hex[1].slice(4, 6), 16),
+  }
+}
+
+/** WCAG 2.x relative luminance. */
+function luminance(colour: Rgb): number {
+  const channel = (value: number): number => {
+    const scaled = value / 255
+    return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b)
+}
+
+/** WCAG contrast ratio between two opaque colours. */
+function contrastRatio(a: Rgb, b: Rgb): number {
+  const first = luminance(a)
+  const second = luminance(b)
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+}
+
+/** The one inline style object an element carries. */
+function styleOf(node: FakeElement): Record<string, string> {
+  const style = node.props.style
+  if (style === null || typeof style !== 'object') throw new Error('element carries no style')
+  return style as Record<string, string>
+}
+
+/** The `--dsw-*` token one declaration reads, or a loud failure. */
+function tokenIn(declaration: unknown, property: string): string {
+  const match = typeof declaration === 'string' ? /^var\((--dsw-[a-z0-9-]+)\)$/.exec(declaration) : null
+  if (match === null) throw new Error(property + ' is not a bare token: ' + String(declaration))
+  return match[1]
+}
+
+/**
+ * G1: the settings section's pressed buttons were white-on-white in the dark
+ * scheme (0.1.2 used `--dsw-alias-brand-primary` as the fill — the scheme's
+ * INK, near-white in dark — with the near-white `label-on-color` text:
+ * measured 1.05:1). The active seats now take the accent ladder, and these
+ * cases pin both the shipped declarations and the measured pair, so a palette
+ * or component edit that re-breaks readability turns the suite red instead of
+ * shipping another invisible label.
+ */
+describe('M1 设置区 — 选中按钮可读性（G1）', () => {
+  /** The view every case starts from: light theme, default ground. */
+  const VIEW: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+
+  /** Every pressed button: theme (1), glow switch (1), scope (1), one hue per ground (2). */
+  function pressedButtons(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'button' && node.props['aria-pressed'] === true)
+  }
+
+  /** Every unpressed button: the other two themes, scopes and hues (8 in all). */
+  function idleButtons(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'button' && node.props['aria-pressed'] === false)
+  }
+
+  it('paints every pressed button with the accent fill and the neutral ink', () => {
+    const { mount } = mountSection({ view: () => VIEW })
+    const tree = mount.mount()
+    try {
+      // The active seats the plan named: the three theme buttons, the three
+      // 地面范围 buttons, one hue per ground, plus the 环境光晕 switch — which
+      // shares the same style constant, so it is covered by the same change.
+      expect(pressedButtons(tree).map((button) => textOf(button))).toEqual([
+        zh['option.light'],
+        zh['glow.title'] + ' ' + zh['glow.on'],
+        zh['glow.scope.main'],
+        zh['glow.hue.soft'],
+        zh['glow.hue.night'],
+      ])
+      for (const button of pressedButtons(tree)) {
+        expect(styleOf(button)).toMatchObject({
+          border: '1px solid var(--dsw-static-deepseek-400)',
+          background: 'var(--dsw-static-deepseek-400)',
+          color: 'var(--dsw-static-neutral-bluish-1000)',
+        })
+        // The 0.1.2 pair is gone for good: brand-primary is an INK, and the
+        // on-color label is near-white in both schemes.
+        expect(styleOf(button).background).not.toContain('brand-primary')
+        expect(styleOf(button).color).not.toContain('label-on-color')
+        // Colour-only change: the geometry still comes from BUTTON_STYLE, so the
+        // active and idle buttons keep the same box (no layout move).
+        expect(styleOf(button)).toMatchObject({
+          appearance: 'none',
+          cursor: 'pointer',
+          padding: '6px 14px',
+          borderRadius: '8px',
+          fontSize: '13px',
+          lineHeight: '1.4',
+        })
+      }
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('leaves the unpressed buttons on the transparent + hairline treatment', () => {
+    const { mount } = mountSection({ view: () => VIEW })
+    const tree = mount.mount()
+    try {
+      expect(idleButtons(tree)).toHaveLength(8)
+      for (const button of idleButtons(tree)) {
+        expect(styleOf(button)).toMatchObject({
+          border: '1px solid var(--dsw-alias-border-l2)',
+          background: 'transparent',
+          color: 'var(--dsw-alias-label-secondary)',
+        })
+      }
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('measures AA (>= 4.5:1) for the pressed label on its own fill, both schemes', () => {
+    const { mount } = mountSection({ view: () => VIEW })
+    const tree = mount.mount()
+    try {
+      const [pressed] = pressedButtons(tree)
+      if (pressed === undefined) throw new Error('the section rendered no pressed button')
+      const style = styleOf(pressed)
+      const fill = tokenIn(style.background, 'background')
+      const ink = tokenIn(style.color, 'color')
+      // Read the SHIPPED declarations and re-measure them: a changed rung or a
+      // changed text token has to be re-measured, not just re-formatted.
+      // Measured at the shipped rung: light 4.63:1 (the tight side), dark 8.07:1.
+      for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+        const ratio = contrastRatio(rgbOf(resolveToken(table, fill)), rgbOf(resolveToken(table, ink)))
+        expect(
+          ratio,
+          scheme + ' pressed label on the accent fill = ' + ratio.toFixed(2) + ':1',
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+      // The shipped pair is the accent rung plus the neutral ladder's dark end:
+      // both host tokens, and neither flips into the near-white end in dark.
+      expect(fill).toBe('--dsw-static-deepseek-400')
+      expect(ink).toBe('--dsw-static-neutral-bluish-1000')
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('records why brand-primary cannot be the fill: it is the scheme ink', () => {
+    // The root cause, not the symptom: in the DARK scheme brand-primary resolves
+    // to the near-white end of the neutral ladder, and label-on-color is
+    // near-white too, so the 0.1.2 pairing collapses. Keeping this here means the
+    // next palette edit cannot quietly turn the alias back into a fill.
+    const brandDark = rgbOf(resolveToken(MOONSET_DARK, '--dsw-alias-brand-primary'))
+    const onColorDark = rgbOf(resolveToken(MOONSET_DARK, '--dsw-alias-label-on-color'))
+    expect(luminance(brandDark)).toBeGreaterThan(0.8)
+    const collapsed = contrastRatio(brandDark, onColorDark)
+    expect(
+      collapsed,
+      'brand-primary + label-on-color in dark = ' + collapsed.toFixed(2) + ':1',
+    ).toBeLessThan(4.5)
+  })
+
+  it('rides the same accent on the strength sliders (M1.5)', () => {
+    // The range input's accentColor was the same brand-primary ink as the button
+    // fill: in dark it painted a near-white track and thumb. The two sliders are
+    // part of the accent seat family, so they read the same rung the fill does.
+    const { mount } = mountSection({ view: () => VIEW })
+    const tree = mount.mount()
+    try {
+      const sliders = elementsUnder(tree).filter((node) => node.type === 'input' && node.props.type === 'range')
+      expect(sliders).toHaveLength(2)
+      for (const slider of sliders) {
+        expect(styleOf(slider).accentColor).toBe('var(--dsw-static-deepseek-400)')
+        expect(styleOf(slider).accentColor).not.toContain('brand-primary')
+      }
     } finally {
       mount.unmount()
     }

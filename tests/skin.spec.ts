@@ -88,33 +88,89 @@ const MOON = '--dsw-static-amber-500'
 const CANVAS = '--dsw-alias-bg-base'
 
 /**
- * The 0.1.1 half of the sheet, restated verbatim.
+ * The sheet's line budget: 60 through 0.1.2, 75 for the first 0.1.3 M2 pass,
+ * 95 for the per-class pass (M2b).
+ *
+ * The step-row entry is the first whitelist class that addresses TWO cells of a
+ * host row, a per-kind hue for each of them, and their failed state: four class
+ * declaration blocks plus seven rules (measured 55 → 93). The architecture doc
+ * §11.5 carries the same number.
+ */
+const SHEET_BUDGET = 95
+
+/**
+ * Rule blocks in the default sheet: nine through 0.1.2, sixteen since 0.1.3 M2b
+ * (two cell rules, four class blocks and the failed-step rule on top of the
+ * nine the 0.1.2 sheet shipped).
+ */
+const SHEET_RULES = 16
+
+/**
+ * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
  *
  * A literal on purpose: this string IS the whitelist entry, so the test has to
  * fail when the production rule is reworded, re-scoped or grows a declaration.
  * 0.1.2 appends the ground segment below; splitting the halves lets the
- * switch-off case assert the pre-glow sheet returns byte-for-byte.
+ * switch-off case assert the pre-glow sheet returns byte-for-byte. 0.1.3 M2
+ * appends the step-row colours to THIS half: they ride the same switch, so the
+ * pre-glow sheet still carries them.
  */
 const EXPECTED_BASE_CSS = [
-  '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
-  'html body ::selection {',
-  '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
-  '  color: var(--dsw-static-deepseek-500);',
-  '}',
-  '/* selected items: stable attributes only, never a host class name. The root',
-  '   attribute gate is what outranks the host (0,2,2 vs .tab[data-active] 0,2,0). */',
+  "/* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */",
+  "html body ::selection {",
+  "  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);",
+  "  color: var(--dsw-static-deepseek-500);",
+  "}",
+  "/* selected items: stable attributes only, never a host class name. The root",
+  "   attribute gate is what outranks the host (0,2,2 vs .tab[data-active] 0,2,0). */",
   "html[data-moonset-skin] body [aria-selected='true'],",
   "html[data-moonset-skin] body [aria-current='page'],",
   "html[data-moonset-skin] body [aria-current='true'],",
   "html[data-moonset-skin] body [data-active='true'],",
   "html[data-moonset-skin] body [aria-pressed='true'] {",
-  '  color: var(--dsw-static-deepseek-500);',
-  '}',
-  '/* the host draws the selected tab underline as a 2px ink bar; keep it the',
-  '   label colour. Only the plugins tab renders an ::after on such an element. */',
+  "  color: var(--dsw-static-deepseek-500);",
+  "}",
+  "/* the host draws the selected tab underline as a 2px ink bar; keep it the",
+  "   label colour. Only the plugins tab renders an ::after on such an element. */",
   "html[data-moonset-skin] body [data-active='true']::after {",
-  '  background: var(--dsw-static-deepseek-500);',
-  '}',
+  "  background: var(--dsw-static-deepseek-500);",
+  "}",
+  "/* 0.1.3 M2: a step row reads as a terminal line, and each KIND of step carries",
+  "   its own hue (shell green, file blue-violet, search amber, reasoning violet;",
+  "   code and unknown tools keep the accent). Host hooks: [data-variant] on the",
+  "   row, [data-shimmer-decoration] the dot before the arguments. */",
+  "html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration]) {",
+  "  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));",
+  "  font-family: var(--ds-font-family-code);",
+  "}",
+  "html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + * {",
+  "  color: var(--dsh-moonset-step-args, var(--dsw-alias-label-secondary));",
+  "  font-family: var(--ds-font-family-code);",
+  "}",
+  "html[data-moonset-skin] body [data-variant='bash'] {",
+  "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-green-500) 65%, var(--dsw-alias-label-primary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-green-500) 25%, var(--dsw-alias-label-secondary));",
+  "}",
+  "html[data-moonset-skin] body [data-variant='read'],",
+  "html[data-moonset-skin] body [data-variant='write'],",
+  "html[data-moonset-skin] body [data-variant='edit'] {",
+  "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-deepseek-400) 65%, var(--dsw-alias-label-primary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-deepseek-400) 25%, var(--dsw-alias-label-secondary));",
+  "}",
+  "html[data-moonset-skin] body [data-variant='search'] {",
+  "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-amber-600) 65%, var(--dsw-alias-label-primary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-amber-600) 25%, var(--dsw-alias-label-secondary));",
+  "}",
+  "html[data-moonset-skin] body [data-variant='think'] {",
+  "  --dsh-moonset-step-name: color-mix(in srgb, var(--dsw-static-violet-400) 65%, var(--dsw-alias-label-primary));",
+  "  --dsh-moonset-step-args: color-mix(in srgb, var(--dsw-static-violet-400) 25%, var(--dsw-alias-label-secondary));",
+  "}",
+  "/* failed step (exit != 0 / signal): the class hue loses to the error colour. */",
+  "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),",
+  "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
+  "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
+  "  color: var(--dsw-alias-state-error-primary);",
+  "}",
 ].join('\n')
 
 /** The 0.1.2 segment (night anchor + light ground + dark override), verbatim. */
@@ -392,20 +448,23 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 60 lines, nine rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 95 lines, sixteen rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
-    // 60 since M3 (the dark composition) — the night anchor pairs add two more
-    // rules without coming close to the ceiling.
-    expect(lines.length).toBeLessThanOrEqual(60)
-    // Nine blocks: text selection, the selected-item label colour, the selected
-    // tab's underline, the night anchor (light), the night anchor (dark), the
-    // light ground, the DARK ground override, the visibility clear, and the M2
-    // bottom-band entry (an image, not a colour).
+    // 95 since 0.1.3 M2b (the per-class step-row colours: two cell rules, four
+    // class blocks and the failed-step rule); 75 for the first M2 pass, 60 through
+    // 0.1.2. The ceiling is the whitelist's, not the milestone's, so a new block
+    // has to buy its lines HERE before it ships.
+    expect(lines.length).toBeLessThanOrEqual(SHEET_BUDGET)
+    // Twelve blocks: text selection, the selected-item label colour, the selected
+    // tab's underline, the step-row name, its arguments, the failed step, the
+    // night anchor (light), the night anchor (dark), the light ground, the DARK
+    // ground override, the visibility clear, and the M2 bottom-band entry (an
+    // image, not a colour).
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(9)
-    expect(css.match(/\}/g)).toHaveLength(9)
+    expect(css.match(/\{/g)).toHaveLength(SHEET_RULES)
+    expect(css.match(/\}/g)).toHaveLength(SHEET_RULES)
     // Every additive block stays well inside the 12-line entry budget. The two
     // grounds and the visibility clear are blocks of ONE switchable segment, so
     // the budget is measured per block, not per segment.
@@ -417,15 +476,24 @@ describe('skinCss — the whitelisted rules', () => {
     const darkStart = css.indexOf('/* 0.1.2 ground (dark)')
     const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
     const bandStart = css.indexOf('/* 0.1.2 bottom band (M2)')
+    // 0.1.3 M2 sits between the selected-item rules and the ground: it is text
+    // colouring, not a paint layer, so it rides the 0.1.1 half of the sheet.
+    const stepStart = css.indexOf('/* 0.1.3 M2')
+    const stepEnd = css.indexOf('}', css.indexOf('~ [data-tone]')) + 1
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
-    expect(anchorStart).toBeGreaterThan(underlineEnd)
+    expect(stepStart).toBeGreaterThan(underlineEnd)
+    expect(anchorStart).toBeGreaterThan(stepEnd)
     expect(groundStart).toBeGreaterThan(anchorStart)
     expect(darkStart).toBeGreaterThan(groundStart)
     expect(clearStart).toBeGreaterThan(darkStart)
     expect(bandStart).toBeGreaterThan(clearStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
+    // The step-row entry: two cell rules, four class declaration blocks and the
+    // failed-step rule, plus the comment that carries the hook evidence. The
+    // per-class pass (M2b) is the reason its own ceiling is 40.
+    expect(css.slice(stepStart, stepEnd).split('\n').length).toBeLessThanOrEqual(40)
     expect(css.slice(anchorStart, groundStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(groundStart, darkStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(darkStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
@@ -449,11 +517,29 @@ describe('skinCss — the whitelisted rules', () => {
       `var(${ACCENT})`,
       `var(${MOON})`,
       `var(${CANVAS})`,
+      // 0.1.3 M2: the step-row cell defaults and the failed-step line — the
+      // label/state aliases follow the scheme without a literal.
+      'var(--dsw-alias-label-secondary)',
+      'var(--dsw-alias-state-error-primary)',
+      // 0.1.3 M2b: the per-kind hue families, each mixed toward a label token
+      // (label-primary is the name's, label-secondary the arguments').
+      'var(--dsw-alias-label-primary)',
+      'var(--dsw-static-deepseek-400)',
+      'var(--dsw-static-green-500)',
+      'var(--dsw-static-amber-600)',
+      'var(--dsw-static-violet-400)',
     ]))
     // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
     // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
-    // ground (night): one canvas. The night anchor refs are counted separately.
-    expect(tokens).toHaveLength(9)
+    // ground (night): one canvas. 0.1.3 M2b: the step-row name default is the
+    // accent again, each class mixes its family twice (name + arguments) toward
+    // label-primary / label-secondary, the arguments default is a label alias,
+    // and the failed step is one state alias. The night anchor refs are counted
+    // separately.
+    expect(tokens).toHaveLength(28)
+    // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
+    // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
+    expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
     expect(css.match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(4)
     // The anchor is DECLARED in every sheet (it is a custom property, unused by
     // the other hues) and REFERENCED only by a ground whose hue is `night`.
@@ -562,12 +648,16 @@ describe('skinCss — the whitelisted rules', () => {
       "html[data-moonset-skin] body [aria-pressed='true']",
     ])
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
-    // No class-name hacks, no wildcard selector, no !important. The `*` in the
-    // ground's calc() products is arithmetic, not a selector, so only selector
-    // text (everything outside a declaration block) is checked for it.
+    // No class-name hacks, no !important, and exactly TWO universal selectors —
+    // both are 0.1.3 M2's `[data-shimmer-decoration] + *`, i.e. "the cell
+    // right after the separator dot" (the idle rule, and the failed-step rule that
+    // reuses the same cell). That is a single-sibling position inside a step row,
+    // not a subtree sweep — every other selector stays attribute-anchored. Only
+    // selector text (everything outside a declaration block) is checked.
     const selectorText = rules.replace(/\{[^}]*\}/g, '')
     expect(selectorText).not.toMatch(/\[class|\*=/)
-    expect(selectorText).not.toContain('*')
+    expect(selectorText.match(/\*/g) ?? []).toHaveLength(2)
+    expect(selectorText).toContain('[data-shimmer-decoration] + *')
     expect(rules).not.toContain('!important')
     // The rule colours the container and lets the label inherit; muted
     // children (timestamps, summaries) set their own colour and keep it.
@@ -851,8 +941,9 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   it('stays ONE root-gated sheet inside the 60-line budget (P2)', () => {
     const css = skinCss()
     const lines = css.split('\n')
-    // 60 since M3: the dark scheme is its own four-layer composition.
-    expect(lines.length).toBeLessThanOrEqual(60)
+    // 75 since 0.1.3 M2 (SHEET_BUDGET); the dark scheme is its own four-layer
+    // composition on top of the 0.1.1 half.
+    expect(lines.length).toBeLessThanOrEqual(SHEET_BUDGET)
     // 0.1.1's 19 lines + the light and dark ground segments.
     expect(lines.length).toBeGreaterThan(19)
     // Mounting still yields exactly ONE <style>, carrying exactly this CSS.
@@ -1083,7 +1174,7 @@ describe('skinCss — M2 地面范围 (A/B/C)', () => {
   it('keeps every sheet inside the 60-line budget, for every scope', () => {
     for (const scope of GLOW_SCOPES) {
       const lines = skinCss({ scope }).split('\n')
-      expect(lines.length).toBeLessThanOrEqual(60)
+      expect(lines.length).toBeLessThanOrEqual(SHEET_BUDGET)
       expect(lines.length).toBeGreaterThan(19)
       expect(withoutComments(skinCss({ scope }))).not.toContain('calc(')
     }
@@ -1267,7 +1358,7 @@ describe('skinCss — M6 深/浅两套光晕', () => {
     for (const hue of GLOW_HUES) {
       const sheet = skinCss({ hueLight: hue, hueDark: hue })
       expect(sheet.split('\n').length, hue).toBe(reference)
-      expect(sheet.match(/\{/g)).toHaveLength(9)
+      expect(sheet.match(/\{/g)).toHaveLength(SHEET_RULES)
     }
   })
 
@@ -1293,6 +1384,342 @@ describe('skinCss — M6 深/浅两套光晕', () => {
       expect(lightGroundRule(skinCss({ hueLight: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
       expect(darkGroundRule(skinCss({ hueDark: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
     }
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 0.1.3 M2 — step rows: one hue per kind of step                      *
+ * ------------------------------------------------------------------ */
+
+/**
+ * The whitelist's step-row entry, audited against the INSTALLED sources rather
+ * than guessed: the four step-row implementations the client renders publish the
+ * same hooks — `[data-variant][data-state]` on the row root and
+ * `[data-shimmer-decoration]` on the dot between the name and its arguments — and
+ * no hook at all on the two cells themselves. Hence the relative selectors
+ * (`:has(+ …)` / `+ *`), and hence the two custom properties a class
+ * publishes on the row: one declaration block per class, two cell rules that read it.
+ *
+ * `data-variant` is the CLOSED set the client can emit (ToolRowVariant plus the
+ * chat row's own `think`), so the fallback is structural: `code` and `others`
+ * declare no hues and land on the cell rules' fallback values — which is also what
+ * an unknown `data-tool` gets, because classifyTool() always resolves one of the
+ * eight variants.
+ */
+describe('skinCss — 0.1.3 M2 工作步骤行（终端配色）', () => {
+  /** Every class the M2 block ships: its row variant, a test label and its family token. */
+  const CLASSES: readonly { variant: string; label: string; family: string }[] = [
+    { variant: 'bash', label: 'shell / 运行命令', family: '--dsw-static-green-500' },
+    { variant: 'read', label: 'files / 读取', family: '--dsw-static-deepseek-400' },
+    { variant: 'write', label: 'files / 写入', family: '--dsw-static-deepseek-400' },
+    { variant: 'edit', label: 'files / 编辑', family: '--dsw-static-deepseek-400' },
+    { variant: 'search', label: 'search / 搜索', family: '--dsw-static-amber-600' },
+    { variant: 'think', label: 'reasoning / 思考', family: '--dsw-static-violet-400' },
+  ]
+
+  /** The M2 segment of the sheet, comments included. */
+  function stepSegment(): string {
+    const css = skinCss()
+    const start = css.indexOf('/* 0.1.3 M2')
+    const end = css.indexOf('/* 0.1.2 hue anchor')
+    if (start === -1 || end === -1) throw new Error('the step-row segment is missing')
+    return css.slice(start, end)
+  }
+
+  /** The M2 rules with comments stripped: selectors + declarations, in order. */
+  function stepRules(): { selectors: string[]; declarations: string[] }[] {
+    const text = stepSegment().replace(/\/\*[\s\S]*?\*\//g, '')
+    return [...text.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((match) => ({
+      selectors: match[1].split(',').map((part) => part.trim()).filter(Boolean),
+      declarations: match[2].split(';').map((part) => part.trim()).filter(Boolean),
+    }))
+  }
+
+  /** Every step-row selector, flattened. */
+  function stepSelectors(): string[] {
+    const out: string[] = []
+    for (const rule of stepRules()) out.push(...rule.selectors)
+    return out
+  }
+
+  /** The class block that declares the hues for one data-variant value. */
+  function classRule(variant: string): { selectors: string[]; declarations: string[] } {
+    const needle = "[data-variant='" + variant + "']"
+    const rule = stepRules().find((entry) => entry.selectors.some((selector) => selector.includes(needle)))
+    if (rule === undefined) throw new Error('no class block for data-variant=' + variant)
+    return rule
+  }
+
+  /** One custom property's value inside one rule. */
+  function hueOf(rule: { selectors: string[]; declarations: string[] }, property: string): string {
+    const prefix = property + ': '
+    const declaration = rule.declarations.find((entry) => entry.startsWith(prefix))
+    if (declaration === undefined) throw new Error('no ' + property + ' in ' + JSON.stringify(rule.selectors))
+    return declaration.slice(prefix.length)
+  }
+
+  it('keys both cells on the row and on the dot, and paints them from two custom properties', () => {
+    const rules = stepRules()
+    // Two cell rules + four class blocks + the failed-step rule.
+    expect(rules).toHaveLength(7)
+    for (const selector of stepSelectors()) {
+      // Root-gated (P2), and anchored either on the ROW (the two cell rules and
+      // the failed-step rule) or on a class block's data-variant value.
+      expect(selector.startsWith('html[data-moonset-skin] body ')).toBe(true)
+      expect(
+        selector.includes('[data-variant][data-state') || selector.includes("[data-variant='"),
+        selector,
+      ).toBe(true)
+    }
+    const name = rules[0]
+    const args = rules[1]
+    if (name === undefined || args === undefined) throw new Error('the two cell rules are missing')
+    // The tool name is the cell BEFORE the dot; the arguments are the cell AFTER it.
+    expect(name.selectors).toEqual([
+      'html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration])',
+    ])
+    expect(name.declarations).toEqual([
+      'color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500))',
+      'font-family: var(--ds-font-family-code)',
+    ])
+    expect(args.selectors).toEqual([
+      'html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + *',
+    ])
+    expect(args.declarations).toEqual([
+      'color: var(--dsh-moonset-step-args, var(--dsw-alias-label-secondary))',
+      'font-family: var(--ds-font-family-code)',
+    ])
+  })
+
+  it('gives every KIND of step its own hue, declared on the row as two custom properties', () => {
+    for (const entry of CLASSES) {
+      const rule = classRule(entry.variant)
+      // Exactly the two hues, nothing else: the block declares a class, it does not paint.
+      expect(rule.declarations).toHaveLength(2)
+      expect(hueOf(rule, '--dsh-moonset-step-name')).toBe(
+        'color-mix(in srgb, var(' + entry.family + ') 65%, var(--dsw-alias-label-primary))',
+      )
+      expect(hueOf(rule, '--dsh-moonset-step-args')).toBe(
+        'color-mix(in srgb, var(' + entry.family + ') 25%, var(--dsw-alias-label-secondary))',
+      )
+    }
+  })
+
+  it('mixes each class hue from a family token and a label token, never a literal', () => {
+    for (const entry of CLASSES) {
+      const rule = classRule(entry.variant)
+      for (const property of ['--dsh-moonset-step-name', '--dsh-moonset-step-args']) {
+        const value = hueOf(rule, property)
+        // The family names the KIND; the label token makes the mix follow the scheme.
+        expect(value, property).toContain('var(' + entry.family + ')')
+        expect(value, property).toMatch(/var\(--dsw-alias-label-(?:primary|secondary)\)/)
+        expect(value, property).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+        expect(value, property).not.toMatch(/\b(?:rgba?|hsla?)\(/)
+      }
+    }
+  })
+
+  it('keeps the class families distinct, and the arguments dimmer than the name', () => {
+    const families = new Set(CLASSES.map((entry) => entry.family))
+    // shell / files / search / reasoning: four families, no two classes share one.
+    expect(families.size).toBe(4)
+    for (const entry of CLASSES) {
+      const rule = classRule(entry.variant)
+      const nameShare = / (\d+)%/.exec(hueOf(rule, '--dsh-moonset-step-name'))
+      const argsShare = / (\d+)%/.exec(hueOf(rule, '--dsh-moonset-step-args'))
+      expect(nameShare).not.toBeNull()
+      expect(argsShare).not.toBeNull()
+      // The arguments sit one step dimmer: less family colour, more label colour.
+      expect(Number(argsShare?.[1])).toBeLessThan(Number(nameShare?.[1]))
+    }
+  })
+
+  it('falls back to the accent and the secondary label for code and unknown tools', () => {
+    // code / others declare no hues on purpose: the class list is closed and
+    // classifyTool() resolves every unknown wire name into one of the eight
+    // variants, so the fallback IS the unknown-tool colour.
+    const declared = stepRules().flatMap((rule) => rule.selectors).join(' ')
+    expect(declared).not.toContain("[data-variant='code']")
+    expect(declared).not.toContain("[data-variant='others']")
+    const rules = stepRules()
+    expect(rules[0]?.declarations[0]).toContain('var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500))')
+    expect(rules[1]?.declarations[0]).toContain('var(--dsh-moonset-step-args, var(--dsw-alias-label-secondary))')
+  })
+
+  it('covers every data-variant the installed client can emit', () => {
+    // ToolRowVariant (tool-call-model.ts:17) plus the chat rows' own think
+    // (ReasoningRow.tsx:89) and others (GenericCommandCard.tsx:55) — eight values,
+    // each either a declared class or the explicit fallback.
+    const emitted = ['search', 'read', 'bash', 'write', 'edit', 'code', 'others', 'think']
+    const declared = new Set(CLASSES.map((entry) => entry.variant))
+    for (const variant of emitted) {
+      const covered = declared.has(variant) || variant === 'code' || variant === 'others'
+      expect(covered, variant + ' must be a class or the fallback').toBe(true)
+    }
+    expect(declared.size + 2).toBe(emitted.length)
+  })
+
+  it('lets a failed step win over its class hue, both cells and the capsule', () => {
+    const failed = stepRules()[6]
+    if (failed === undefined) throw new Error('the failed-step rule is missing')
+    expect(failed.selectors).toEqual([
+      "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration])",
+      "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *",
+      "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone]",
+    ])
+    // Colour only: the on-device pass rejected the 500 weight the first cut added.
+    expect(failed.declarations).toEqual(['color: var(--dsw-alias-state-error-primary)'])
+  })
+
+  it('puts the failed-step rule last, so no later class can out-order it', () => {
+    const rules = stepRules()
+    const last = rules[rules.length - 1]
+    expect(last?.selectors.join(' ')).toContain("[data-state='error']")
+    // Every class block sits BEFORE it (custom properties are inherited, so the
+    // error rule only has to win on color — being last makes that unconditional).
+    for (const entry of CLASSES) {
+      const needle = "[data-variant='" + entry.variant + "']"
+      const index = rules.findIndex((rule) => rule.selectors.some((selector) => selector.includes(needle)))
+      expect(index, entry.variant).toBeGreaterThan(-1)
+      expect(index, entry.variant).toBeLessThan(rules.length - 1)
+    }
+  })
+
+  it('declares the custom properties only on class rows, never on :root', () => {
+    const css = skinCss()
+    const stepProperties = (css.match(/--dsh-moonset-step-(?:name|args)\s*:/g) ?? []).length
+    // read / write / edit share one block, so 4 class blocks carry 8 declarations.
+    expect(stepProperties).toBe(8)
+    for (const rule of stepRules()) {
+      for (const declaration of rule.declarations) {
+        if (!declaration.startsWith('--dsh-moonset-step-')) continue
+        expect(rule.selectors.every((selector) => selector.includes("[data-variant='"))).toBe(true)
+      }
+    }
+    const rootStart = css.indexOf('html[data-moonset-skin] {')
+    const rootRule = css.slice(rootStart, css.indexOf('}', rootStart) + 1)
+    expect(rootRule).not.toContain('--dsh-moonset-step-')
+  })
+
+  it('never leaves the step row: no prose, no expanded body, no host class name', () => {
+    for (const selector of stepSelectors()) {
+      // A class selector would be a per-build hash; none is allowed anywhere.
+      expect(selector).not.toContain('.')
+      // The expanded body is a SIBLING of the disclosure row, and the prose
+      // renderers (p / pre / code / blockquote) never sit inside a step row.
+      for (const forbidden of ['pre', 'code', 'blockquote', '::', '[data-error]', '[data-disclosure-row]']) {
+        expect(selector, selector).not.toContain(forbidden)
+      }
+    }
+    // The sheet's ONLY wildcards are that sibling-after-the-dot cell, twice
+    // (the idle rule and the re-used failed-step selector).
+    const text = skinCss().replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(text.split('*').length - 1).toBe(2)
+    expect(text).not.toContain('[class')
+  })
+
+  it('keeps every name/arguments pair AA-readable on the canvas (light + dark)', () => {
+    for (const entry of CLASSES) {
+      const rule = classRule(entry.variant)
+      const pairs: [string, string][] = [
+        ['name', hueOf(rule, '--dsh-moonset-step-name')],
+        ['arguments', hueOf(rule, '--dsh-moonset-step-args')],
+      ]
+      for (const [role, value] of pairs) {
+        for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+          const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+          const ratio = contrastRatio(colourOf(table, value), canvas)
+          // Measured (name, then arguments): shell 6.48/11.32 and 7.09/9.20,
+          // files 6.71/10.03 and 7.02/8.86, search 7.61/9.93 and 7.53/8.76,
+          // reasoning 5.06/8.25 and 6.27/8.19.
+          expect(
+            ratio,
+            scheme + ' ' + entry.label + ' ' + role + ' = ' + ratio.toFixed(2) + ':1',
+          ).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    }
+  })
+
+  it('keeps the name and its arguments visibly apart inside one row', () => {
+    // The on-device complaint after the first M2b pass was "the arguments read as
+    // the same colour as the name" (40% of the family left files/light only 14.3
+    // sRGB units away). The pair now has to clear 20 units, or a 1.5 contrast step.
+    for (const entry of CLASSES) {
+      const rule = classRule(entry.variant)
+      for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+        const name = colourOf(table, hueOf(rule, '--dsh-moonset-step-name'))
+        const args = colourOf(table, hueOf(rule, '--dsh-moonset-step-args'))
+        const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+        const rgb = Math.sqrt((name.r - args.r) ** 2 + (name.g - args.g) ** 2 + (name.b - args.b) ** 2)
+        const step = Math.abs(contrastRatio(name, canvas) - contrastRatio(args, canvas))
+        // Measured at 25%: shell 46.7/43.1, files 30.2/37.4, search 58.7/60.5,
+        // reasoning 43.9/33.2 sRGB units (light/dark) — the minimum is 30.2.
+        expect(
+          rgb >= 20 || step >= 1.5,
+          scheme + ' ' + entry.label + ' rgb distance=' + rgb.toFixed(1) + ', contrast step=' + step.toFixed(2),
+        ).toBe(true)
+        // ...while the arguments still carry a visible tint of their class: a
+        // plain label-secondary would mean "the content has no colour".
+        const plain = colourOf(table, table['--dsw-alias-label-secondary'])
+        const tint = Math.sqrt((args.r - plain.r) ** 2 + (args.g - plain.g) ** 2 + (args.b - plain.b) ** 2)
+        expect(tint, scheme + ' ' + entry.label + ' tint=' + tint.toFixed(1)).toBeGreaterThan(10)
+      }
+    }
+  })
+
+  it('keeps the fallback pair AA-readable too (accent name, secondary arguments)', () => {
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+      const roles: [string, string][] = [
+        ['name', ACCENT],
+        ['arguments', '--dsw-alias-label-secondary'],
+      ]
+      for (const [role, token] of roles) {
+        const ratio = contrastRatio(colourOf(table, table[token]), canvas)
+        expect(ratio, scheme + ' fallback ' + role + ' = ' + ratio.toFixed(2) + ':1').toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
+  it('keeps the failed line readable on the canvas and on the capsule', () => {
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const error = colourOf(table, table['--dsw-alias-state-error-primary'])
+      const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+      const capsule = colourOf(table, table['--dsw-alias-bg-module-platform'])
+      const onCanvas = contrastRatio(error, canvas)
+      const onCapsule = contrastRatio(error, capsule)
+      expect(onCanvas, scheme + ' failed step = ' + onCanvas.toFixed(2) + ':1').toBeGreaterThanOrEqual(4.5)
+      expect(onCapsule, scheme + ' exit capsule = ' + onCapsule.toFixed(2) + ':1').toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('sets the mono face through the theme layer, and nothing else', () => {
+    const css = skinCss()
+    const families = [...css.matchAll(/font-family: ([^;]+);/g)].map((match) => match[1].trim())
+    // Exactly the two cell rules, both reading the theme layer's code stack
+    // (declared on :root by ui-theme's base.css) — no literal font stack.
+    expect(families).toEqual(['var(--ds-font-family-code)', 'var(--ds-font-family-code)'])
+    expect(css.split('monospace').length - 1).toBe(0)
+  })
+
+  it('stays inside its own segment budget: <= 40 lines, no imperative CSS', () => {
+    const segment = stepSegment()
+    expect(segment.split('\n').length).toBeLessThanOrEqual(40)
+    expect(segment).not.toMatch(/@media|@supports|!important|animation|transition/)
+    // No layout property: a class only publishes hue variables.
+    expect(segment).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
+  })
+
+  it('paints nothing for a successful exit: this build renders no success capsule', () => {
+    // The exit capsule only exists while terminalFailed() is true and it is always
+    // tone="neutral" (ExitCodeBadge.tsx:12, terminal-card-model.ts:107-112), so a
+    // zero exit has no element to colour; the only success signal is
+    // [data-state='ok'] on the WHOLE row, and painting every settled step would
+    // colour the entire trajectory.
+    const css = skinCss()
+    expect(css).not.toContain('state-success-primary')
+    expect(css).not.toContain("[data-state='ok']")
   })
 })
 /* ------------------------------------------------------------------ *
