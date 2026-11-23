@@ -28,7 +28,7 @@
 | `warning` | `#D97706` | `#FBBF24` | 警告（amber-600 / 400） |
 | `danger` | `#E11D48` | `#FB7185` | 危险（rose-600 / 400） |
 | `info` | `#0284C7` | `#38BDF8` | 信息（sky-600 / 400） |
-| `moon` | `#F59E0B` | `#F59E0B` | 琥珀月光；`amber-500` 的锚点，0.1.2 起也是右下暖光的色相来源 |
+| `moon` | `#F59E0B` | `#F59E0B` | 琥珀月光；`amber-500` 的锚点，0.1.2 起也是右下暖光的色相来源（M3 起只作浅色右下角点缀） |
 
 两点容易误会：
 
@@ -41,7 +41,9 @@
 
 0.1.2 的地面光晕不新增色源：靛蓝月晕混自 `--dsw-static-deepseek-500`（= `accent`），
 右下琥珀暖光混自 `--dsw-static-amber-500`（= `moon`），两者都以固定百分比与
-`transparent` 混出；规则形状与 alpha 数字见
+`transparent` 混出。**M3 起琥珀只是点缀**（16% : 3%，且椭圆收到右下角 46%），
+**暗色则只用一种靛蓝**：三层同色 `--dsw-static-deepseek-400`（深一档）加一条更薄的 wash，
+不再引入紫罗兰或琥珀——层次靠半径/位置/α 做，不靠加色相。规则形状与 alpha 数字见
 [architecture §11](architecture.md#11-css-注入白名单p5-例外登记)。
 
 **证据**：`themes/moonset-palette.json`；`tests/palettes.spec.ts` 的

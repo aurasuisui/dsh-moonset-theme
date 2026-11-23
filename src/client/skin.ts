@@ -86,8 +86,15 @@ export const GLOW_SCOPES = ['conversation', 'main', 'all'] as const
 /** One ground scope: see {@link GLOW_SCOPES}. */
 export type GlowScope = (typeof GLOW_SCOPES)[number]
 
-/** The scope a profile that never touched the control uses. */
-export const DEFAULT_GLOW_SCOPE: GlowScope = 'all'
+/**
+ * The scope a profile that never touched the control uses.
+ *
+ * `main` since M3: on the user's real machine B is the coherent one — the shell
+ * and the three columns show the ground, while the sidebar keeps
+ * `--dsw-specific-sidebar-fill` and therefore keeps its own surface (C stays
+ * selectable; it is the fully transparent comparison).
+ */
+export const DEFAULT_GLOW_SCOPE: GlowScope = 'main'
 
 /** The strength floor the slider and the resolver share (0-200%). */
 export const GLOW_STRENGTH_MIN = 0
@@ -98,14 +105,29 @@ export const GLOW_STRENGTH_MAX = 200
 /** The strength a profile that never touched the control uses (100%). */
 export const DEFAULT_GLOW_STRENGTH = 100
 
+/** Which colour scheme a ground rule is built for. */
+export type GlowScheme = 'light' | 'dark'
+
 /**
- * The three layer alphas at 100% strength, before the user's factor.
+ * The full-strength alphas per scheme (percent), top layer first.
  *
- * Order is the sheet's paint order, top layer first: moon halo, warm light,
- * wash. Exported so the tests derive the whole strength table from ONE source
- * instead of restating 16 / 10 / 1.5 in each case.
+ * LIGHT (M3, second pass): **16% indigo : 3% amber**, the amber ellipse closed
+ * at 46% inside the bottom-right corner. The first pass used 16:6 and the user
+ * still reported amber winning ("即使在 6% 也压过靛蓝") — a warm hue at the same
+ * alpha reads brighter on a near-white canvas, so the RATIO has to carry the
+ * hierarchy and the amber has to be a glint, not a light.
+ *
+ * DARK: ONE hue, three footprints. The user explicitly removed the violet layer
+ * ("不要紫罗兰那层"), so the depth comes from `deepseek-400` at three sizes — a
+ * small tight core (12%), the wide soft halo under it (20%) and a weak
+ * reflection along the bottom edge (4%) — plus a 1% wash. Amber is NOT used in
+ * dark: the bottom reflection already keeps that half from going dead black,
+ * and adding a warm accent is exactly what the light-scheme feedback ruled out.
  */
-export const GLOW_ALPHA_AT_FULL = { moon: 16, warm: 10, wash: 1.5 } as const
+export const GLOW_ALPHA_AT_FULL = {
+  light: { moon: 16, warm: 3, wash: 1.5 },
+  dark: { moon: 20, core: 12, floor: 4, wash: 1 },
+} as const
 
 /**
  * Narrow one raw scope value to a scope.
@@ -152,18 +174,57 @@ function percent(value: number): string {
   return `${rounded}%`
 }
 
+/** The LIGHT ground's alphas, already formatted as CSS percentages. */
+export interface LightGlowAlphas {
+  /** The indigo moon halo. */
+  readonly moon: string
+  /** The amber glint in the bottom-right corner. */
+  readonly warm: string
+  /** The low-contrast wash. */
+  readonly wash: string
+}
+
+/** The DARK ground's alphas, already formatted as CSS percentages. */
+export interface DarkGlowAlphas {
+  /** The wide soft indigo halo. */
+  readonly moon: string
+  /** The small tight indigo core above it — the moon itself. */
+  readonly core: string
+  /** The weak indigo reflection along the bottom edge. */
+  readonly floor: string
+  /** The low-contrast wash (one stop thinner than light). */
+  readonly wash: string
+}
+
 /**
- * The three alphas at one strength, already formatted as CSS percentages.
+ * The LIGHT alphas at one strength, already formatted as CSS percentages.
  * @param strength - 0-200 (out-of-range input is resolved first, see
  *   {@link resolveGlowStrength}).
- * @returns the alphas in paint order: moon halo, warm light, wash.
+ * @returns the alphas in paint order: moon halo, amber glint, wash.
  */
-export function glowAlphas(strength: number): { moon: string; warm: string; wash: string } {
+export function glowAlphas(strength: number): LightGlowAlphas {
   const factor = resolveGlowStrength(strength) / 100
+  const row = GLOW_ALPHA_AT_FULL.light
   return {
-    moon: percent(GLOW_ALPHA_AT_FULL.moon * factor),
-    warm: percent(GLOW_ALPHA_AT_FULL.warm * factor),
-    wash: percent(GLOW_ALPHA_AT_FULL.wash * factor),
+    moon: percent(row.moon * factor),
+    warm: percent(row.warm * factor),
+    wash: percent(row.wash * factor),
+  }
+}
+
+/**
+ * The DARK alphas at one strength — one hue, three footprints.
+ * @param strength - 0-200 (out-of-range input is resolved first).
+ * @returns the alphas in paint order: core, halo, bottom reflection, wash.
+ */
+export function darkGlowAlphas(strength: number): DarkGlowAlphas {
+  const factor = resolveGlowStrength(strength) / 100
+  const row = GLOW_ALPHA_AT_FULL.dark
+  return {
+    moon: percent(row.moon * factor),
+    core: percent(row.core * factor),
+    floor: percent(row.floor * factor),
+    wash: percent(row.wash * factor),
   }
 }
 
@@ -317,23 +378,58 @@ const VISIBILITY_SELECTORS: Readonly<Record<GlowScope, readonly string[]>> = {
 }
 
 /**
- * The ground half of the feature: one `background` on `body`.
+ * The ground half of the feature: ONE `background` per scheme.
  *
- * The three alphas arrive pre-formatted from {@link glowAlphas}, so this
- * builder never does arithmetic and the sheet never carries a `calc()`.
+ * Light — three layers, indigo leading: the moon halo at the top edge, an amber
+ * GLINT in the bottom-right corner (97%/97%, closed at 46%) and the low-contrast
+ * 165° wash. M3's second pass took the amber from 6% to 3%: at 16:6 the user
+ * still read amber as the subject ("琥珀还是太抢"), and a warm hue at equal alpha
+ * is brighter on a near-white canvas, so the ratio is 16:3 and the ellipse is a
+ * corner glint rather than a light.
+ *
+ * Dark — ONE hue, three footprints (user: 深色太单调, then 不要紫罗兰那层). The
+ * depth comes from `deepseek-400` alone, at three sizes, in one declaration:
+ *
+ *   34%/2%    deepseek-400 12%  circle  26%   the moon CORE: small and tight
+ *   50%/-6%   deepseek-400 20%  ellipse 70%   the HALO under it: wide and soft
+ *   50%/104%  deepseek-400  4%  ellipse 55%   a weak reflection off the bottom
+ *   160deg    deepseek-400  1%  linear  75%   the wash, one stop thinner
+ *
+ * The core is painted ABOVE the halo on purpose: the two alphas add where they
+ * overlap, which is what makes the moon read as a body inside its own light
+ * instead of one flat blob. Amber is not used in dark at all — the bottom
+ * reflection keeps that half from going dead black, and a warm accent is
+ * exactly what the light-scheme feedback ruled out.
+ *
+ * The alphas arrive pre-formatted from {@link glowAlphas} / {@link
+ * darkGlowAlphas}, so this builder never does arithmetic and the sheet never
+ * carries a `calc()`.
  * @param strength - 0-200; out-of-range input is resolved by the caller.
- * @returns the rule's lines.
+ * @returns the rules' lines (light first, then the dark override).
  */
 function groundRules(strength: number): readonly string[] {
-  const alphas = glowAlphas(strength)
+  const light = glowAlphas(strength)
+  const dark = darkGlowAlphas(strength)
   return [
-    '/* 0.1.2 ground: canvas + wash + two spots in ONE declaration; the strength',
-    '   is resolved in JS, so every alpha below is a LITERAL percentage. */',
+    '/* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the',
+    '   strength is resolved in JS, so every alpha below is a LITERAL percentage. */',
     'html[data-moonset-skin] body {',
     '  background:',
-    `    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) ${alphas.moon}, transparent) 0%, transparent 62%),`,
-    `    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) ${alphas.warm}, transparent) 0%, transparent 60%),`,
-    `    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) ${alphas.wash}, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);`,
+    `    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) ${light.moon}, transparent) 0%, transparent 62%),`,
+    `    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) ${light.warm}, transparent) 0%, transparent 46%),`,
+    `    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) ${light.wash}, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);`,
+    '}',
+    // The dark override. Same gating attribute, plus the host's own dark marker
+    // (`body[data-ds-dark-theme]`, the official design-platform switch), so it
+    // only ever applies to the dark scheme and outranks the light rule there.
+    '/* 0.1.2 ground (dark): ONE indigo hue at three footprints (core, halo,',
+    '   bottom reflection) plus a thinner wash — depth without a second colour. */',
+    'html[data-moonset-skin] body[data-ds-dark-theme] {',
+    '  background:',
+    `    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsw-static-deepseek-400) ${dark.core}, transparent) 0%, transparent 26%),`,
+    `    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsw-static-deepseek-400) ${dark.moon}, transparent) 0%, transparent 70%),`,
+    `    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsw-static-deepseek-400) ${dark.floor}, transparent) 0%, transparent 55%),`,
+    `    linear-gradient(160deg, color-mix(in srgb, var(--dsw-static-deepseek-400) ${dark.wash}, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);`,
     '}',
   ]
 }

@@ -94,7 +94,10 @@ export const Config = Schema.object({
   // defaults are the 0.1.2 M1.5 sheet, so a profile that never opens the
   // section keeps the look the user approved.
   glow: maybeVolatile(Schema.boolean().default(true)),
-  glowScope: maybeVolatile(Schema.union([...GLOW_SCOPE_VALUES]).default('all')),
+  // `main` (B) since M3: the user compared A/B/C on a real machine and B is the
+  // coherent default — the shell and columns show the ground, the sidebar keeps
+  // its own surface. `all` stays selectable as the fully transparent mode.
+  glowScope: maybeVolatile(Schema.union([...GLOW_SCOPE_VALUES]).default('main')),
   glowStrength: maybeVolatile(Schema.number().min(0).max(200).default(100)),
 })
 

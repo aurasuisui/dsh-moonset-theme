@@ -412,11 +412,11 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 |---|---|---|---|
 | **选区** | `html body ::selection` | UA 伪元素，无 token 座位 | 0.1.1 |
 | **选中项文字色** | 稳定属性钩子上的 `color`（见下表） | 宿主把选中容器的文字色直接写成 `--dsw-alias-label-primary`，值内联在规则里，**不能从一个 token 重新指向** | 0.1.1 |
-| **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
+| **地面渐变** | `html[data-moonset-skin] body { background: … }`（浅色三层）+ `… body[data-ds-dark-theme] { background: … }`（暗色四层，同一靛蓝色相） | 多层图层 + 视口固定 + 两套方案，单 token 装不下 | 0.1.2 / M3 |
 | **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.2 + M1.5 + M2，全表六条规则，40 行）：
+当前登记（0.1.2 + M1.5 + M2 + M3，全表七条规则，47 行 / C 档 49 行）：
 
 ```css
 /* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
@@ -438,21 +438,28 @@ html[data-moonset-skin] body [aria-pressed='true'] {
 html[data-moonset-skin] body [data-active='true']::after {
   background: var(--dsw-static-deepseek-500);
 }
-/* 0.1.2 ground: canvas + wash + two spots in ONE declaration; the strength
-   is resolved in JS, so every alpha below is a LITERAL percentage. */
+/* 0.1.2 ground (light): canvas + wash + two spots in ONE declaration; the
+   strength is resolved in JS, so every alpha below is a LITERAL percentage. */
 html[data-moonset-skin] body {
   background:
     radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, transparent) 0%, transparent 62%),
-    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) 10%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse at 97% 97%, color-mix(in srgb, var(--dsw-static-amber-500) 3%, transparent) 0%, transparent 46%),
     linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 1.5%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
 }
-/* 0.1.2 visibility (scope: all): the host paints bg-base on these
+/* 0.1.2 ground (dark): ONE indigo hue at three footprints (core, halo,
+   bottom reflection) plus a thinner wash — depth without a second colour. */
+html[data-moonset-skin] body[data-ds-dark-theme] {
+  background:
+    radial-gradient(circle at 34% 2%, color-mix(in srgb, var(--dsw-static-deepseek-400) 12%, transparent) 0%, transparent 26%),
+    radial-gradient(ellipse at 50% -6%, color-mix(in srgb, var(--dsw-static-deepseek-400) 20%, transparent) 0%, transparent 70%),
+    radial-gradient(ellipse at 50% 104%, color-mix(in srgb, var(--dsw-static-deepseek-400) 4%, transparent) 0%, transparent 55%),
+    linear-gradient(160deg, color-mix(in srgb, var(--dsw-static-deepseek-400) 1%, transparent) 0%, transparent 75%) var(--dsw-alias-bg-base);
+}
+/* 0.1.2 visibility (scope: main): the host paints bg-base on these
    carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */
 html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),
 html[data-moonset-skin] #root :has([data-composer-seat]),
-html[data-moonset-skin] #root :has(> [data-slot='shell.bottom']),
-html[data-moonset-skin] #root [data-slot='main'] > div,
-html[data-moonset-skin] #root [data-slot='sidebar'] > div {
+html[data-moonset-skin] #root [data-slot='main'] > div {
   background-color: transparent;
 }
 /* 0.1.2 bottom band (M2): the composer seat's bg-base mask is an image. */
@@ -499,22 +506,41 @@ Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength,
 `skinCss({ glow: false })` 返回 0.1.1 那张 19 行的表——不是 alpha 归零（0 alpha 仍参与
 合成，0.1.2 §一）。M2 只需把这个选项接到 `Config`，不用再拆规则。
 
-**M2：地面范围（A/B/C）、开关与强度**：三个 volatile 字段（`glowScope` / `glow` /
+**M2 / M3：地面范围（A/B/C）、开关与强度**：三个 volatile 字段（`glowScope` / `glow` /
 `glowStrength`）与 `choice` 同一个表单、同一个 300 ms 写防抖；样式表在**控制变化后**
 150 ms 重建（`SKIN_REBUILD_MS`，不是逐帧），走 `updateSkin()` 原地替换单例表的内容。
-三档是**嵌套**的，各自清哪些承载层见 §11.3 上表：
+**默认档 M3 起是 B `main`**（真机对比后用户拍板：B 最协调），C 仍可选。三档是**嵌套**的，
+各自清哪些承载层见 §11.3 上表：
 
 | 档 | 额外清掉的承载层 | 侧栏 | 底部 |
 |---|---|---|---|
 | A `conversation` | — | 保留自己的面 | 保留 |
-| B `main` | 外壳与三列（`:has([main, sidebar, rightbar])`） | 保留 `sidebar-fill` 内层 | 保留 |
-| C `all`（默认） | B + 侧栏内层 + 底部单元 | 透出地面 | 透出地面 |
+| B `main`（默认，M3 起） | 外壳与三列（`:has([main, sidebar, rightbar])`） | 保留 `sidebar-fill` 内层 | 保留 |
+| C `all` | B + 侧栏内层 + 底部单元 | 透出地面 | 透出地面 |
 
-**强度在 JS 里算，CSS 只收字面百分比**：`glowAlphas(strength)` 把 100% 的 16 / 10 / 1.5
-乘上系数并格式化成 `24%` / `15%` / `2.25%`，所以表里永远没有 `calc()`、也没有
-「藏在中间 custom property 里」的值（0.1.2 D2 的教训）。换算表：0 → 0/0/0，50 →
-8/5/0.75，100 → 16/10/1.5，150 → 24/15/2.25，200 → 32/20/3（单位 %）。开关关闭时整段
-（地面 + 清理 + 底部遮罩）一起消失，仍是 0.1.1 那张 19 行的表。
+**强度在 JS 里算，CSS 只收字面百分比**：`glowAlphas(strength)` / `darkGlowAlphas(strength)`
+把 100% 那一行乘上系数再格式化成 `24%` / `2.25%` 这样的字面百分比，所以表里永远没有 `calc()`、
+也没有「藏在中间 custom property 里」的值（0.1.2 D2 的教训）。开关关闭时整段（两套地面 + 清理 +
+底部遮罩）一起消失，仍是 0.1.1 那张 19 行的表。
+
+**M3：重新配比 + 暗色独立一套**。真机两轮反馈逼出来的三处改动：
+
+1. **琥珀退成点缀（浅色）**：16% : 10% 时琥珀在近白底上最亮，用户要把它拖到 50% 才觉得紫是主角；
+   改成 16% : 6% 仍「太抢」，最终 **16% : 3%**（≈5.3:1），并把椭圆压到 `97% 97%` 角上、
+   `transparent` 收到 46%——它现在只是右下角一点暖意，碰不到画面中部。
+2. **暗色不再单调，且只用一种靛蓝**：用户先嫌「深色太单调」，看到紫罗兰层后又说「不要紫罗兰那层」。
+   最终暗色是**同一色相三层**（+ wash）：小而紧的**核心** `circle at 34% 2%`（`deepseek-400` 12%，
+   `transparent 26%`）、它下面大而柔的**月晕** `ellipse at 50% -6%`（同 token 20%，`transparent 70%`）、
+   以及底部极弱的**反光** `ellipse at 50% 104%`（同 token 4%，`transparent 55%`），wash 用 `deepseek-400` 1%。
+   核心画在月晕之上，两者叠加处更亮，于是读成「月亮本体 + 外圈光」。暗色**不用琥珀**：底部反光已经
+   让下半屏不发死黑，而暖色正是浅色反馈要求收掉的东西。四层都在**同一条 `background`** 里，颜色全部来自
+   `--dsw-static-*` token。
+3. **行数预算 40 → 60**：暗色多一层（四层 vs 三层），仍是单表、根属性门控、无 `calc()`、无 `!important`、
+   无通配；`glow: false` 同时抹掉两套地面（有测试逐字比对 0.1.1 那张表）。
+
+**强度表**（JS 按字面百分比拼，浅/暗各自一套）：浅色 0/50/100/150/200 → 月晕 0/8/16/24/32、琥珀
+0/1.5/3/4.5/6、wash 0/0.75/1.5/2.25/3；暗色 → 月晕 0/10/20/30/40、核心 0/6/12/18/24、反光 0/2/4/6/8、
+wash 0/0.5/1/1.5/2。
 
 **底部白带（M2 修）**：用户报 C 模式底部有一条亮带。定位到宿主在会话列底部画的遮罩带：
 `ConversationRoot.module.css` 的 `.root[data-phase='active'] .composerSeat` 用
@@ -637,7 +663,7 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（42 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（46 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
 `src/client/index.ts` 的

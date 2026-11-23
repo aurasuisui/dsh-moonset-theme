@@ -161,6 +161,7 @@ export {
   SKIN_ATTR,
   SKIN_SHEET_ATTR,
   SKIN_SHEET_SELECTOR,
+  darkGlowAlphas,
   glowAlphas,
   mountSkin,
   resolveGlowScope,

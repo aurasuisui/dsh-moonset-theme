@@ -537,9 +537,9 @@ const LABELS: MoonsetSectionProps['labels'] = {
   hint: zh['glow.hint'],
 }
 
-/** The three M2 fields a view carries, at their contract defaults. */
+/** The three M2 fields a view carries, at their contract defaults (M3: B `main`). */
 const GLOW_FIELDS: Pick<MoonsetSectionView, 'glowScope' | 'glow' | 'glowStrength'> = {
-  glowScope: 'all',
+  glowScope: 'main',
   glow: true,
   glowStrength: 100,
 }
@@ -907,7 +907,8 @@ describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
       // the theme buttons).
       press(tree, zh['glow.scope.conversation'])
       expect(scopes).toEqual(['conversation'])
-      expect(view.glowScope).toBe('all')
+      // The store still says the default (M3: B `main`); only the view moved.
+      expect(view.glowScope).toBe('main')
       const pressedScopes = scopeButtons(mount.update())
         .filter((button) => button.props['aria-pressed'] === true)
         .map((button) => textOf(button))

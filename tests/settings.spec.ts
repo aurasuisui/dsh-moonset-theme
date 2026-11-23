@@ -676,7 +676,7 @@ describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强�
   it('answers the shipped defaults before any form has spoken', () => {
     const harness = makeContext()
     const glow = createDurableGlow(harness.ctx)
-    expect(glow.read()).toEqual({ glow: true, scope: 'all', strength: 100 })
+    expect(glow.read()).toEqual({ glow: true, scope: DEFAULT_GLOW_SCOPE, strength: 100 })
     // A host with no form still lets the session switch: the value is answered
     // locally (it just cannot be persisted), and the failure is a WARNING at the
     // flush — never a throw, and never a diary of every pointer move.
