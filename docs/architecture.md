@@ -406,20 +406,29 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 **零常驻 JS（P1）**：`skin.ts` 里没有 `addEventListener` / `requestAnimationFrame` /
 `ResizeObserver` / `setInterval`；全部登记只有两个时刻——插件激活与卸载。
 
-### 11.3 白名单：允许的三类
+### 11.3 白名单：允许的四类
 
 | 类 | 形状 | 为什么 token 做不到 | 版本 |
 |---|---|---|---|
 | **选区** | `html body ::selection` | UA 伪元素，无 token 座位 | 0.1.1 |
+| **选中项文字色** | 稳定属性钩子上的 `color`（见下表） | 宿主把选中容器的文字色直接写成 `--dsw-alias-label-primary`，值内联在规则里，**不能从一个 token 重新指向** | 0.1.1 |
 | **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.1，全表就这一条规则，5 行）：
+当前登记（0.1.1，全表两条规则，14 行）：
 
 ```css
-/* dsh-moonset[0.1.1]: skin layer — P5 whitelist, ::selection only */
+/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */
 html body ::selection {
   background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);
+  color: var(--dsw-static-deepseek-500);
+}
+/* selected items: stable attributes only, never a host class name. The root
+   attribute gate is what outranks the host (0,2,2 vs .tab[data-active] 0,2,0). */
+html[data-moonset-skin] body [aria-selected='true'],
+html[data-moonset-skin] body [aria-current='page'],
+html[data-moonset-skin] body [aria-current='true'],
+html[data-moonset-skin] body [data-active='true'] {
   color: var(--dsw-static-deepseek-500);
 }
 ```
@@ -440,13 +449,46 @@ html body ::selection {
    （0,0,1）；表又是在宿主样式之后插入的，同特异性也赢。宿主 9 张表零命中，所以
    当前没有实战冲突（D2 的兜底留在这里）。
 
-**与 token 的分工**：所有「选中 / 激活」座位（会话行、tab、badge、选中面、选中描边、
-设置侧栏行）走的是 **token**，不进白名单——它们是生成器 `TOKEN_OVERRIDES` 的**七个**
-条目（主座位是 `--dsw-alias-interactive-bg-hover` / `-active`，都是
+**选中项文字色这一条的前因**：0.1.1 首验把选中行底色换成淡紫之后，文字仍是墨色
+（宿主用 `--dsw-alias-label-primary` 写在选中容器上），观感是「紫底黑字」。任务列表、
+设置项、插件页 tab 这类**文字**颜色不属于任何 `--dsw-*` 座位，只能用属性钩子补。
+
+钩子只认**稳定属性**（ARIA / `data-*`），绝不碰按构建哈希的类名。逐个场景核对过安装态
+源码：
+
+| 场景 | 钩子（宿主源码） | 取值 |
+|---|---|---|
+| 会话列表行 / 搜索结果行 | `rows/Rows.tsx` 的 `role="treeitem" aria-selected={selected}` | `'true'` |
+| 设置侧栏 | `SettingsRoot.tsx` 的 `aria-current={row.id === active ? 'true' : undefined}` | `'true'` |
+| 主侧栏面板切换 | `SidebarRoot.tsx` 的 `aria-current={active ? 'page' : undefined}` | `'page'` |
+| 插件页 tab | `PluginsSettingsSection.tsx` 的 `aria-selected={selected}` + `data-active={selected ? 'true' : undefined}` | `'true'` |
+| 自动化任务页 detail tab | `TaskDetail.tsx` 的 `aria-selected={tab === value}` | `'true'`（宿主本来就是业务强调色） |
+
+两条**没有这四类钩子**的座位（只报告、不发明类名选择器）：自动化任务页的 filter chip
+只有 `aria-pressed`（`TaskManagerPage.tsx`）+ `.filterTabActive`，选中行只有
+`aria-expanded`（同文件）+ `.selectedRow`；要不要为它们另加规则由维护者决定。
+
+两个实现细节解释了这条规则为什么长这样：
+
+1. **根属性门控不是装饰，是特异性**。`html body [data-active='true']` 是 (0,1,2)，输给
+   宿主的 `.tab[data-active='true']`（0,2,0）——首验现实就是插件页 tab 的墨字压不下去；
+   加上自家的 `html[data-moonset-skin]` 之后是 (0,2,2)，b 平、c 更大，赢。其余两处宿主
+   规则是 (0,1,0)（`.sessionRow` / `.navCell` 的 `color`），本来也赢。全程没有
+   `!important`。
+2. **只染容器，不用 `*` 通配子树**。选中行的弱化信息（时间戳 `.meta`、搜索摘要
+   `.searchResultSnippet`、自动化行的 `.rowSummary`）各自写了 `label-tertiary/caption`，
+   继承被子规则覆盖，所以只有主标签变紫；加 `> *` 反而会把它们一起染紫，因此不需要。
+
+对比度（紫字压在选中行的淡紫底上，底色 = `--dsw-alias-interactive-bg-hover` 叠
+`bg-base`）：浅 **6.45:1** / 暗 **5.58:1**，均过 AA 4.5:1；`tests/skin.spec.ts` 用
+调色板重算这一对。
+**与 token 的分工**：选中 / 激活座位的**底色与描边**走 **token**，不进白名单——
+它们是生成器 `TOKEN_OVERRIDES` 的**七个**条目（主座位是
+`--dsw-alias-interactive-bg-hover` / `-active`，都是
 `color-mix(in srgb, var(--dsw-static-deepseek-500) N%, var(--dsw-alias-bg-base))`，
 见 §3；逐条的改前/改后值与命中分布见
-[palette.md §2.1](palette.md#21-011-的七处-token-覆盖选中与激活座位)）。白名单只收
-token 表达不了的；两者不重叠。
+[palette.md §2.1](palette.md#21-011-的七处-token-覆盖选中与激活座位)）。**文字色**没有
+token 座位，才落在本白名单的第二条。两者不重叠：token 负责「底」，CSS 负责「字」。
 
 ### 11.4 禁止什么（写进来就是回退）
 

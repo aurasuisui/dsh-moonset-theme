@@ -85,6 +85,25 @@ export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
  * (both clear the 4.5:1 AA floor; `tests/skin.spec.ts` re-derives them from the
  * palette so a future anchor change cannot silently fail it).
  *
+ * The second rule is the SELECTED-ITEM LABEL colour: the token work above gives
+ * a selected row the violet wash, but the host still paints its text with
+ * `--dsw-alias-label-primary` (ink), so the row reads "violet background, black
+ * text". No token can carry this: the colour is declared on the container by
+ * rules that cannot be re-pointed from a custom property, so it has to be a CSS
+ * exception (the whitelist's second entry).
+ *
+ * That rule is keyed on STABLE ATTRIBUTES only — `aria-selected`,
+ * `aria-current`, `data-active` — never on a host class name (those are hashed
+ * per build). It is gated on our root attribute for two reasons: P2 says the
+ * sheet is gated that way, and the gate is what makes it WIN. `html body
+ * [data-active='true']` is (0,1,2) and loses to the host's
+ * `.tab[data-active='true']` (0,2,0), which is exactly the plugins-tab label
+ * the first real-machine pass left ink; `html[data-moonset-skin] body
+ * [data-active='true']` is (0,2,2) and wins. No `!important`, no wildcard
+ * subtree selector: muted children (timestamps, summaries) set their own colour
+ * and keep it, so only the primary label turns violet. Measured contrast of the
+ * accent label on the selected-row wash: light 6.45:1, dark 5.58:1.
+ *
  * How the exception maps onto §一 P5's whitelist:
  *
  *   `::selection`  text selection — cannot be expressed as a token (see the
@@ -100,9 +119,17 @@ export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
  */
 export function skinCss(): string {
   return [
-    '/* dsh-moonset[0.1.1]: skin layer — P5 whitelist, ::selection only */',
+    '/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */',
     'html body ::selection {',
     '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
+    '  color: var(--dsw-static-deepseek-500);',
+    '}',
+    '/* selected items: stable attributes only, never a host class name. The root',
+    '   attribute gate is what outranks the host (0,2,2 vs .tab[data-active] 0,2,0). */',
+    "html[data-moonset-skin] body [aria-selected='true'],",
+    "html[data-moonset-skin] body [aria-current='page'],",
+    "html[data-moonset-skin] body [aria-current='true'],",
+    "html[data-moonset-skin] body [data-active='true'] {",
     '  color: var(--dsw-static-deepseek-500);',
     '}',
   ].join('\n')

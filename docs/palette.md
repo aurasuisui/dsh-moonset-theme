@@ -100,6 +100,12 @@ B1 被定义为「引用同表内 token 的表达式照抄」，不是「保留�
 `--dsw-alias-brand-primary`（本表里是中性墨色），chip 选中仍是墨色——真机四场景里若
 露出来再进 backlog。
 
+**文字色不在这张表里**：选中容器的 `color` 由宿主规则直接写成
+`--dsw-alias-label-primary`，改 token 改不到它；它由 `skinCss()` 的属性钩子
+（`aria-selected` / `aria-current` / `data-active`）补齐，登记在
+[架构 §11](architecture.md#11-css-注入白名单p5-例外登记) 的「选中项文字色」一条。
+也就是说：**底色/描边是 token，文字色是白名单**，两者不重叠。
+
 守卫：`validateOverrides()` 对「未知键 / `--dsw-static-*` 键 / 与 `CHROMA_LITERALS` 撞车 /
 引用表外 token / 与官方值相同」任一情形 exit 1，`buildPalettes()` 还拒绝未被消费的条目；
 被覆盖的字面量必须从 `CHROMA_LITERALS` 里**移除**（一个 token 只能有一个所有者）。

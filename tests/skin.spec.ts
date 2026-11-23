@@ -10,6 +10,10 @@
  *  - THE SHEET — the CSS text is the contract: byte-for-byte, inside the
  *    whitelist budget (<= 20 lines, no layout properties), and every colour
  *    comes from a `--dsw-*` token rather than a literal (P5);
+ *  - SELECTED ITEMS — the selected row's LABEL is the accent, hooked on the four
+ *    stable attributes the real UI renders (never a host class name), root-
+ *    gated so it outranks the host's own selected-tab colour, and readable on
+ *    the violet wash in both schemes;
  *  - UNMOUNT — attribute off, sheet gone, ZERO residue, idempotent both ways;
  *  - WIRING — `apply()` mounts, the fiber teardown unmounts (`ctx.effect`), so
  *    the skin cannot outlive its plugin;
@@ -56,9 +60,17 @@ const ACCENT = '--dsw-static-deepseek-500'
  * fail when the production rule is reworded, re-scoped or grows a declaration.
  */
 const EXPECTED_CSS = [
-  '/* dsh-moonset[0.1.1]: skin layer — P5 whitelist, ::selection only */',
+  '/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */',
   'html body ::selection {',
   '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
+  '  color: var(--dsw-static-deepseek-500);',
+  '}',
+  '/* selected items: stable attributes only, never a host class name. The root',
+  '   attribute gate is what outranks the host (0,2,2 vs .tab[data-active] 0,2,0). */',
+  "html[data-moonset-skin] body [aria-selected='true'],",
+  "html[data-moonset-skin] body [aria-current='page'],",
+  "html[data-moonset-skin] body [aria-current='true'],",
+  "html[data-moonset-skin] body [data-active='true'] {",
   '  color: var(--dsw-static-deepseek-500);',
   '}',
 ].join('\n')
@@ -124,6 +136,49 @@ function contrastRatio(a: Rgba, b: Rgba): number {
   const darker = Math.min(first, second)
   return (lighter + 0.05) / (darker + 0.05)
 }
+
+/** `var(--dsw-…)` / `color-mix(in srgb, …)` / hex → sRGB (CSS premultiplied mix). */
+function colourOf(table: Record<string, string>, value: string, depth = 0): Rgba {
+  if (depth > 8) throw new Error('colour resolution is too deep: ' + value)
+  const trimmed = value.trim()
+  const ref = /^var\((--dsw-[a-z0-9-]+)\)$/.exec(trimmed)
+  if (ref !== null) {
+    const target = table[ref[1]]
+    if (target === undefined) throw new Error('missing token ' + ref[1])
+    return colourOf(table, target, depth + 1)
+  }
+  if (trimmed.startsWith('color-mix(')) {
+    const parts = trimmed.slice('color-mix('.length, -1).split(',').map((part) => part.trim())
+    if (parts[0] !== 'in srgb') throw new Error('only color-mix(in srgb, …) is resolvable: ' + trimmed)
+    const toneOf = (part: string): { colour: string; share: number | null } => {
+      const weighted = /^(.*?)\s+([0-9.]+)%$/.exec(part)
+      return weighted === null
+        ? { colour: part.trim(), share: null }
+        : { colour: weighted[1].trim(), share: Number(weighted[2]) }
+    }
+    const first = toneOf(parts[1])
+    const second = toneOf(parts[2])
+    let shareFirst = first.share
+    let shareSecond = second.share
+    if (shareFirst === null && shareSecond === null) { shareFirst = 50; shareSecond = 50 }
+    else if (shareFirst === null) shareFirst = 100 - (shareSecond as number)
+    else if (shareSecond === null) shareSecond = 100 - shareFirst
+    const a = colourOf(table, first.colour, depth + 1)
+    const b = colourOf(table, second.colour, depth + 1)
+    const wa = (shareFirst as number) / 100
+    const wb = (shareSecond as number) / 100
+    const alpha = wa * a.a + wb * b.a
+    if (alpha === 0) return { r: 0, g: 0, b: 0, a: 0 }
+    return {
+      r: (wa * a.r * a.a + wb * b.r * b.a) / alpha,
+      g: (wa * a.g * a.a + wb * b.g * b.a) / alpha,
+      b: (wa * a.b * a.a + wb * b.b * b.a) / alpha,
+      a: alpha,
+    }
+  }
+  return rgbOf(trimmed)
+}
+
 /* ------------------------------------------------------------------ *
  * stub document                                                       *
  * ------------------------------------------------------------------ */
@@ -226,15 +281,19 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 20 lines, one rule, no layout', () => {
+  it('stays inside the whitelist budget: <= 20 lines, two rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
     expect(lines.length).toBeLessThanOrEqual(20)
-    // One selector, one rule: the only block is the selection rule.
+    // Exactly two blocks: text selection, and the selected-item label colour.
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(1)
-    expect(css.match(/\}/g)).toHaveLength(1)
+    expect(css.match(/\{/g)).toHaveLength(2)
+    expect(css.match(/\}/g)).toHaveLength(2)
+    // The selected-item block is the second whitelist entry: <= 12 lines.
+    const selectedStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
+    expect(selectedStart).toBeGreaterThan(-1)
+    expect(css.slice(selectedStart).split('\n').length).toBeLessThanOrEqual(12)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
@@ -243,11 +302,12 @@ describe('skinCss — the whitelisted rules', () => {
   it('takes every colour from a token and writes no literal', () => {
     const css = skinCss()
 
-    // Both declarations read the ONE accent token: the wash and the text are
-    // the same colour at different opacities (documentation-site semantics).
+    // Every declaration reads the ONE accent token: the wash and the text are
+    // the same colour at different opacities (documentation-site semantics),
+    // and the selected-item label reuses it.
     const tokens = css.match(/var\(--dsw-[a-z0-9-]+\)/g) ?? []
     expect(new Set(tokens)).toEqual(new Set([`var(${ACCENT})`]))
-    expect(tokens).toHaveLength(2)
+    expect(tokens).toHaveLength(3)
     // Nothing opaque: no hex, no rgb()/hsl() literal anywhere in the sheet.
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(css).not.toMatch(/\b(?:rgba?|hsla?)\(/)
@@ -324,6 +384,46 @@ describe('skinCss — the whitelisted rules', () => {
     const alpha = Number(wash[2])
     expect(alpha).toBeGreaterThanOrEqual(18)
     expect(alpha).toBeLessThanOrEqual(24)
+  })
+  it('paints the selected-item LABEL with the accent, on stable attributes only', () => {
+    const css = skinCss()
+    // The four hook attributes the real UI actually renders (verified against
+    // the installed sources: workspace rows aria-selected, SettingsRoot
+    // aria-current='true', main sidebar aria-current='page', plugin tabs
+    // aria-selected + data-active). Root-gated (P2), which is also what beats
+    // the host's own selected-tab colour rule.
+    const selectors = [...css.matchAll(/html\[data-moonset-skin\] body \[[^\]]+\]/g)].map((m) => m[0])
+    expect(selectors).toEqual([
+      "html[data-moonset-skin] body [aria-selected='true']",
+      "html[data-moonset-skin] body [aria-current='page']",
+      "html[data-moonset-skin] body [aria-current='true']",
+      "html[data-moonset-skin] body [data-active='true']",
+    ])
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    // No class-name hacks, no wildcard subtree selector, no !important.
+    expect(rules).not.toMatch(/\[class|\*=|!important/)
+    expect(rules).not.toContain('*')
+    // The rule colours the container and lets the label inherit; muted
+    // children (timestamps, summaries) set their own colour and keep it.
+    const block = /\[data-active='true'\] \{([\s\S]*?)\}/.exec(rules)
+    expect(block).not.toBeNull()
+    expect(block![1]).toContain(`color: var(${ACCENT});`)
+  })
+
+  it('keeps the selected-item LABEL readable on the selected-row wash (AA >= 4.5:1)', () => {
+    // The wash is the token this milestone overrides; the label is the accent,
+    // and the pair has to clear AA on both schemes (measured 6.45 / 5.58).
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const wash = colourOf(table, table['--dsw-alias-interactive-bg-hover'])
+      const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+      const painted = over(wash, canvas)
+      const label = colourOf(table, table[ACCENT])
+      const ratio = contrastRatio(label, painted)
+      expect(
+        ratio,
+        scheme + ' selected label on the row wash = ' + ratio.toFixed(2) + ':1',
+      ).toBeGreaterThanOrEqual(4.5)
+    }
   })
 })
 
