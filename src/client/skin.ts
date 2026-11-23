@@ -68,15 +68,123 @@ export const SKIN_SHEET_ATTR = 'data-dsh-moonset-skin'
 export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
 
 /**
- * Options accepted by {@link skinCss}.
+ * How much of the shell the ground is allowed to show through (M2 地面范围).
  *
- * The signature is the seam for 0.1.2's user-facing switch (M2): the ground
- * rule is already one independent segment, so "off" can remove the whole
- * `background` instead of writing alpha 0 (which still composites — 0.1.2 §一).
+ * The three scopes are NESTED on purpose — the user compares A/B/C on a real
+ * machine, so each one is exactly the previous one plus a documented carrier
+ * set (see `visibilityRules`):
+ *
+ *   conversation  A: the conversation column only;
+ *   main          B: A plus the shell frame and the three columns;
+ *   all           C: B plus the sidebar's own fill layer and the bottom cell.
+ *
+ * `all` is the default because it is what 0.1.2 M1.5 shipped and what the user
+ * approved as "光晕对了"; A and B are the quieter comparisons.
+ */
+export const GLOW_SCOPES = ['conversation', 'main', 'all'] as const
+
+/** One ground scope: see {@link GLOW_SCOPES}. */
+export type GlowScope = (typeof GLOW_SCOPES)[number]
+
+/** The scope a profile that never touched the control uses. */
+export const DEFAULT_GLOW_SCOPE: GlowScope = 'all'
+
+/** The strength floor the slider and the resolver share (0-200%). */
+export const GLOW_STRENGTH_MIN = 0
+
+/** The strength ceiling the slider and the resolver share (0-200%). */
+export const GLOW_STRENGTH_MAX = 200
+
+/** The strength a profile that never touched the control uses (100%). */
+export const DEFAULT_GLOW_STRENGTH = 100
+
+/**
+ * The three layer alphas at 100% strength, before the user's factor.
+ *
+ * Order is the sheet's paint order, top layer first: moon halo, warm light,
+ * wash. Exported so the tests derive the whole strength table from ONE source
+ * instead of restating 16 / 10 / 1.5 in each case.
+ */
+export const GLOW_ALPHA_AT_FULL = { moon: 16, warm: 10, wash: 1.5 } as const
+
+/**
+ * Narrow one raw scope value to a scope.
+ *
+ * The input crosses a document boundary (a settings echo, a hand-edited
+ * document, an older version), so anything unrecognized falls back to the
+ * default instead of painting an unexpected amount of the shell.
+ * @param raw - the stored `glowScope` field.
+ * @returns the narrowed scope.
+ */
+export function resolveGlowScope(raw: unknown): GlowScope {
+  return typeof raw === 'string' && (GLOW_SCOPES as readonly string[]).includes(raw)
+    ? raw as GlowScope
+    : DEFAULT_GLOW_SCOPE
+}
+
+/**
+ * Narrow one raw strength value into the slider's integer range.
+ *
+ * Deliberately forgiving: a missing field is the default, a numeric string is
+ * accepted (a document round-trip can carry one), and NaN or an out-of-range
+ * value is clamped rather than refused — the setting is cosmetic, so a broken
+ * document must cost the glow's intensity, never the skin.
+ * @param raw - the stored `glowStrength` field.
+ * @returns an integer in [GLOW_STRENGTH_MIN, GLOW_STRENGTH_MAX].
+ */
+export function resolveGlowStrength(raw: unknown): number {
+  const value = typeof raw === 'string' ? Number(raw) : raw
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_GLOW_STRENGTH
+  return Math.min(GLOW_STRENGTH_MAX, Math.max(GLOW_STRENGTH_MIN, Math.round(value)))
+}
+
+/**
+ * Format one percentage for the sheet: at most two decimals, no trailing zeros.
+ *
+ * The point of M2's arithmetic-in-JS decision is that the stylesheet carries
+ * LITERAL percentages (`16%`, `8%`, `1.5%`) instead of a `calc()` expression,
+ * so this is the only place a number becomes CSS text.
+ * @param value - a percentage (0-200).
+ * @returns the CSS percentage token.
+ */
+function percent(value: number): string {
+  const rounded = Math.round(value * 100) / 100
+  return `${rounded}%`
+}
+
+/**
+ * The three alphas at one strength, already formatted as CSS percentages.
+ * @param strength - 0-200 (out-of-range input is resolved first, see
+ *   {@link resolveGlowStrength}).
+ * @returns the alphas in paint order: moon halo, warm light, wash.
+ */
+export function glowAlphas(strength: number): { moon: string; warm: string; wash: string } {
+  const factor = resolveGlowStrength(strength) / 100
+  return {
+    moon: percent(GLOW_ALPHA_AT_FULL.moon * factor),
+    warm: percent(GLOW_ALPHA_AT_FULL.warm * factor),
+    wash: percent(GLOW_ALPHA_AT_FULL.wash * factor),
+  }
+}
+
+/**
+ * Options accepted by {@link skinCss} — the whole of M2's user-facing surface.
+ *
+ * Every field defaults to the sheet 0.1.2 M1.5 shipped, so `skinCss()` stays
+ * the contract's exact default sheet and each control can be pinned on its own.
+ *
+ * The ground (wash + two spots) and the carrier clear are ONE feature
+ * ({@link visibilityRules}): `glow: false` drops both halves, which is what
+ * makes "off" the pre-glow 0.1.1 sheet byte-for-byte instead of a zero-alpha
+ * paint (alpha 0 still composites — 0.1.2 §一, D4).
  */
 export interface SkinOptions {
-  /** The 0.1.2 environment glow — the wash and both fixed spots. Defaults on. */
+  /** The 0.1.2 environment glow — wash, spots and the clear. Defaults on. */
   glow?: boolean
+  /** Which carrier layers give up their background. Defaults to {@link DEFAULT_GLOW_SCOPE}. */
+  scope?: GlowScope
+  /** The glow strength in percent (0-200). Defaults to {@link DEFAULT_GLOW_STRENGTH}. */
+  strength?: number
 }
 
 /**
@@ -86,10 +194,11 @@ export interface SkinOptions {
  * One `background`, layers top-first: the moon halo, the warm light, then the
  * wash; the final layer carries the canvas token as its colour (the shorthand
  * would otherwise reset `background-color` to transparent). Every colour is a
- * `color-mix()` of a static token with `transparent`, and the alpha product is
- * inlined (`calc(N% * 1)`), never routed through an intermediate custom
- * property — see {@link skinCss} for the Chromium evidence behind that rule
- * (0.1.2 D2).
+ * `color-mix()` of a static token with `transparent`, and the alpha is a
+ * LITERAL percentage computed in JS from the user's strength ({@link
+ * glowAlphas}) — no `calc()`, no custom-property hop, so the knob cannot die
+ * on a property-invalidation boundary (0.1.2 D2). The sheet is rebuilt when the
+ * control moves, which is the one place a rebuild is cheaper than a variable.
  *
  * M1.5 appends the second half: the VISIBILITY block. A `body` background is
  * the bottom of the paint order, and the host paints `--dsw-alias-bg-base` on
@@ -116,18 +225,24 @@ export interface SkinOptions {
  * (user report on the installed build: "完全看不到光晕"); their images and
  * shadows stay, and no layout property is written (§11.4).
  *
- * Scope (the "plan C" decision): EVERY carrier surface — the shell chain, the
- * three columns, the sidebar's own fill layer and every panel page root — not
- * only the conversation column. The judgement is "fills a column or the whole
+ * Scope is a SETTING (M2 地面范围), and the three values are nested: the
+ * judgement for what may be cleared is always "fills a column or the whole
  * screen", never "wraps a piece of content":
  *
- *   cleared:  div[data-slot='root'], .frame, .sidebarCol, .centerCol,
- *             .rightbarCol (darwin only), .bottomRow, .mainPanel, .root of the
- *             conversation, SidebarRoot's .root (a second sidebar-fill layer,
- *             audited in SidebarRoot.module.css) and a global panel page root;
- *   kept:     cards, message bubbles, code blocks, the composer card, menu
- *             popovers (they portal to `body`, outside `#root` entirely), and
- *             the rightbar's inner panes (terminal/file tree — content).
+ *   conversation  clears the conversation column only (its own containers and
+ *                 the elected panel root); the sidebar, the shell frame and
+ *                 the bottom cell keep their paint;
+ *   main          adds the shell frame and the three columns — the frame,
+ *                 .centerCol and .rightbarCol give up their background, while
+ *                 the sidebar column keeps `--dsw-specific-sidebar-fill` and
+ *                 therefore keeps its own surface;
+ *   all           adds the sidebar's INNER fill layer (SidebarRoot's .root) and
+ *                 the frame's bottom cell — the whole screen shows the ground;
+ *
+ * kept in every scope: cards, message bubbles, code blocks, the composer card,
+ * menu popovers (they portal to `body`, outside `#root` entirely), the
+ * rightbar's inner panes (terminal/file tree — content) and the drawer mask
+ * (a scrim, not a carrier).
  *
  * The selectors do NOT count levels, on purpose. The anchors are emitted by the
  * RENDERER, not by ui-layout: `dsh-client-ui-renderer/lib/client.js` renders
@@ -165,28 +280,101 @@ export interface SkinOptions {
  * block or field inside the panel is ever one of the `:has()` sets: the
  * clear stops at the carrier roots, and every host class name stays unused.
  */
-const GLOW_RULES: readonly string[] = [
-  '/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The',
-  '   strength factor is inlined in each color-mix (`calc(N% * 1)` = 100% here):',
-  '   a custom-property hop would not recompute on Chromium (0.1.2 D2). */',
-  'html[data-moonset-skin] body {',
-  '  background:',
-  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),',
-  '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),',
-  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
-  '}',
-  '/* 0.1.2 visibility (plan C, all-transparent): the host paints bg-base on the',
-  '   shell chain, the columns and every panel root, and the sidebar draws',
-  "   sidebar-fill; clear the COLOUR of exactly those carriers — cards, bubbles,",
-  '   the composer and menus keep their own paint, no layout property is written. */',
-  "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),",
-  "html[data-moonset-skin] #root :has([data-composer-seat]),",
-  "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom']),",
-  "html[data-moonset-skin] #root [data-slot='main'] > div,",
-  "html[data-moonset-skin] #root [data-slot='sidebar'] > div {",
-  '  background-color: transparent;',
-  '}',
-]
+/**
+ * The carrier selectors each scope clears, in the sheet's fixed order.
+ *
+ * Written as three explicit lists instead of one list filtered at runtime: the
+ * three sets are the user-facing contract (A/B/C), so a change to one of them
+ * has to be visible in the diff as a change to that scope only.
+ */
+const VISIBILITY_SELECTORS: Readonly<Record<GlowScope, readonly string[]>> = {
+  // A: the conversation column. `[data-composer-seat]` is the conversation's
+  // own anchor (ui-conversation renders it on the composer seat), so `.root` is
+  // reached without counting depths; the flat anchor child covers the elected
+  // panel root (a global panel page included).
+  conversation: [
+    "html[data-moonset-skin] #root :has([data-composer-seat])",
+    "html[data-moonset-skin] #root [data-slot='main'] > div",
+  ],
+  // B: A plus every carrier that CONTAINS one of the three shell slots — the
+  // root anchor, the frame, the three columns and the main panel. The sidebar
+  // column is cleared here on purpose: it is a column, not content, and B is
+  // the scope where the sidebar still keeps its INNER fill (see C).
+  main: [
+    "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+    "html[data-moonset-skin] #root :has([data-composer-seat])",
+    "html[data-moonset-skin] #root [data-slot='main'] > div",
+  ],
+  // C: B plus the sidebar's own fill layer (SidebarRoot's `.root`, the second
+  // element that draws sidebar-fill) and the frame's bottom cell.
+  all: [
+    "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+    "html[data-moonset-skin] #root :has([data-composer-seat])",
+    "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])",
+    "html[data-moonset-skin] #root [data-slot='main'] > div",
+    "html[data-moonset-skin] #root [data-slot='sidebar'] > div",
+  ],
+}
+
+/**
+ * The ground half of the feature: one `background` on `body`.
+ *
+ * The three alphas arrive pre-formatted from {@link glowAlphas}, so this
+ * builder never does arithmetic and the sheet never carries a `calc()`.
+ * @param strength - 0-200; out-of-range input is resolved by the caller.
+ * @returns the rule's lines.
+ */
+function groundRules(strength: number): readonly string[] {
+  const alphas = glowAlphas(strength)
+  return [
+    '/* 0.1.2 ground: canvas + wash + two spots in ONE declaration; the strength',
+    '   is resolved in JS, so every alpha below is a LITERAL percentage. */',
+    'html[data-moonset-skin] body {',
+    '  background:',
+    `    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) ${alphas.moon}, transparent) 0%, transparent 62%),`,
+    `    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) ${alphas.warm}, transparent) 0%, transparent 60%),`,
+    `    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) ${alphas.wash}, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);`,
+    '}',
+  ]
+}
+
+/**
+ * The visibility half: clear the COLOUR of the carriers the scope names.
+ *
+ * `background-color` only — never the `background` shorthand, which would wipe
+ * any image or shadow the host put on the same element — and no layout
+ * property at all (§11.4). The scope is named in the comment so a DevTools
+ * reader can tell which sheet they are looking at.
+ *
+ * The block ends with the M2 底部白带 entry. `[data-composer-seat]` is the very
+ * element the conversation renders its composer seat on (ui-conversation:
+ * `className={…composerSeat}` + `data-composer-seat`), and in the active phase
+ * it paints `linear-gradient(180deg, bg-base 0%, transparent … )` — a mask that
+ * fades the transcript out under the composer. Over the ground that mask reads
+ * as a bright band across the bottom of the conversation (user report), so its
+ * IMAGE is cleared. It cannot be a `background-color` clear (the band IS the
+ * image) and `background: transparent` would also wipe the element's colour and
+ * any other layer, so the one longhand is the narrowest possible fix. Nothing
+ * moves: the seat keeps its size, position and children.
+ * @param scope - the resolved scope.
+ * @returns the rule's lines.
+ */
+function visibilityRules(scope: GlowScope): readonly string[] {
+  const selectors = VISIBILITY_SELECTORS[scope]
+  const last = selectors.length - 1
+  return [
+    `/* 0.1.2 visibility (scope: ${scope}): the host paints bg-base on these`,
+    '   carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */',
+    ...selectors.map((selector, index) => (index === last ? `${selector} {` : `${selector},`)),
+    '  background-color: transparent;',
+    '}',
+    // M2 底部白带: a SECOND entry, because this one clears an IMAGE.
+    '/* 0.1.2 bottom band (M2): the composer seat\'s bg-base mask is an image. */',
+    'html[data-moonset-skin] #root [data-composer-seat] {',
+    '  background-image: none;',
+    '}',
+  ]
+}
 
 /**
  * The skin's rules, as text — a PURE function of its options only.
@@ -257,14 +445,16 @@ const GLOW_RULES: readonly string[] = [
  * `background-color` to transparent, so the base has to be part of the same
  * declaration or the ground would go see-through.
  *
- * The strength factor lives INSIDE each `color-mix()` percentage as
- * `calc(16% * 1)` — 1 is M1's constant 100%, and M2 substitutes the user value
- * (`var(--dsh-moonset-glow-strength, 1)`) in exactly that seat. It is inlined
- * instead of being pre-computed into an intermediate custom property because
- * catppuccin measured on Chromium that such a hop does not recompute when the
- * property changes, i.e. the knob "dies" (0.1.2 D2). The ground also lives in
- * its own segment ({@link GLOW_RULES}) so the M2 switch can drop the WHOLE
- * rule — alpha 0 would still composite (0.1.2 §一).
+ * The strength factor (M2) is resolved in JS: `glowAlphas(strength)` multiplies
+ * the three full-strength alphas and formats the result as a LITERAL percentage
+ * (`16%`, `8%`, `32%`, `1.5%`), so the sheet carries no `calc()` and no
+ * custom-property hop at all. That is the answer 0.1.2 D2 demanded — catppuccin
+ * measured on Chromium that a value hidden behind an intermediate property does
+ * not recompute when it changes, i.e. the knob "dies" — and it is also why the
+ * sheet is REBUILT (debounced) when the slider moves instead of being re-pointed
+ * through a variable. The ground and the carrier clear are one switchable
+ * segment ({@link groundRules} + {@link visibilityRules}): `glow: false` drops
+ * both, because alpha 0 would still composite (0.1.2 §一, D4).
  *
  * M1.5: a ground on `body` is only visible if nothing opaque paints over it,
  * and on the installed build every carrier surface does — `.frame`,
@@ -275,11 +465,12 @@ const GLOW_RULES: readonly string[] = [
  * `ConversationRoot.module.css`, `TaskManagerPage.module.css`). `html` and
  * `#root` are transparent (no host rule, no inline write), so the ground is
  * painted and was simply buried. The visibility block clears `background-color`
- * on exactly those carriers — the whole screen, in the user's "plan C" decision
- * — and stops there: the surfaces inside them (cards, bubbles, code blocks, the
- * composer card, menu popovers) keep their own paint — {@link GLOW_RULES}
- * carries the audited chain, the bundle evidence for the anchors, the exact
- * cleared/kept lists and why the selectors do not count levels.
+ * on exactly the carriers the user's SCOPE selects (A/B/C, see
+ * {@link VISIBILITY_SELECTORS}) and stops there: the surfaces inside them
+ * (cards, bubbles, code blocks, the composer card, menu popovers) keep their own
+ * paint. The doc block above `groundRules` carries the audited chain, the bundle
+ * evidence for the anchors, the exact cleared/kept lists per scope and why the
+ * selectors do not count levels.
  *
  * It is the ONE place where §11.4's "no structural selector" gives way, and it
  * gives way for the reason this layer exists at all: those surfaces carry no
@@ -303,8 +494,9 @@ const GLOW_RULES: readonly string[] = [
  * `::selection` (0,0,1) from any third-party sheet that happens to set one; the
  * sheet is also appended after the host's sheets, so a same-specificity rule
  * still loses to ours.
- * @param options - the emit switches; omitted means every 0.1.2 layer is on
- *   (the default 100% look). Only the ground segment is switchable so far.
+ * @param options - the emit switches (M2): `glow` drops the whole 0.1.2
+ *   segment, `scope` picks the carrier set, `strength` scales the three alphas.
+ *   Omitted means "every layer on, scope all, 100%" — the sheet 0.1.2 shipped.
  * @returns the complete CSS text of the single skin sheet.
  */
 export function skinCss(options: SkinOptions = {}): string {
@@ -329,7 +521,10 @@ export function skinCss(options: SkinOptions = {}): string {
     '  background: var(--dsw-static-deepseek-500);',
     '}',
   ]
-  if (options.glow !== false) rules.push(...GLOW_RULES)
+  if (options.glow !== false) {
+    rules.push(...groundRules(options.strength ?? DEFAULT_GLOW_STRENGTH))
+    rules.push(...visibilityRules(options.scope ?? DEFAULT_GLOW_SCOPE))
+  }
   return rules.join('\n')
 }
 
@@ -406,11 +601,12 @@ function reportFailure(action: string, error: unknown): void {
  * already. Repeated mounts therefore converge to exactly one sheet (P2).
  * @param root - document surface; defaults to the page's own (see
  *   {@link resolveRoot}).
+ * @param options - the M2 emit switches the sheet is built from.
  * @returns whether the document now carries the skin. `false` is the normal
  *   outcome in a non-browser harness, not a failure; the value is diagnostics
  *   only.
  */
-export function mountSkin(root?: SkinRoot): boolean {
+export function mountSkin(root?: SkinRoot, options: SkinOptions = {}): boolean {
   const target = resolveRoot(root)
   if (target === undefined) return false
   try {
@@ -418,11 +614,40 @@ export function mountSkin(root?: SkinRoot): boolean {
     if (target.querySelector(SKIN_SHEET_SELECTOR) !== null) return true
     const sheet = target.createElement('style')
     sheet.setAttribute(SKIN_SHEET_ATTR, '')
-    sheet.textContent = skinCss()
+    sheet.textContent = skinCss(options)
     target.head.appendChild(sheet)
     return true
   } catch (error) {
     reportFailure('mount', error)
+    return false
+  }
+}
+
+/**
+ * Rebuild the sheet in place from new options — the M2 rebuild path.
+ *
+ * The sheet is a SINGLETON (P2), so a control change must not mount a second
+ * one: this finds the existing element and replaces its rule text, which is one
+ * style invalidation and no DOM churn. A document that carries no sheet yet is
+ * mounted with the same options, so the two entry points converge.
+ *
+ * Callers debounce this (the plugin entry uses 150 ms): a slider drag emits a
+ * change per step, and rebuilding per step would re-parse the whole sheet on
+ * every pointer move.
+ * @param options - the resolved M2 switches.
+ * @param root - document surface; defaults to the page's own.
+ * @returns whether a sheet is live afterwards (diagnostics only).
+ */
+export function updateSkin(options: SkinOptions = {}, root?: SkinRoot): boolean {
+  const target = resolveRoot(root)
+  if (target === undefined) return false
+  try {
+    const sheet = target.querySelector(SKIN_SHEET_SELECTOR)
+    if (sheet === null) return mountSkin(target, options)
+    sheet.textContent = skinCss(options)
+    return true
+  } catch (error) {
+    reportFailure('update', error)
     return false
   }
 }
@@ -480,14 +705,22 @@ export function unmountSkin(root?: SkinRoot): boolean {
  * Both branches are idempotent ({@link mountSkin} / {@link unmountSkin} are), so
  * calling it with the same choice twice is free — which is what lets the boot
  * path call it without first asking whether the skin is on.
+ * M2 adds the second half of the policy: a mounted sheet is REBUILT from the
+ * current glow options, so a mode/strength change lands on the same singleton
+ * instead of being ignored because a sheet already exists.
  * @param choice - the stored choice (a queued intent included).
  * @param root - document surface; defaults to the page's own.
+ * @param options - the M2 emit switches (scope, strength, glow).
  * @returns whether the skin is ON after this call (diagnostics only).
  */
-export function syncSkin(choice: MoonsetChoice, root?: SkinRoot): boolean {
+export function syncSkin(choice: MoonsetChoice, root?: SkinRoot, options: SkinOptions = {}): boolean {
   if (choice === 'off') {
     unmountSkin(root)
     return false
   }
-  return mountSkin(root)
+  // Through `updateSkin`, not `mountSkin`: a sheet that is already mounted (the
+  // one `apply()` created) must still pick up the stored M2 options, and a
+  // profile whose section is never opened must end up on exactly the same
+  // sheet as one that touched every control.
+  return updateSkin(options, root)
 }

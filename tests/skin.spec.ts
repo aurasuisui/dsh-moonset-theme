@@ -41,16 +41,27 @@ import { readFileSync } from 'node:fs'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { BOOT_SHEET_SELECTOR } from '../src/client/boot-cleanup'
-import { apply } from '../src/client/index'
+import { SKIN_REBUILD_MS, apply } from '../src/client/index'
 import { MOONSET_DARK, MOONSET_LIGHT, MOONSET_TOKEN_OVERRIDES } from '../src/client/palettes'
 import {
+  DEFAULT_GLOW_SCOPE,
+  DEFAULT_GLOW_STRENGTH,
+  GLOW_ALPHA_AT_FULL,
+  GLOW_SCOPES,
+  GLOW_STRENGTH_MAX,
+  GLOW_STRENGTH_MIN,
   SKIN_ATTR,
   SKIN_SHEET_ATTR,
   SKIN_SHEET_SELECTOR,
+  glowAlphas,
   mountSkin,
+  resolveGlowScope,
+  resolveGlowStrength,
   skinCss,
   syncSkin,
   unmountSkin,
+  updateSkin,
+  type GlowScope,
   type SkinRoot,
   type SkinSheetElement,
 } from '../src/client/skin'
@@ -99,27 +110,29 @@ const EXPECTED_BASE_CSS = [
 
 /** The 0.1.2 ground segment, restated verbatim. */
 const EXPECTED_GLOW_CSS = [
-  '/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The',
-  '   strength factor is inlined in each color-mix (`calc(N% * 1)` = 100% here):',
-  '   a custom-property hop would not recompute on Chromium (0.1.2 D2). */',
+  '/* 0.1.2 ground: canvas + wash + two spots in ONE declaration; the strength',
+  '   is resolved in JS, so every alpha below is a LITERAL percentage. */',
   'html[data-moonset-skin] body {',
   '  background:',
-  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),',
-  '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),',
-  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
+  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, transparent) 0%, transparent 62%),',
+  '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) 10%, transparent) 0%, transparent 60%),',
+  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 1.5%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
   '}',
-  // M1.5: the visibility half — the host's own opaque layers are cleared so the
-  // ground above can be seen (see the "0.1.2 visibility" describe below).
-  '/* 0.1.2 visibility (plan C, all-transparent): the host paints bg-base on the',
-  '   shell chain, the columns and every panel root, and the sidebar draws',
-  "   sidebar-fill; clear the COLOUR of exactly those carriers — cards, bubbles,",
-  '   the composer and menus keep their own paint, no layout property is written. */',
+  // M1.5+M2: the visibility half — the carrier layers the SCOPE names are
+  // cleared so the ground above can be seen (see the "0.1.2 visibility" block).
+  '/* 0.1.2 visibility (scope: all): the host paints bg-base on these',
+  '   carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */',
   "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),",
   "html[data-moonset-skin] #root :has([data-composer-seat]),",
   "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom']),",
   "html[data-moonset-skin] #root [data-slot='main'] > div,",
   "html[data-moonset-skin] #root [data-slot='sidebar'] > div {",
   '  background-color: transparent;',
+  '}',
+  // M2 底部白带: the composer seat's mask is an image, so it is a separate entry.
+  "/* 0.1.2 bottom band (M2): the composer seat's bg-base mask is an image. */",
+  "html[data-moonset-skin] #root [data-composer-seat] {",
+  '  background-image: none;',
   '}',
 ].join('\n')
 
@@ -337,11 +350,12 @@ describe('skinCss — the whitelisted rules', () => {
     const lines = css.split('\n')
 
     expect(lines.length).toBeLessThanOrEqual(40)
-    // Five blocks: text selection, the selected-item label colour, the selected
-    // tab's underline, the 0.1.2 ground, the 0.1.2 visibility clear.
+    // Six blocks: text selection, the selected-item label colour, the selected
+    // tab's underline, the 0.1.2 ground, the 0.1.2 visibility clear, and the
+    // M2 bottom-band entry (an image, not a colour).
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(5)
-    expect(css.match(/\}/g)).toHaveLength(5)
+    expect(css.match(/\{/g)).toHaveLength(6)
+    expect(css.match(/\}/g)).toHaveLength(6)
     // Every additive block stays well inside the 12-line entry budget. The
     // ground and the visibility clear are two blocks of ONE switchable segment,
     // so the budget is measured per block, not per segment.
@@ -350,14 +364,17 @@ describe('skinCss — the whitelisted rules', () => {
     const underlineEnd = css.indexOf('}', underlineStart) + 1
     const groundStart = css.indexOf('html[data-moonset-skin] body {')
     const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
+    const bandStart = css.indexOf('/* 0.1.2 bottom band (M2)')
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
     expect(groundStart).toBeGreaterThan(underlineStart)
     expect(clearStart).toBeGreaterThan(groundStart)
+    expect(bandStart).toBeGreaterThan(clearStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(groundStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
-    expect(css.slice(clearStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(clearStart, bandStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(bandStart).split('\n').length).toBeLessThanOrEqual(12)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
@@ -536,7 +553,7 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   /** The ground block: the only root-gated `body { … }` rule in the sheet. */
   const GROUND_RULE = /html\[data-moonset-skin\] body \{\n([\s\S]*?)\n\}/
 
-  it('paints the ground from tokens only, root-gated, strength inlined', () => {
+  it('paints the ground from tokens only, root-gated, alpha as a literal percentage', () => {
     const css = skinCss()
     // Exactly one ground block, and it is the root-gated body rule (P2's gate).
     expect(css.match(/html\[data-moonset-skin\] body \{/g)).toHaveLength(1)
@@ -554,16 +571,16 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     // background-color, so the base has to be in the same declaration.
     expect(declarations).toContain('var(--dsw-alias-bg-base)')
 
-    // Colours are tokens mixed with transparent — and the alpha carries the
-    // strength factor INLINE. No literal colour, no intermediate custom
-    // property (a property hop is what breaks the M2 knob — D2).
+    // Colours are tokens mixed with transparent — and M2's strength lands as a
+    // LITERAL percentage computed in JS. No literal colour, no `calc()`, no
+    // intermediate custom property (a property hop is what breaks the knob — D2).
     expect(declarations).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(declarations).not.toMatch(/\b(?:rgba?|hsla?)\(/)
     expect(declarations).not.toMatch(/--[a-z0-9-]+\s*:/)
     expect(declarations).not.toContain('dsh-moonset-glow-strength')
     const mixes = [
       ...declarations.matchAll(
-        /color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) calc\(([\d.]+)% \* 1\), transparent\)/g,
+        /color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) ([\d.]+)%, transparent\)/g,
       ),
     ]
     expect(mixes.map((match) => [match[1], Number(match[2])])).toEqual([
@@ -571,13 +588,19 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
       [MOON, 10],
       [ACCENT, 1.5],
     ])
-    expect(declarations.match(/calc\([\d.]+% \* 1\)/g)).toHaveLength(3)
+    // ...and the three alphas are exactly the 100% table from skin.ts.
+    expect(mixes.map((match) => Number(match[2]))).toEqual([
+      GLOW_ALPHA_AT_FULL.moon,
+      GLOW_ALPHA_AT_FULL.warm,
+      GLOW_ALPHA_AT_FULL.wash,
+    ])
+    expect(declarations).not.toContain('calc(')
   })
 
   it('carries BOTH spots: indigo moon halo top-centre, amber warm light bottom-right', () => {
     const spots = [
       ...skinCss().matchAll(
-        /radial-gradient\(ellipse at (\d+)% (-?\d+)%, color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) calc\(([\d.]+)% \* 1\), transparent\) 0%, transparent (\d+)%\)/g,
+        /radial-gradient\(ellipse at (\d+)% (-?\d+)%, color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) ([\d.]+)%, transparent\) 0%, transparent (\d+)%\)/g,
       ),
     ]
     expect(spots).toHaveLength(2)
@@ -606,7 +629,7 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     // `alpha` and dies at `fade`, so left vs right edge differ by
     // alpha · (W·sin θ / L) / fade. The colour deltas are the palette's own.
     const wash =
-      /linear-gradient\(165deg, color-mix\(in srgb, var\((--dsw-[a-z0-9-]+)\) calc\(([\d.]+)% \* 1\), transparent\) 0%, transparent (\d+)%\)/.exec(
+      /linear-gradient\(165deg, color-mix\(in srgb, var\((--dsw-[a-z0-9-]+)\) ([\d.]+)%, transparent\) 0%, transparent (\d+)%\)/.exec(
         css,
       )
     expect(wash).not.toBeNull()
@@ -788,6 +811,191 @@ describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel roo
     expect(off).not.toContain('background-color: transparent')
     expect(off).not.toContain('#root')
     expect(off).toBe(EXPECTED_BASE_CSS)
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * M2: 地面范围 (A/B/C) and the strength knob                            *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — M2 地面范围 (A/B/C) 与强度', () => {
+  /**
+   * The sheet without its comments.
+   *
+   * The rule text mentions `calc()` in prose (it explains why there is none),
+   * so a whole-sheet search has to look at declarations only.
+   * @param css - the sheet text.
+   * @returns the same text with every comment removed.
+   */
+  function withoutComments(css: string): string {
+    return css.replace(/\/\*[\s\S]*?\*\//g, '')
+  }
+
+  /** The visibility block of one scope, parsed the way the engine reads it. */
+  function visibilityOf(scope: GlowScope): { selectors: string[]; lines: string[] } {
+    const css = skinCss({ scope })
+    const start = css.indexOf('/* 0.1.2 visibility')
+    const open = css.indexOf('{', start)
+    const close = css.indexOf('}', open)
+    const raw = css.slice(start, close + 1)
+    const selectorText = raw.slice(raw.indexOf('*/') + 2, raw.indexOf('{'))
+    // Top-level commas only: a :has(a, b) argument list carries its own.
+    const selectors: string[] = []
+    let depth = 0
+    let current = ''
+    for (const character of selectorText) {
+      if (character === '(') depth += 1
+      if (character === ')') depth -= 1
+      if (character === ',' && depth === 0) {
+        if (current.trim() !== '') selectors.push(current.trim())
+        current = ''
+        continue
+      }
+      current += character
+    }
+    if (current.trim() !== '') selectors.push(current.trim())
+    return { selectors, lines: raw.split('\n') }
+  }
+
+  it('nests the three scopes: conversation ⊂ main ⊂ all', () => {
+    const conversation = visibilityOf('conversation').selectors
+    const main = visibilityOf('main').selectors
+    const all = visibilityOf('all').selectors
+    // A: the conversation column only — its own anchor plus the elected panel
+    // root. No shell, no sidebar, no bottom cell.
+    expect(conversation).toEqual([
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+    ])
+    // B: A plus the carriers that CONTAIN the three shell slots — and NOT the
+    // sidebar's inner fill layer, so the sidebar keeps its own surface.
+    expect(main).toEqual([
+      "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+    ])
+    // C: B plus the sidebar root and the bottom cell — every carrier the M1.5
+    // sheet cleared.
+    expect(all).toEqual([
+      "html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])",
+      "html[data-moonset-skin] #root :has([data-composer-seat])",
+      "html[data-moonset-skin] #root :has(> [data-slot='shell.bottom'])",
+      "html[data-moonset-skin] #root [data-slot='main'] > div",
+      "html[data-moonset-skin] #root [data-slot='sidebar'] > div",
+    ])
+    // The nesting the buttons promise: every A selector is in B, every B
+    // selector is in C.
+    for (const selector of conversation) expect(main).toContain(selector)
+    for (const selector of main) expect(all).toContain(selector)
+    // And each sheet NAMES its scope, so a DevTools copy is self-describing.
+    for (const scope of GLOW_SCOPES) expect(skinCss({ scope })).toContain('scope: ' + scope + ')')
+  })
+
+  it('keeps every sheet inside the 40-line budget, for every scope', () => {
+    for (const scope of GLOW_SCOPES) {
+      const lines = skinCss({ scope }).split('\n')
+      expect(lines.length).toBeLessThanOrEqual(40)
+      expect(lines.length).toBeGreaterThan(19)
+    }
+    // The default sheet is C at 100% — the look 0.1.2 shipped and the user
+    // approved as 光晕对了.
+    expect(skinCss()).toBe(skinCss({ scope: 'all', strength: 100 }))
+    expect(DEFAULT_GLOW_SCOPE).toBe('all')
+    expect(DEFAULT_GLOW_STRENGTH).toBe(100)
+  })
+
+  it('scales the three alphas in JS: 0 / 50 / 100 / 150 / 200 → literal percentages', () => {
+    // The table the slider promises, derived from ONE source of truth.
+    expect(glowAlphas(0)).toEqual({ moon: '0%', warm: '0%', wash: '0%' })
+    expect(glowAlphas(50)).toEqual({ moon: '8%', warm: '5%', wash: '0.75%' })
+    expect(glowAlphas(100)).toEqual({ moon: '16%', warm: '10%', wash: '1.5%' })
+    expect(glowAlphas(150)).toEqual({ moon: '24%', warm: '15%', wash: '2.25%' })
+    expect(glowAlphas(200)).toEqual({ moon: '32%', warm: '20%', wash: '3%' })
+    // The full-strength table is the same object the sheet multiplies.
+    expect(glowAlphas(100)).toEqual({ moon: GLOW_ALPHA_AT_FULL.moon + '%', warm: GLOW_ALPHA_AT_FULL.warm + '%', wash: GLOW_ALPHA_AT_FULL.wash + '%' })
+    // The emitted sheet carries those literals — and never a calc().
+    const doubled = skinCss({ strength: 200 })
+    expect(doubled).toContain('var(--dsw-static-deepseek-500) 32%, transparent')
+    expect(doubled).toContain('var(--dsw-static-amber-500) 20%, transparent')
+    expect(doubled).toContain('var(--dsw-static-deepseek-500) 3%, transparent')
+    expect(withoutComments(doubled)).not.toContain('calc(')
+    // Strength 0 leaves the canvas layer and nothing else, still literal.
+    const zero = skinCss({ strength: 0 })
+    expect(zero).toContain('color-mix(in srgb, var(--dsw-static-deepseek-500) 0%, transparent)')
+    expect(withoutComments(zero)).not.toContain('calc(')
+    for (const scope of GLOW_SCOPES) {
+      expect(withoutComments(skinCss({ scope }))).not.toContain('calc(')
+      expect(withoutComments(skinCss({ scope, strength: 200 }))).not.toContain('calc(')
+    }
+  })
+
+  it('clamps an out-of-range or unusable strength instead of refusing the skin', () => {
+    expect(resolveGlowStrength(undefined)).toBe(DEFAULT_GLOW_STRENGTH)
+    expect(resolveGlowStrength(Number.NaN)).toBe(DEFAULT_GLOW_STRENGTH)
+    expect(resolveGlowStrength(-40)).toBe(GLOW_STRENGTH_MIN)
+    expect(resolveGlowStrength(1e6)).toBe(GLOW_STRENGTH_MAX)
+    expect(resolveGlowStrength('150')).toBe(150)
+    expect(resolveGlowStrength(149.6)).toBe(150)
+    // Same for the scope: anything unrecognized falls back to the default.
+    expect(resolveGlowScope(undefined)).toBe(DEFAULT_GLOW_SCOPE)
+    expect(resolveGlowScope('sidebar')).toBe(DEFAULT_GLOW_SCOPE)
+    expect(resolveGlowScope('conversation')).toBe('conversation')
+  })
+
+  it('drops BOTH halves of the 0.1.2 segment when the switch is off, in every scope', () => {
+    // Off is the pre-glow 0.1.1 sheet byte-for-byte: no ground, no clear, no
+    // remnant of the scope or the strength (0.1.2 D4).
+    for (const scope of GLOW_SCOPES) {
+      for (const strength of [0, 100, 200]) {
+        expect(skinCss({ glow: false, scope, strength })).toBe(EXPECTED_BASE_CSS)
+      }
+    }
+    expect(skinCss({ glow: true })).toBe(EXPECTED_CSS)
+  })
+
+  it('clears the composer seat\'s mask band by its IMAGE only (M2 底部白带)', () => {
+    // `[data-composer-seat]` is the element the conversation paints its seat on;
+    // in the active phase it carries a `bg-base` mask gradient, which over the
+    // ground reads as a bright band across the bottom of the column. The fix is
+    // the NARROWEST one available: the image goes, the element keeps everything
+    // else (its colour is already transparent, and nothing moves).
+    const css = skinCss()
+    const start = css.indexOf('/* 0.1.2 bottom band (M2)')
+    expect(start).toBeGreaterThan(-1)
+    const end = css.indexOf('}', start) + 1
+    const rule = css.slice(start, end)
+    expect(rule).toContain("html[data-moonset-skin] #root [data-composer-seat] {")
+    const declarations = rule.slice(rule.indexOf('{') + 1, -1).split(';').map((part) => part.trim()).filter(Boolean)
+    // ONE declaration, and it is the image longhand: a `background` shorthand
+    // here would also wipe the element's colour and any shadow the host adds.
+    expect(declarations).toEqual(['background-image: none'])
+    // It is not a carrier entry: no colour clear on the seat itself.
+    expect(rule).not.toContain('background-color')
+    // The band belongs to the glow segment, so the switch takes it with it.
+    expect(skinCss({ glow: false })).not.toContain('bottom band')
+    expect(skinCss({ glow: false })).not.toContain('background-image')
+    // ...and every scope carries it (the band is inside the conversation).
+    for (const scope of GLOW_SCOPES) expect(skinCss({ scope })).toContain('bottom band (M2)')
+  })
+
+  it('rebuilds the ONE sheet in place when the options move (updateSkin)', () => {
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.attached()).toHaveLength(1)
+    const before = doc.attached()[0].textContent
+    expect(updateSkin({ scope: 'conversation', strength: 50 }, doc)).toBe(true)
+    // Still a singleton, and the rule text moved to the new options.
+    expect(doc.attached()).toHaveLength(1)
+    const after = doc.attached()[0].textContent
+    expect(after).not.toBe(before)
+    expect(after).toBe(skinCss({ scope: 'conversation', strength: 50 }))
+    expect(after).toContain('scope: conversation)')
+    expect(after).toContain('8%, transparent')
+    // A document with no sheet yet is mounted by the same call (convergence).
+    const fresh = new StubDocument()
+    expect(updateSkin({ scope: 'main' }, fresh)).toBe(true)
+    expect(fresh.attached()).toHaveLength(1)
+    expect(fresh.attached()[0].textContent).toBe(skinCss({ scope: 'main' }))
   })
 })
 
@@ -1092,6 +1300,63 @@ describe('apply — the skin follows the stored choice', () => {
       for (const dispose of [...wiring.disposers].reverse()) dispose()
       expect(wiring.form.sets).toEqual([{ field: 'choice', value: 'off' }])
     } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps the sheet off when the stored choice is off, whatever the controls say', async () => {
+    // The 0.1.1 gate still wins: `off` means the official theme owns the page, so
+    // a glow control must not bring a Moonset sheet back (the skin is choice-
+    // gated, and the rebuild path is a fifth way to mount it).
+    vi.useFakeTimers()
+    try {
+      const wiring = applyWithStoredChoice('off')
+      expect(wiring.doc.attached()).toHaveLength(0)
+      const face = wiring.face() as unknown as { onScope(scope: string): void }
+      face.onScope('conversation')
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS * 2)
+      expect(wiring.doc.attached()).toHaveLength(0)
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rebuilds the ONE sheet when the M2 glow controls move (150 ms debounce)', async () => {
+    vi.useFakeTimers()
+    try {
+      const wiring = applyWithStoredChoice('light')
+      const sheetText = (): string => {
+        const live = wiring.doc.attached()
+        expect(live).toHaveLength(1)
+        return live[0].textContent
+      }
+      // The boot restore built the sheet from the stored (default) glow options.
+      expect(sheetText()).toContain('scope: all)')
+      const face = wiring.face() as unknown as {
+        onScope(scope: string): void
+        onToggleGlow(next: boolean): void
+        onStrength(next: number): void
+      }
+      face.onScope('conversation')
+      // Debounced: a fast drag must not re-parse the sheet per step.
+      expect(sheetText()).toContain('scope: all)')
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).toContain('scope: conversation)')
+      // The strength lands as a literal alpha, and the switch drops the segment.
+      face.onStrength(200)
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).toContain('32%, transparent')
+      face.onToggleGlow(false)
+      await vi.advanceTimersByTimeAsync(SKIN_REBUILD_MS)
+      expect(sheetText()).not.toContain('radial-gradient')
+      // Still exactly one sheet, and the durable write is a separate clock.
+      expect(wiring.doc.attached()).toHaveLength(1)
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+      expect(wiring.doc.attached()).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
       vi.unstubAllGlobals()
     }
   })

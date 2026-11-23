@@ -5,6 +5,7 @@ import { STATUS_SEPARATOR, describeState, type MoonsetChoice } from '../src/clie
 import { RESTORE_WINDOW_MS, WRITE_DEBOUNCE_MS } from '../src/client/durable'
 import { apply } from '../src/client/index'
 import { en, zh, type MoonsetLocaleKey } from '../src/client/locales'
+import { GLOW_SCOPES, type GlowScope } from '../src/client/skin'
 import {
   MoonsetSection,
   type MoonsetSectionFace,
@@ -522,20 +523,45 @@ const LABELS: MoonsetSectionProps['labels'] = {
     { value: 'dark', label: zh['option.dark'] },
     { value: 'follow', label: zh['option.follow'] },
   ],
+  // M2: the glow block, built the way `sectionLabels` builds it — the scope
+  // buttons are derived from GLOW_SCOPES, so an added scope shows up here too.
+  glowTitle: zh['glow.title'],
+  glowOn: zh['glow.on'],
+  glowOff: zh['glow.off'],
+  scopeTitle: zh['glow.scope.title'],
+  scopeOptions: GLOW_SCOPES.map((scope) => ({
+    value: scope,
+    label: zh[`glow.scope.${scope}` as MoonsetLocaleKey],
+  })),
+  strengthTitle: zh['glow.strength'],
+  hint: zh['glow.hint'],
+}
+
+/** The three M2 fields a view carries, at their contract defaults. */
+const GLOW_FIELDS: Pick<MoonsetSectionView, 'glowScope' | 'glow' | 'glowStrength'> = {
+  glowScope: 'all',
+  glow: true,
+  glowStrength: 100,
 }
 
 /**
  * Mount the real component over a controllable view + subscription.
- * @param spec - the view to read and the pick callback to record.
+ * @param spec - the view to read plus the callbacks to record (M2 adds three).
  * @returns the mount plus the listener set its subscription fills.
  */
 function mountSection(spec: {
   readonly view: () => MoonsetSectionView
   readonly onPick?: (choice: MoonsetChoice) => void
+  readonly onScope?: (scope: GlowScope) => void
+  readonly onToggleGlow?: (next: boolean) => void
+  readonly onStrength?: (next: number) => void
 }): { mount: HookMount; listeners: Set<() => void> } {
   const listeners = new Set<() => void>()
   const props: MoonsetSectionProps = {
     onPick: spec.onPick ?? (() => {}),
+    onScope: spec.onScope ?? (() => {}),
+    onToggleGlow: spec.onToggleGlow ?? (() => {}),
+    onStrength: spec.onStrength ?? (() => {}),
     labels: LABELS,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
@@ -591,7 +617,7 @@ describe('M5.3 describeState — 状态行是纯函数', () => {
 
 describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => {
   it('moves the highlight on the click itself, and re-seeds from read() after a remount', () => {
-    let view: MoonsetSectionView = { choice: 'light', status: 'mock' }
+    let view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
     const picks: string[] = []
     const { mount, listeners } = mountSection({
       view: () => view,
@@ -609,7 +635,7 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
 
     // The Host stores the choice and REMOUNTS the section (a settings write
     // re-derives its scope forms). The new mount seeds from read().
-    view = { choice: 'follow', status: 'mock' }
+    view = { choice: 'follow', status: 'mock', ...GLOW_FIELDS }
     const remount = mountSection({ view: () => view })
     expect(pressedLabel(remount.mount.mount())).toBe(zh['option.follow'])
     remount.mount.unmount()
@@ -618,14 +644,14 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
 
     // And a STALE read seeds the old value again: the component keeps no
     // private copy that could outlive the remount (that copy was the M5 bug).
-    view = { choice: 'light', status: 'mock' }
+    view = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
     const stale = mountSection({ view: () => view })
     expect(pressedLabel(stale.mount.mount())).toBe(zh['option.light'])
     stale.mount.unmount()
   })
 
   it('binds the view on mount and releases it on unmount, for both sources', () => {
-    let view: MoonsetSectionView = { choice: 'off', status: 'A' }
+    let view: MoonsetSectionView = { choice: 'off', status: 'A', ...GLOW_FIELDS }
     const { mount, listeners } = mountSection({ view: () => view })
     const tree = mount.mount()
     // The effect ran once, on mount.
@@ -633,7 +659,7 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
     expect(statusLine(tree)).toBe('A')
 
     // Either source — a durable change or a theme/change — pushes a re-read.
-    view = { choice: 'follow', status: 'B' }
+    view = { choice: 'follow', status: 'B', ...GLOW_FIELDS }
     for (const listener of [...listeners]) listener()
     expect(statusLine(mount.update())).toBe('B')
 
@@ -641,7 +667,7 @@ describe('M5.3 设置区即时反馈 — 乐观高亮与宿主重挂载', () => 
     // cannot reach the (now absent) section.
     mount.unmount()
     expect(listeners.size).toBe(0)
-    view = { choice: 'off', status: 'C' }
+    view = { choice: 'off', status: 'C', ...GLOW_FIELDS }
     for (const listener of [...listeners]) listener()
     expect(statusLine(mount.update())).toBe('B')
   })
@@ -821,6 +847,87 @@ describe('M5.3 跟随自愈 — 覆盖层与偏好各修一处', () => {
       expect(seen).toHaveLength(1)
     } finally {
       unload(harness)
+    }
+  })
+})
+
+// ── M2: 地面范围 / 环境光晕 / 强度 ───────────────────────────────────────────
+
+describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
+  /** The rendered slider (the only range input). */
+  function slider(tree: unknown): FakeElement {
+    const input = elementsUnder(tree).find((node) => node.type === 'input' && node.props.type === 'range')
+    if (input === undefined) throw new Error('the section rendered no strength slider')
+    return input
+  }
+
+  /** The three scope buttons, in document order. */
+  function scopeButtons(tree: unknown): FakeElement[] {
+    return elementsUnder(tree).filter((node) => node.type === 'button'
+      && LABELS.scopeOptions.some((option) => textOf(node) === option.label))
+  }
+
+  it('renders the three scope buttons, the switch and the slider from read()', () => {
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', glow: true, glowScope: 'main', glowStrength: 150 }
+    const { mount } = mountSection({ view: () => view })
+    const tree = mount.mount()
+    try {
+      // 地面范围: one button per GLOW_SCOPES value, the live one pressed.
+      const buttons = scopeButtons(tree)
+      expect(buttons.map((button) => textOf(button))).toEqual(LABELS.scopeOptions.map((option) => option.label))
+      expect(buttons.map((button) => button.props['aria-pressed'])).toEqual([false, true, false])
+      // 环境光晕: a pressed toggle carrying the ON word.
+      const toggle = elementsUnder(tree).find((node) => node.type === 'button' && textOf(node) === LABELS.glowTitle + ' ' + LABELS.glowOn)
+      expect(toggle).toBeDefined()
+      expect(toggle?.props['aria-pressed']).toBe(true)
+      // 强度: the range input, its bounds, and the live percentage beside it.
+      expect(slider(tree).props).toMatchObject({ min: 0, max: 200, step: 10, value: 150 })
+      const percent = elementsUnder(tree).find((node) => node.type === 'span' && textOf(node) === '150%')
+      expect(percent).toBeDefined()
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('calls onScope / onToggleGlow / onStrength and moves its own view at once', () => {
+    let view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const scopes: GlowScope[] = []
+    const toggles: boolean[] = []
+    const strengths: number[] = []
+    const { mount } = mountSection({
+      view: () => view,
+      onScope: (scope) => { scopes.push(scope) },
+      onToggleGlow: (next) => { toggles.push(next) },
+      onStrength: (next) => { strengths.push(next) },
+    })
+    const tree = mount.mount()
+    try {
+      // A scope click: the handler sees the value, and the pressed state moves in
+      // THIS render even though read() has not moved yet (the same optimism as
+      // the theme buttons).
+      press(tree, zh['glow.scope.conversation'])
+      expect(scopes).toEqual(['conversation'])
+      expect(view.glowScope).toBe('all')
+      const pressedScopes = scopeButtons(mount.update())
+        .filter((button) => button.props['aria-pressed'] === true)
+        .map((button) => textOf(button))
+      expect(pressedScopes).toEqual([zh['glow.scope.conversation']])
+
+      // The glow toggle flips off and says so.
+      press(tree, LABELS.glowTitle + ' ' + LABELS.glowOn)
+      expect(toggles).toEqual([false])
+      const off = elementsUnder(mount.update()).find((node) => node.type === 'button' && textOf(node) === LABELS.glowTitle + ' ' + LABELS.glowOff)
+      expect(off).toBeDefined()
+      expect(off?.props['aria-pressed']).toBe(false)
+
+      // The slider hands the parsed number over (never a string).
+      const onChange = slider(mount.update()).props.onChange
+      if (typeof onChange !== 'function') throw new Error('the slider has no onChange')
+      ;(onChange as (event: unknown) => void)({ currentTarget: { value: '150' } })
+      expect(strengths).toEqual([150])
+      expect(elementsUnder(mount.update()).some((node) => node.type === 'span' && textOf(node) === '150%')).toBe(true)
+    } finally {
+      mount.unmount()
     }
   })
 })

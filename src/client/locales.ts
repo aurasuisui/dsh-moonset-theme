@@ -35,6 +35,16 @@ export const zh = {
   'status.scheme.dark': '当前方案 深色',
   'status.layer.on': '覆盖层 已挂载',
   'status.layer.off': '覆盖层 未挂载',
+  // ── M2: 地面范围 / 光晕开关 / 强度 ──────────────────────────────────────
+  'glow.title': '环境光晕',
+  'glow.on': '开',
+  'glow.off': '关',
+  'glow.scope.title': '地面范围',
+  'glow.scope.conversation': '会话区',
+  'glow.scope.main': '主区',
+  'glow.scope.all': '全透',
+  'glow.strength': '强度',
+  'glow.hint': '会话区：只透会话列；主区：再透外壳与三列（侧栏仍有自己的面）；全透：连侧栏与底部一起透。强度 0 等于只剩底色。',
 } as const
 
 /** English dictionary — every `zh` key, no extras (checked at registration). */
@@ -51,6 +61,16 @@ export const en = {
   'status.scheme.dark': 'Scheme dark',
   'status.layer.on': 'Layer attached',
   'status.layer.off': 'Layer detached',
+  // ── M2: ground scope / glow switch / strength ─────────────────────────────
+  'glow.title': 'Environment glow',
+  'glow.on': 'On',
+  'glow.off': 'Off',
+  'glow.scope.title': 'Ground scope',
+  'glow.scope.conversation': 'Conversation',
+  'glow.scope.main': 'Main',
+  'glow.scope.all': 'All',
+  'glow.strength': 'Strength',
+  'glow.hint': 'Conversation keeps the glow to the conversation column; Main lets the shell and the three columns through (the sidebar keeps its own surface); All is fully transparent, sidebar and bottom included. Strength 0 leaves only the base colour.',
 } as const
 
 /** Every key the section renders (the namespace's dictionary union). */

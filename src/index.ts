@@ -47,6 +47,13 @@ export const name = 'dsh-moonset'
  */
 const CHOICE_VALUES = ['off', 'light', 'dark', 'follow'] as const
 
+/**
+ * The M2 ground scopes — restated for the same reason as {@link CHOICE_VALUES}.
+ * `tests/settings.spec.ts` cross-checks this union against the client's
+ * `GLOW_SCOPES`, so the two copies cannot drift into an unreadable document.
+ */
+const GLOW_SCOPE_VALUES = ['conversation', 'main', 'all'] as const
+
 /** The subset of a schemastery node this module probes. */
 interface VolatileCapable {
   volatile?: () => unknown
@@ -82,6 +89,13 @@ export function maybeVolatile<T extends object>(node: T): T {
  */
 export const Config = Schema.object({
   choice: maybeVolatile(Schema.union([...CHOICE_VALUES]).default('off')),
+  // ── M2: the environment glow ──────────────────────────────────────────────
+  // Three more volatile fields, projected into the same browser form. Their
+  // defaults are the 0.1.2 M1.5 sheet, so a profile that never opens the
+  // section keeps the look the user approved.
+  glow: maybeVolatile(Schema.boolean().default(true)),
+  glowScope: maybeVolatile(Schema.union([...GLOW_SCOPE_VALUES]).default('all')),
+  glowStrength: maybeVolatile(Schema.number().min(0).max(200).default(100)),
 })
 
 /**

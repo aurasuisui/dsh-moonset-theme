@@ -11,8 +11,10 @@ import {
   MOONSET_ENTRY_ID,
   WRITE_DEBOUNCE_MS,
   createDurableChoice,
+  createDurableGlow,
   type MoonsetSettingsSection,
 } from '../src/client/durable'
+import { DEFAULT_GLOW_SCOPE, DEFAULT_GLOW_STRENGTH, GLOW_SCOPES } from '../src/client/skin'
 import { apply } from '../src/client/index'
 import { MOONSET_LOCALE_NS, en, zh } from '../src/client/locales'
 import { Config, MOONSET_ENTRY_ID as HOST_ENTRY_ID } from '../src/index'
@@ -434,7 +436,10 @@ describe('apply — the settings section (M5)', () => {
       const harness = makeContext({ forms: form })
       apply(harness.ctx)
 
-      expect(harness.requestedEntries).toEqual([MOONSET_ENTRY_ID])
+      // Two stores, ONE entry: the theme choice and the M2 glow settings are
+      // separate facades over the same projected form, so the entry id is
+      // requested once per store.
+      expect(harness.requestedEntries).toEqual([MOONSET_ENTRY_ID, MOONSET_ENTRY_ID])
       expect(MOONSET_ENTRY_ID).toBe('dsh-moonset')
 
       const face = sectionFace(harness)
@@ -639,5 +644,143 @@ describe('host settings contract — the Config the form is projected from', () 
     // a drifted host union would make the client's stored values unreadable.
     const values = (field.list ?? []).map((entry) => entry.value)
     expect(new Set(values)).toEqual(new Set(MOONSET_CHOICES))
+  })
+
+  it('declares the three M2 glow fields, volatile, with the shipped defaults', () => {
+    // Same reasoning as the choice: checked against the schema's own AST, so a
+    // host-side default drifting from the client's constants turns red here
+    // instead of showing up as an unexpected first paint.
+    const dict = (Config as unknown as {
+      dict: Record<string, {
+        meta?: Record<string, unknown>
+        list?: { value?: unknown }[]
+      }>
+    }).dict
+
+    expect(dict.glow.meta).toMatchObject({ default: true, volatile: true })
+    expect(dict.glowStrength.meta).toMatchObject({
+      default: DEFAULT_GLOW_STRENGTH,
+      volatile: true,
+    })
+    expect(dict.glowScope.meta).toMatchObject({ default: DEFAULT_GLOW_SCOPE, volatile: true })
+
+    // The scope union is the client's list, in the same order: a document value
+    // the client cannot read is exactly what this check prevents.
+    expect((dict.glowScope.list ?? []).map((entry) => entry.value)).toEqual([...GLOW_SCOPES])
+  })
+})
+
+// ── M2: the glow settings store ─────────────────────────────────────────────
+
+describe('createDurableGlow — the M2 glow store (地面范围 / 开关 / 强度)', () => {
+  it('answers the shipped defaults before any form has spoken', () => {
+    const harness = makeContext()
+    const glow = createDurableGlow(harness.ctx)
+    expect(glow.read()).toEqual({ glow: true, scope: 'all', strength: 100 })
+    // A host with no form still lets the session switch: the value is answered
+    // locally (it just cannot be persisted), and the failure is a WARNING at the
+    // flush — never a throw, and never a diary of every pointer move.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      glow.write({ scope: 'conversation' })
+      expect(glow.read().scope).toBe('conversation')
+      expect(warn).not.toHaveBeenCalled()
+      expect(() => { glow.dispose() }).not.toThrow()
+      expect(warn).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+      glow.dispose()
+    }
+  })
+
+  it('reads a document that already carries the three fields', () => {
+    const form = new FakeForm({ glow: false, glowScope: 'main', glowStrength: 40 })
+    const harness = makeContext({ forms: form })
+    const glow = createDurableGlow(harness.ctx)
+    try {
+      expect(glow.read()).toEqual({ glow: false, scope: 'main', strength: 40 })
+    } finally {
+      glow.dispose()
+    }
+  })
+
+  it('writes each field ONCE per burst, after the 300 ms window', async () => {
+    vi.useFakeTimers()
+    try {
+      const form = new FakeForm({})
+      const harness = makeContext({ forms: form })
+      const glow = createDurableGlow(harness.ctx)
+      glow.write({ scope: 'conversation' })
+      glow.write({ strength: 10 })
+      glow.write({ strength: 180 })
+      // The local answer is immediate (the sheet follows at 150 ms, the write at
+      // 300 ms), and nothing has reached the document yet.
+      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180 })
+      expect(form.sets).toEqual([])
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
+      expect(form.sets).toEqual([
+        { field: 'glowScope', value: 'conversation' },
+        { field: 'glowStrength', value: 180 },
+      ])
+      // The echo confirms what was already answered.
+      await Promise.resolve()
+      expect(glow.read()).toEqual({ glow: true, scope: 'conversation', strength: 180 })
+      expect(glow.writes).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('near-simultaneous changes to all three fields land in one flush', async () => {
+    vi.useFakeTimers()
+    try {
+      const form = new FakeForm({})
+      const harness = makeContext({ forms: form })
+      const glow = createDurableGlow(harness.ctx)
+      glow.write({ glow: false })
+      glow.write({ scope: 'main' })
+      glow.write({ strength: 200 })
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
+      expect(form.sets).toEqual([
+        { field: 'glow', value: false },
+        { field: 'glowScope', value: 'main' },
+        { field: 'glowStrength', value: 200 },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lands a pending change on dispose, so an unload cannot swallow an edit', () => {
+    vi.useFakeTimers()
+    try {
+      const form = new FakeForm({})
+      const harness = makeContext({ forms: form })
+      const glow = createDurableGlow(harness.ctx)
+      glow.write({ scope: 'all' })
+      expect(form.sets).toEqual([])
+      glow.dispose()
+      expect(form.sets).toEqual([{ field: 'glowScope', value: 'all' }])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('adopts a change another window wrote, and stops after the release', async () => {
+    const form = new FakeForm({})
+    const harness = makeContext({ forms: form })
+    const glow = createDurableGlow(harness.ctx)
+    try {
+      const seen: string[] = []
+      const release = glow.subscribe(() => { seen.push(glow.read().scope) })
+      await form.set('glowScope', 'conversation')
+      expect(glow.read().scope).toBe('conversation')
+      expect(seen).toEqual(['conversation'])
+      release()
+      await form.set('glowScope', 'main')
+      expect(seen).toEqual(['conversation'])
+    } finally {
+      glow.dispose()
+    }
   })
 })

@@ -52,6 +52,13 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveChoice, type MoonsetChoice } from './choice.ts'
+import {
+  DEFAULT_GLOW_SCOPE,
+  DEFAULT_GLOW_STRENGTH,
+  resolveGlowScope,
+  resolveGlowStrength,
+  type GlowScope,
+} from './skin.ts'
 
 /**
  * The profile entry id — the `cordis.patch.yml` insert id, the plugin `name`,
@@ -92,6 +99,12 @@ export const RESTORE_WINDOW_MS = 1500
 export interface MoonsetSettingsSection {
   /** One of `MoonsetChoice`'s values; unknown while the form is still loading. */
   choice?: unknown
+  /** M2 环境光晕 switch (boolean when the document carries it). */
+  glow?: unknown
+  /** M2 地面范围: one of `GLOW_SCOPES` when the document carries it. */
+  glowScope?: unknown
+  /** M2 强度: 0-200 when the document carries it. */
+  glowStrength?: unknown
 }
 
 /** The small durable surface the settings section and the boot path consume. */
@@ -459,6 +472,269 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
     },
     get revision(): number {
       return watermark
+    },
+  }
+}
+
+// ── M2: the glow settings (ground scope, switch, strength) ───────────────────
+//
+// Three more volatile fields of the SAME form, with the same 300 ms write
+// debounce, but none of the theme-echo machinery: a ground setting cannot fight
+// the theme runtime, so the only race here is "a slider drag lands before the
+// previous echo", and the answer is last-value-wins per field.
+
+/** The resolved glow configuration — exactly what `skinCss()` consumes. */
+export interface MoonsetGlow {
+  /** The 0.1.2 environment glow (wash, spots and the carrier clear). */
+  readonly glow: boolean
+  /** Which carrier layers give up their background. */
+  readonly scope: GlowScope
+  /** The glow strength in percent (0-200). */
+  readonly strength: number
+}
+
+/** The small durable surface the skin rebuild and the settings section consume. */
+export interface DurableGlow {
+  /** The current glow configuration, pending intents included. */
+  read(): MoonsetGlow
+  /** Queue a partial change (debounced, last value per field wins). */
+  write(patch: Partial<MoonsetGlow>): void
+  /** Land a queued change now. Idempotent. */
+  flush(): void
+  /** Observe document changes; returns the unsubscribe. */
+  subscribe(listener: () => void): () => void
+  /** Flush, then release the form listener and the injection fiber. Safe twice. */
+  dispose(): void
+  /** Field writes that actually reached the form (diagnostics). */
+  readonly writes: number
+}
+
+/** The configuration a profile that never touched the controls uses. */
+const DEFAULT_GLOW: MoonsetGlow = {
+  glow: true,
+  scope: DEFAULT_GLOW_SCOPE,
+  strength: DEFAULT_GLOW_STRENGTH,
+}
+
+/**
+ * Narrow one raw form section to the resolved glow configuration.
+ *
+ * Every field is optional in the document (`undefined` while the form is still
+ * loading, and on every profile that predates M2), so a missing or unusable
+ * value falls back to the default instead of disabling the feature.
+ * @param section - the raw section (may be undefined before the form binds).
+ * @returns the resolved configuration.
+ */
+function resolveGlow(section: MoonsetSettingsSection | undefined): MoonsetGlow {
+  return {
+    glow: typeof section?.glow === 'boolean' ? section.glow : DEFAULT_GLOW.glow,
+    scope: resolveGlowScope(section?.glowScope),
+    strength: resolveGlowStrength(section?.glowStrength),
+  }
+}
+
+/**
+ * Whether two configurations agree — the change gate for the view channel.
+ * @param a - one configuration.
+ * @param b - the other.
+ * @returns whether every field agrees.
+ */
+function sameGlow(a: MoonsetGlow, b: MoonsetGlow): boolean {
+  return a.glow === b.glow && a.scope === b.scope && a.strength === b.strength
+}
+
+/**
+ * Bind the three M2 fields of the plugin's settings form.
+ *
+ * Same durable channel as the choice (the same form, the same 300 ms debounce),
+ * but a much simpler contract: these settings are idempotent, so a queued patch
+ * is answered immediately by {@link DurableGlow.read} and the document's echo
+ * merely confirms it. A profile with no form still gets a working plugin for the
+ * session (the defaults), it just cannot remember them.
+ * @param ctx - client root context.
+ * @returns the durable glow facade, bound for the lifetime of the caller's fiber.
+ */
+export function createDurableGlow(ctx: ClientContext): DurableGlow {
+  let form: ConfigForm<MoonsetSettingsSection> | undefined
+  let releaseForm: (() => void) | undefined
+  let fiber: ReturnType<ClientContext['inject']> | undefined
+  let disposed = false
+  let writes = 0
+  /** The last configuration the document confirmed (or the defaults). */
+  let confirmed: MoonsetGlow = DEFAULT_GLOW
+  /** Fields the user changed that the document has not confirmed yet. */
+  let pending: Partial<MoonsetGlow> = {}
+  /** The pending write debounce handle. */
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const listeners = new Set<() => void>()
+
+  const notify = (): void => {
+    for (const listener of [...listeners]) listener()
+  }
+
+  /** The answer a read and an echo comparison both use. */
+  const merged = (): MoonsetGlow => ({ ...confirmed, ...pending })
+
+  const snapshotOf = (current: ConfigForm<MoonsetSettingsSection>): MoonsetGlow | undefined => {
+    try {
+      return resolveGlow(current.getSnapshot().value)
+    } catch (error) {
+      warn('could not read the settings form', error)
+      return undefined
+    }
+  }
+
+  /**
+   * Adopt one snapshot answer.
+   *
+   * A pending patch outranks the echo: only the echo carrying OUR values
+   * confirms it, and anything else is an older document state. That is what
+   * keeps a fast slider from being rewound by the write it already superseded.
+   * @param answer - the resolved snapshot.
+   * @returns whether the confirmed configuration moved (listeners must re-read).
+   */
+  const adopt = (answer: MoonsetGlow): boolean => {
+    const mergedNow = merged()
+    if (sameGlow(answer, mergedNow)) {
+      const changed = !sameGlow(answer, confirmed)
+      confirmed = answer
+      pending = {}
+      return changed
+    }
+    if (Object.keys(pending).length > 0) return false
+    if (sameGlow(answer, confirmed)) return false
+    confirmed = answer
+    return true
+  }
+
+  const onFormChange = (): void => {
+    if (disposed) return
+    const current = form
+    if (current === undefined) return
+    const answer = snapshotOf(current)
+    if (answer === undefined) return
+    if (adopt(answer)) notify()
+  }
+
+  const flush = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    const patch = pending
+    if (Object.keys(patch).length === 0) return
+    pending = {}
+    const current = form
+    if (current === undefined) {
+      warn('could not persist the glow settings', new Error('no settings form for "' + MOONSET_ENTRY_ID + '"'))
+      return
+    }
+    // Optimistic: the next read must already answer the user's choice, and the
+    // echo that follows only has to confirm it (never rewind it).
+    confirmed = { ...confirmed, ...patch }
+    const fields: [string, unknown][] = []
+    if (patch.glow !== undefined) fields.push(['glow', patch.glow])
+    if (patch.scope !== undefined) fields.push(['glowScope', patch.scope])
+    if (patch.strength !== undefined) fields.push(['glowStrength', patch.strength])
+    for (const [field, value] of fields) {
+      writes += 1
+      try {
+        void Promise.resolve(current.set(field, value)).catch((error: unknown) => {
+          warn('settings write failed', error)
+        })
+      } catch (error) {
+        warn('settings write failed', error)
+      }
+    }
+  }
+
+  const unbind = (): void => {
+    const release = releaseForm
+    releaseForm = undefined
+    form = undefined
+    // A rebind re-seeds from the new form: the old document answer dies with it.
+    confirmed = DEFAULT_GLOW
+    pending = {}
+    if (release === undefined) return
+    try {
+      release()
+    } catch (error) {
+      warn('could not unsubscribe from the settings form', error)
+    }
+  }
+
+  const bind = (next: ConfigForm<MoonsetSettingsSection>): void => {
+    unbind()
+    form = next
+    try {
+      releaseForm = next.subscribe(onFormChange)
+    } catch (error) {
+      warn('could not subscribe to the settings form', error)
+    }
+    const answer = snapshotOf(next)
+    if (answer !== undefined) confirmed = answer
+    // A late binding IS a state change: the section and the sheet must re-read.
+    notify()
+  }
+
+  if (typeof ctx.inject === 'function') {
+    try {
+      fiber = ctx.inject(['configForms'], (formsCtx) => {
+        const forms = formsCtx.configForms
+        if (forms === undefined || typeof forms.get !== 'function') return
+        bind(forms.get<MoonsetSettingsSection>(MOONSET_ENTRY_ID))
+        return () => { unbind() }
+      })
+    } catch (error) {
+      warn('could not bind the settings form', error)
+    }
+  }
+
+  return {
+    read(): MoonsetGlow {
+      return merged()
+    },
+    write(patch: Partial<MoonsetGlow>): void {
+      if (disposed) return
+      // A mutable local: MoonsetGlow's fields are readonly for the CONSUMER, and
+      // the patch being built here is exactly the writable half.
+      const next: { glow?: boolean; scope?: GlowScope; strength?: number } = {}
+      if (patch.glow !== undefined) next.glow = patch.glow
+      if (patch.scope !== undefined) next.scope = resolveGlowScope(patch.scope)
+      if (patch.strength !== undefined) next.strength = resolveGlowStrength(patch.strength)
+      if (Object.keys(next).length === 0) return
+      pending = { ...pending, ...next }
+      if (timer !== undefined) clearTimeout(timer)
+      const handle = setTimeout(() => {
+        timer = undefined
+        flush()
+      }, WRITE_DEBOUNCE_MS) as ReturnType<typeof setTimeout> & { unref?: () => void }
+      if (typeof handle.unref === 'function') handle.unref()
+      timer = handle
+    },
+    flush,
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    dispose(): void {
+      if (disposed) return
+      // Same contract as the choice store: an unload lands the pending edit.
+      flush()
+      disposed = true
+      unbind()
+      listeners.clear()
+      const injection = fiber
+      fiber = undefined
+      if (injection === undefined) return
+      try {
+        void injection.dispose().catch(() => { /* teardown is best-effort */ })
+      } catch (error) {
+        warn('could not dispose the settings injection', error)
+      }
+    },
+    get writes(): number {
+      return writes
     },
   }
 }

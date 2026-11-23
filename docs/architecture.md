@@ -413,10 +413,10 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **选区** | `html body ::selection` | UA 伪元素，无 token 座位 | 0.1.1 |
 | **选中项文字色** | 稳定属性钩子上的 `color`（见下表） | 宿主把选中容器的文字色直接写成 `--dsw-alias-label-primary`，值内联在规则里，**不能从一个 token 重新指向** | 0.1.1 |
 | **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
-| **地面可见性**（C 全透） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent` | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点 | 0.1.2 M1.5 |
+| **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.2 + M1.5，全表五条规则，39 行）：
+当前登记（0.1.2 + M1.5 + M2，全表六条规则，40 行）：
 
 ```css
 /* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
@@ -438,25 +438,26 @@ html[data-moonset-skin] body [aria-pressed='true'] {
 html[data-moonset-skin] body [data-active='true']::after {
   background: var(--dsw-static-deepseek-500);
 }
-/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The
-   strength factor is inlined in each color-mix (`calc(N% * 1)` = 100% here):
-   a custom-property hop would not recompute on Chromium (0.1.2 D2). */
+/* 0.1.2 ground: canvas + wash + two spots in ONE declaration; the strength
+   is resolved in JS, so every alpha below is a LITERAL percentage. */
 html[data-moonset-skin] body {
   background:
-    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),
-    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),
-    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
+    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) 16%, transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) 10%, transparent) 0%, transparent 60%),
+    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) 1.5%, transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
 }
-/* 0.1.2 visibility (plan C, all-transparent): the host paints bg-base on the
-   shell chain, the columns and every panel root, and the sidebar draws
-   sidebar-fill; clear the COLOUR of exactly those carriers — cards, bubbles,
-   the composer and menus keep their own paint, no layout property is written. */
+/* 0.1.2 visibility (scope: all): the host paints bg-base on these
+   carriers; clear their COLOUR — cards, bubbles and menus keep theirs. */
 html[data-moonset-skin] #root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar']),
 html[data-moonset-skin] #root :has([data-composer-seat]),
 html[data-moonset-skin] #root :has(> [data-slot='shell.bottom']),
 html[data-moonset-skin] #root [data-slot='main'] > div,
 html[data-moonset-skin] #root [data-slot='sidebar'] > div {
   background-color: transparent;
+}
+/* 0.1.2 bottom band (M2): the composer seat's bg-base mask is an image. */
+html[data-moonset-skin] #root [data-composer-seat] {
+  background-image: none;
 }
 ```
 
@@ -497,6 +498,32 @@ Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength,
 **开关 = 整条规则消失**：地面在 `skinCss()` 里是独立一段（`GLOW_RULES`），
 `skinCss({ glow: false })` 返回 0.1.1 那张 19 行的表——不是 alpha 归零（0 alpha 仍参与
 合成，0.1.2 §一）。M2 只需把这个选项接到 `Config`，不用再拆规则。
+
+**M2：地面范围（A/B/C）、开关与强度**：三个 volatile 字段（`glowScope` / `glow` /
+`glowStrength`）与 `choice` 同一个表单、同一个 300 ms 写防抖；样式表在**控制变化后**
+150 ms 重建（`SKIN_REBUILD_MS`，不是逐帧），走 `updateSkin()` 原地替换单例表的内容。
+三档是**嵌套**的，各自清哪些承载层见 §11.3 上表：
+
+| 档 | 额外清掉的承载层 | 侧栏 | 底部 |
+|---|---|---|---|
+| A `conversation` | — | 保留自己的面 | 保留 |
+| B `main` | 外壳与三列（`:has([main, sidebar, rightbar])`） | 保留 `sidebar-fill` 内层 | 保留 |
+| C `all`（默认） | B + 侧栏内层 + 底部单元 | 透出地面 | 透出地面 |
+
+**强度在 JS 里算，CSS 只收字面百分比**：`glowAlphas(strength)` 把 100% 的 16 / 10 / 1.5
+乘上系数并格式化成 `24%` / `15%` / `2.25%`，所以表里永远没有 `calc()`、也没有
+「藏在中间 custom property 里」的值（0.1.2 D2 的教训）。换算表：0 → 0/0/0，50 →
+8/5/0.75，100 → 16/10/1.5，150 → 24/15/2.25，200 → 32/20/3（单位 %）。开关关闭时整段
+（地面 + 清理 + 底部遮罩）一起消失，仍是 0.1.1 那张 19 行的表。
+
+**底部白带（M2 修）**：用户报 C 模式底部有一条亮带。定位到宿主在会话列底部画的遮罩带：
+`ConversationRoot.module.css` 的 `.root[data-phase='active'] .composerSeat` 用
+`linear-gradient(180deg, color-mix(bg-base 0%, transparent) 0px, bg-base 36px)` 把转写
+淡出到 `bg-base`；地面透出来后它就成了横跨会话列的浅色带。承载它的元素正是
+`ui-conversation` 渲染的 `className={…composerSeat}` + `data-composer-seat`（安装态
+`dsh-client-ui-conversation/lib/client.js` 同一行内两个属性），所以能用稳定属性命中；
+**只清它的 `background-image`**（band 本身是 image，`background-color` 清不掉它；而
+`background` 简写会连色/阴影一起抹掉）。输入卡、正文、卡片一律不碰。
 
 **地面可见性（0.1.2 M1.5，第三条的另一半）**：M1 把光晕画在 `body` 上，但真机「完全看不到」——因为宿主把 `--dsw-alias-bg-base` 画在它上面三层。安装态 0.2.2-rc.5 的 DOM 链（从 bundle 读出，不是按类名推测）：
 
@@ -594,8 +621,9 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
   增删一张表（`unmount` 之后零残留）。**唯一例外**是 §11.3 第五类「地面可见性」：
   结构性选择器只允许出现在那一条里，只允许用 `#root` 与 `[data-slot]` /
   `[data-composer-seat]` 定位（可直接取槽锚点的父/子一层，但不再往下数层级），
-  只允许写 `background-color: transparent`，范围止于「铺满一列或一屏」的承载层，
-  并且随 `glow: false` 一并消失；借它改结构、尺寸或位置仍然是回退；
+  只允许写 `background-color: transparent`（唯二例外是 M2 的底部遮罩带：允许一条
+  `background-image: none`，因为它本身就是 image），范围止于「铺满一列或一屏」的
+  承载层，并且随 `glow: false` 一并消失；借它改结构、尺寸或位置仍然是回退；
 - **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
 - **堆第二张表**：要扩就改 `skinCss()`，两处声明就是两份真相（P2）；
 - **写死颜色**：白名单里的每个颜色必须由 `var(--dsw-*)` 混出，否则跟随/主题切换会掉队
@@ -609,7 +637,7 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（33 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（42 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；
 `src/client/index.ts` 的
