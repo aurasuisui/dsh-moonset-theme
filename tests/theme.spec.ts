@@ -351,7 +351,9 @@ describe('apply — the boot path never throws (D3)', () => {
     apply(ctx)
 
     expect(theme.registrations.map((entry) => entry.definition.id)).toEqual(['moonset-light', 'moonset-dark'])
-    expect(labels).toEqual(['moonset: light/dark theme registrations'])
+    // 0.1.1 adds the skin effect beside the registrations; both ride the fiber,
+    // and both labels are asserted so a silently dropped teardown shows up here.
+    expect(labels).toEqual(['moonset: light/dark theme registrations', 'moonset: skin sheet'])
 
     for (const dispose of disposers) dispose()
     expect(theme.registrations).toEqual([])

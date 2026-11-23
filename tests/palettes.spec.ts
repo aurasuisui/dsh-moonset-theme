@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-import { MOONSET_CLASSES, MOONSET_DARK, MOONSET_LIGHT } from '../src/client/palettes'
+import {
+  MOONSET_CLASSES,
+  MOONSET_DARK,
+  MOONSET_LIGHT,
+  MOONSET_TOKEN_OVERRIDES,
+} from '../src/client/palettes'
 
 /**
  * M3 contract: the two Moonset tables must cover the installed 228-token
@@ -39,6 +44,15 @@ const TABLES: Record<Scheme, Record<string, string>> = {
   light: MOONSET_LIGHT,
   dark: MOONSET_DARK,
 }
+
+/**
+ * 0.1.1's deliberate token deltas (generator `TOKEN_OVERRIDES`).
+ *
+ * These tokens are the ONLY ones allowed to disagree with both their official
+ * value and their class rule: they carry the skin's selected/active seats, which
+ * upstream paints with a neutral rung.
+ */
+const OVERRIDDEN = new Set(MOONSET_TOKEN_OVERRIDES)
 
 interface OfficialTable {
   light: Record<string, string>
@@ -280,6 +294,14 @@ describe('moonset token tables', () => {
         checked += 1
         const generated = TABLES[scheme][token]
         expect(generated, scheme + ' ' + token).not.toBe(value)
+        if (OVERRIDDEN.has(token)) {
+          // 0.1.1: a TOKEN_OVERRIDES entry replaces this literal with an accent
+          // expression (still a legal CSS colour), so the literal-shape rule
+          // applies to every chroma literal EXCEPT the deliberately overridden
+          // ones (checked by the override test below).
+          expect(VALUE_SHAPE.test(generated), scheme + ' ' + token + ' = ' + generated).toBe(true)
+          continue
+        }
         expect(/^#[0-9A-F]{6}$|^rgba\(/.test(generated), scheme + ' ' + token + ' = ' + generated).toBe(true)
       }
     }
@@ -287,12 +309,86 @@ describe('moonset token tables', () => {
       MOONSET_CLASSES.light.chromaLiteral + MOONSET_CLASSES.dark.chromaLiteral,
     )
   })
+  it('overrides every selected/active seat with the accent (0.1.1)', () => {
+    // The seats and the wash strength are the contract; a reworded value is a
+    // re-measure, not a refactor. Shares: hover 10%, pressed 16%, selected
+    // surface 12%, chip fill 18%, outline 40%, settings row 10%, label plain.
+    const expected: [string, string][] = [
+      ['--dsw-alias-interactive-bg-hover', '10%'],
+      ['--dsw-alias-interactive-bg-active', '16%'],
+      ['--dsw-alias-bg-module-platform', '12%'],
+      ['--dsw-alias-button-ghost-active-fill', '18%'],
+      ['--dsw-alias-border-selected', '40%'],
+      ['--dsw-specific-sidebar-nav-item-active', '10%'],
+      ['--dsw-specific-sidebar-nav-item-active-accent', ''],
+    ]
+    expect([...MOONSET_TOKEN_OVERRIDES].sort()).toEqual(expected.map(([token]) => token).sort())
+    for (const [token, share] of expected) {
+      for (const scheme of SCHEMES) {
+        const generated = TABLES[scheme][token]
+        expect(generated, scheme + ' ' + token).not.toBe(official[scheme][token])
+        expect(generated, scheme + ' ' + token).toContain('var(--dsw-static-deepseek-500)')
+        if (share === '') {
+          expect(generated, scheme + ' ' + token).toBe('var(--dsw-static-deepseek-500)')
+        } else {
+          expect(generated, scheme + ' ' + token).toContain(share)
+        }
+      }
+    }
+    // The outline stays translucent (it can sit on any surface); the washes
+    // are opaque surfaces mixed with the canvas (separate tests below).
+    for (const scheme of SCHEMES) {
+      expect(TABLES[scheme]['--dsw-alias-border-selected']).toContain('transparent')
+      for (const token of ['--dsw-alias-interactive-bg-hover', '--dsw-alias-interactive-bg-active']) {
+        expect(TABLES[scheme][token], scheme + ' ' + token).toContain('--dsw-alias-bg-base')
+      }
+    }
+  })
+  it('paints the row seats as opaque accent surfaces, not ink overlays', () => {
+    // Upstream value for both is an rgba() wash (ink in light, white in dark).
+    // A row that is supposed to read as a SELECTED violet row cannot stay an
+    // overlay: it has to win over whatever surface it sits on, so the override
+    // is an opaque canvas mix.
+    for (const scheme of SCHEMES) {
+      for (const token of ['--dsw-alias-interactive-bg-hover', '--dsw-alias-interactive-bg-active']) {
+        const generated = TABLES[scheme][token]
+        expect(generated, scheme + ' ' + token).toContain('--dsw-alias-bg-base')
+        expect(generated, scheme + ' ' + token).not.toContain('rgba(')
+        expect(generated, scheme + ' ' + token).not.toContain('--dsw-static-neutral')
+      }
+    }
+  })
+
+  it('is the only override family with a translucent member (the outline)', () => {
+    // Everything else is an opaque surface (or the accent itself); the selected
+    // outline keeps upstream's translucent-border nature so it sits on any
+    // surface without a visible box.
+    const translucent = MOONSET_TOKEN_OVERRIDES.filter((token) =>
+      TABLES.light[token].includes('transparent') || TABLES.dark[token].includes('transparent'),
+    )
+    expect(translucent).toEqual(['--dsw-alias-border-selected'])
+    for (const scheme of SCHEMES) {
+      expect(TABLES[scheme]['--dsw-alias-border-selected']).toBe(
+        'color-mix(in srgb, var(--dsw-static-deepseek-500) 40%, transparent)',
+      )
+    }
+  })
 
   it('copies every var()/color-mix() expression verbatim so class A carries it', () => {
+    // 0.1.1 exception: TOKEN_OVERRIDES replaces a handful of B1 expressions on
+    // purpose (the selected/active seats). The generator refuses any other
+    // override, and each listed token must still resolve through the same
+    // scheme table.
+    expect(OVERRIDDEN.size).toBe(7)
     let checked = 0
     for (const scheme of SCHEMES) {
       for (const [token, value] of Object.entries(official[scheme])) {
         if (classifyValue(token, value) !== 'expression') continue
+        if (OVERRIDDEN.has(token)) {
+          expect(TABLES[scheme][token], scheme + ' ' + token).not.toBe(value)
+          expect(VALUE_SHAPE.test(TABLES[scheme][token]), scheme + ' ' + token).toBe(true)
+          continue
+        }
         checked += 1
         expect(TABLES[scheme][token], scheme + ' ' + token).toBe(value)
       }

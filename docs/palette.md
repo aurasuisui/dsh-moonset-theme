@@ -49,7 +49,7 @@
 | 类 | 判定 | 处理 | light | dark |
 |---|---|---|---|---|
 | **A** | 键名以 `--dsw-static-` 开头（82 个原语） | 按家族阶梯重建：step 500 = 家族锚点，低于 500 靠浅端、高于 500 靠深端；浅色 00=canvas / 1000=ink，暗色端点对调（00=ink / 1000=canvas），方向恒定，所以官方 alias 层照旧生效 | 82 | 82 |
-| **B1** | `var(--dsw-…)` 或 `color-mix(in srgb, …)` 表达式 | **逐字照抄**；被引用的 static 在同一张表里，所以它随 A 类一起变 | 109 | 110 |
+| **B1** | `var(--dsw-…)` 或 `color-mix(in srgb, …)` 表达式 | **逐字照抄**；被引用的 static 在同一张表里，所以它随 A 类一起变。0.1.1 起有七个显式覆盖（B1/B2/B3 键都可能有，见 [§2.1](#21-011-的七处-token-覆盖选中与激活座位)） | 109 | 110 |
 | **B2** | 纯中性字面量：`rgba(0,0,0,a)`、`rgba(255,255,255,a)`、`#000`、`#fff`、`transparent` | α 保留，颜色换成**本方案自己的**端点（浅：黑→ink、白→canvas；暗：黑→canvas、白→ink）；暗色端点对调是有意的，照字面会把描边画成 canvas 叠 canvas | 14 | 16 |
 | **B3** | 其它颜色字面量 | 逐条查 `CHROMA_LITERALS` 显式表（含 7 个 `--dsw-alias-json-tree-*`，keyword 与 number 分开列）；表里没有条目就拒绝生成 | 23 | 20 |
 | **B4** | 兜底 | **不存在**：生成器打印该键并 exit 1，不写文件 | 0 | 0 |
@@ -66,6 +66,59 @@ B1 被定义为「引用同表内 token 的表达式照抄」，不是「保留�
 **证据**：`scripts/generate-palettes.mjs` 的 `classify()` / `buildPalettes()`；
 `src/client/palettes.ts` 的 `MOONSET_CLASSES`；`tests/palettes.spec.ts` 用**独立重写**的分类器
 重算 82/109/14/23/0 与 82/110/16/20/0 并与文件比对。
+
+### 2.1 0.1.1 的七处 token 覆盖（选中与激活座位）
+
+0.1.1 起生成器里多了一张**显式覆盖表** `TOKEN_OVERRIDES`：官方值走中性阶梯、但月落
+要求「淡紫底 + 紫字」的 token，在那里逐条列出。它的键可以是 **B1 / B2 / B3** 三类
+（`interactive-bg-hover` / `-active` 官方在浅色是 rgba 字面量、暗色是纯中性字面量），
+但**不改变分类计数**——计数按官方值所属的类统计，所以仍是 109/110、14/16、23/20。
+
+覆盖值与命中分布（命中数来自安装态 app.asar 反查，见
+[v0.1.1 计划 §二](plans/v0.1.1.md)）：
+
+| token | 改前（官方，浅 / 暗） | 改后（月落） | 座位与命中 | 落地观感（浅 / 暗） |
+|---|---|---|---|---|
+| `--dsw-alias-interactive-bg-hover` | `rgba(38, 49, 72, .06)` / `rgba(255, 255, 255, .08)` | `color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))` | **主座位（14）**：`.rowActive`、`.badge[data-active]`、自动化 tab、会话行 | `#E8E7F7` / `#1A1D2E` |
+| `--dsw-alias-interactive-bg-active` | `rgba(38, 49, 72, .10)` / `rgba(255, 255, 255, .14)` | 同族 **16%** | 按压态（7） | `#DDDBF4` / `#21253B` |
+| `--dsw-alias-bg-module-platform` | `var(--dsw-static-neutral-bluish-60)` / `-800` | 同族 **12%** | `.cardActive` / `.selected` 面（2） | `#E4E3F6` / `#1D2032` |
+| `--dsw-alias-button-ghost-active-fill` | `var(--dsw-static-neutral-bluish-100)` / `-750` | 同族 **18%** | 幽灵按钮选中格、时钟/日期选择器（2） | `#D9D7F3` / `#242740` |
+| `--dsw-alias-border-selected` | `var(--dsw-static-neutral-bluish-400)` ×2 | `color-mix(in srgb, var(--dsw-static-deepseek-500) 40%, transparent)` | 选中描边（半透明，可贴任意面） | 叠 canvas `#B1ACE8` / `#3D4271` |
+| `--dsw-specific-sidebar-nav-item-active` | `var(--dsw-static-neutral-bluish-100)` / `-750` | 同族 **10%** | 设置侧栏选中行（1） | `#E8E7F7` / `#1A1D2E` |
+| `--dsw-specific-sidebar-nav-item-active-accent` | 浅 `deepseek-100` / 暗 `neutral-bluish-800` | `var(--dsw-static-deepseek-500)` | 选中行文字/图标（紫字） | `#4338CA`（**6.45:1**）/ `#818CF8`（**5.58:1**） |
+
+为什么它们属于 **token** 而不是 CSS：选中/激活是宿主组件已有的 token 座位，改值就
+能全局跟随；只有 token 装不下的东西才进
+[架构 §11](architecture.md#11-css-注入白名单p5-例外登记) 的 CSS 注入白名单（0.1.1 的
+文本选区、0.1.2 的地面渐变、0.1.3 的材质面）。所有覆盖值都引用同一张表里的 token，
+所以浅深与主题切换自动跟随，没有第二份色源；具体是
+`--dsw-static-deepseek-500`（= `deepseek` 阶梯 500 = 源板 `accent`：浅 `#4338CA` /
+暗 `#818CF8`）和 `--dsw-alias-bg-base`（= 画布）。
+
+两处**不覆盖**的说明：`--dsw-alias-state-business-primary` 本来就指向 `deepseek-500`/
+`-400`（激活下划线已经是紫的）；`--dsw-alias-button-primary-fill` 走的是
+`--dsw-alias-brand-primary`（本表里是中性墨色），chip 选中仍是墨色——真机四场景里若
+露出来再进 backlog。
+
+**文字色不在这张表里**：选中容器的 `color` 由宿主规则直接写成
+`--dsw-alias-label-primary`，改 token 改不到它；它由 `skinCss()` 的属性钩子
+（`aria-selected` / `aria-current` / `data-active` / `aria-pressed`，外加插件页 tab
+的 `data-active::after` 下划线）补齐，登记在
+[架构 §11](architecture.md#11-css-注入白名单p5-例外登记) 的「选中项文字色」一条。
+也就是说：**底色/描边是 token，文字色是白名单**，两者不重叠。
+
+守卫：`validateOverrides()` 对「未知键 / `--dsw-static-*` 键 / 与 `CHROMA_LITERALS` 撞车 /
+引用表外 token / 与官方值相同」任一情形 exit 1，`buildPalettes()` 还拒绝未被消费的条目；
+被覆盖的字面量必须从 `CHROMA_LITERALS` 里**移除**（一个 token 只能有一个所有者）。
+覆盖过的名字导出为 `MOONSET_TOKEN_OVERRIDES`；测试侧 `tests/palettes.spec.ts` 断言
+`OVERRIDDEN.size === 7`、七条覆盖各自的份额与形状、以及「值 ≠ 官方值」（其余 B1 表达式
+照旧逐字比对、其余 B3 字面量照旧是字面量）；`tests/skin.spec.ts` 断言这些座位与选区
+规则取自同一个 accent。
+
+**证据**：`scripts/generate-palettes.mjs` 的 `TOKEN_OVERRIDES` / `validateOverrides()`；
+`src/client/palettes.ts` 的 `MOONSET_TOKEN_OVERRIDES`；`tests/palettes.spec.ts` 的
+「overrides every selected/active seat」「opaque accent surfaces」「only override family
+with a translucent member」；`tests/skin.spec.ts` 的 `pairs with the token half`。
 
 ## 3. 22 条对比度契约（实测值）
 

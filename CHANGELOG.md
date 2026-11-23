@@ -4,6 +4,31 @@
 完整契约（里程碑、出口条件、已决、已知债）见
 [docs/plans/v0.1.0.md](docs/plans/v0.1.0.md)；文档索引见 [docs/README.md](docs/README.md)。
 
+## 0.1.1 — 2026-11-23
+
+皮肤层第一版：选中态与文本选区统一成月落的紫。**默认随插件激活生效**，选「官方主题」时自动撤除。
+
+### 新增
+
+- **选中态配色（7 个 token 覆盖）**：`--dsw-alias-interactive-bg-hover/-active`、`--dsw-alias-bg-module-platform`、
+  `--dsw-alias-button-ghost-active-fill`、`--dsw-alias-border-selected`、`--dsw-specific-sidebar-nav-item-active(-accent)`，
+  全部由 accent 混出（10–18% 底 / 40% 描边），会话列表、设置侧栏、插件页、自动化任务页四处一致。
+- **选中项紫字**：`aria-selected` / `aria-current` / `data-active` / `aria-pressed` 四类**稳定属性**钩子 +
+  根属性 `html[data-moonset-skin]` 门控（0,2,2 特异性，压过宿主 `.tab[data-active]` 的 0,2,0）；无 `!important`、无通配子树。
+- **文本选区**：`::selection` = accent 22% 底 + accent 字（对齐文档站 `selection:bg-indigo-500/20 text-indigo-700`）；
+  实测选中文字对比度 浅 5.25:1 / 暗 4.55:1。
+- **皮肤层基础设施**：单张样式表 + 根属性；`off`（官方主题）即摘除，卸载零残留；零常驻 JS（P1）。
+
+### 修复
+
+- 0.1.1 首轮真机失败：只覆盖了 `sidebar-nav-item-active` 一个座位（1/22 命中），会话行/插件页/自动化页仍为灰。
+  根因与命中分布记入 [docs/plans/v0.1.1.md](docs/plans/v0.1.1.md) §二。
+
+### 已知边界
+
+- 自动化任务页的**选中行**未覆盖：宿主只给 `aria-expanded`（语义是"展开"，会误染菜单），等宿主提供专用钩子。
+- detail tab 暗色下文字（`deepseek-500`）与宿主下划线（`business-primary` = `deepseek-400`）差一级。
+
 ## 0.1.0 — 2026-11-22
 
 首个可用版本。
