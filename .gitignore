@@ -15,9 +15,13 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# Credentials (npm granular access tokens live here)
+.npmrc
+
 # Local debugging / scratch artifacts
 .env*
 *.log
 
 # Release tarballs (npm pack output)
 *.tgz
+

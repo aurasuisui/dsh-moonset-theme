@@ -27,8 +27,11 @@ Moonset（月落）是 DeepSeek Harness Web GUI 的一套浅色/深色主题：�
 
 ### 从 npm 安装（推荐，0.1.0 起可用）
 
-`@aurasuisui/dsh-moonset-theme` 已发布到 npm，产物（`lib/`、`cordis.patch.yml`、
-sourcemap、截图）都在包里，安装时不需要构建：
+`@aurasuisui/dsh-moonset-theme@0.1.0` 已发布到 npm
+（[npm](https://www.npmjs.com/package/@aurasuisui/dsh-moonset-theme) ·
+[GitHub](https://github.com/aurasuisui/dsh-moonset-theme) ·
+[tag `v0.1.0`](https://github.com/aurasuisui/dsh-moonset-theme/releases/tag/v0.1.0)）。
+产物（`lib/`、`cordis.patch.yml`、sourcemap、截图）都在包里，安装时不需要构建：
 
 ```powershell
 # 桌面壳的 profile 只能由桌面壳自带的 CLI 管理（npm 全局的 dsh 会拒绝 desktop）。
