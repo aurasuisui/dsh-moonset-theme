@@ -70,8 +70,14 @@ const EXPECTED_CSS = [
   "html[data-moonset-skin] body [aria-selected='true'],",
   "html[data-moonset-skin] body [aria-current='page'],",
   "html[data-moonset-skin] body [aria-current='true'],",
-  "html[data-moonset-skin] body [data-active='true'] {",
+  "html[data-moonset-skin] body [data-active='true'],",
+  "html[data-moonset-skin] body [aria-pressed='true'] {",
   '  color: var(--dsw-static-deepseek-500);',
+  '}',
+  '/* the host draws the selected tab underline as a 2px ink bar; keep it the',
+  '   label colour. Only the plugins tab renders an ::after on such an element. */',
+  "html[data-moonset-skin] body [data-active='true']::after {",
+  '  background: var(--dsw-static-deepseek-500);',
   '}',
 ].join('\n')
 
@@ -281,19 +287,23 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 20 lines, two rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 20 lines, three rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
     expect(lines.length).toBeLessThanOrEqual(20)
-    // Exactly two blocks: text selection, and the selected-item label colour.
+    // Three blocks: text selection, the selected-item label colour, the
+    // selected tab's underline.
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(2)
-    expect(css.match(/\}/g)).toHaveLength(2)
-    // The selected-item block is the second whitelist entry: <= 12 lines.
+    expect(css.match(/\{/g)).toHaveLength(3)
+    expect(css.match(/\}/g)).toHaveLength(3)
+    // Both additive blocks stay well inside the 12-line entry budget.
     const selectedStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
+    const underlineStart = css.indexOf("html[data-moonset-skin] body [data-active='true']::after")
     expect(selectedStart).toBeGreaterThan(-1)
-    expect(css.slice(selectedStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(underlineStart).toBeGreaterThan(selectedStart)
+    expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
@@ -304,10 +314,10 @@ describe('skinCss — the whitelisted rules', () => {
 
     // Every declaration reads the ONE accent token: the wash and the text are
     // the same colour at different opacities (documentation-site semantics),
-    // and the selected-item label reuses it.
+    // and the selected-item label plus the tab underline reuse it.
     const tokens = css.match(/var\(--dsw-[a-z0-9-]+\)/g) ?? []
     expect(new Set(tokens)).toEqual(new Set([`var(${ACCENT})`]))
-    expect(tokens).toHaveLength(3)
+    expect(tokens).toHaveLength(4)
     // Nothing opaque: no hex, no rgb()/hsl() literal anywhere in the sheet.
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(css).not.toMatch(/\b(?:rgba?|hsla?)\(/)
@@ -387,17 +397,21 @@ describe('skinCss — the whitelisted rules', () => {
   })
   it('paints the selected-item LABEL with the accent, on stable attributes only', () => {
     const css = skinCss()
-    // The four hook attributes the real UI actually renders (verified against
+    // The five hook attributes the real UI actually renders (verified against
     // the installed sources: workspace rows aria-selected, SettingsRoot
     // aria-current='true', main sidebar aria-current='page', plugin tabs
-    // aria-selected + data-active). Root-gated (P2), which is also what beats
-    // the host's own selected-tab colour rule.
-    const selectors = [...css.matchAll(/html\[data-moonset-skin\] body \[[^\]]+\]/g)].map((m) => m[0])
+    // aria-selected + data-active, automation filter chips aria-pressed).
+    // Root-gated (P2), which is also what beats the host's own selected-tab
+    // colour rule.
+    const colourStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
+    const colourBlock = css.slice(colourStart, css.indexOf('}', colourStart) + 1)
+    const selectors = [...colourBlock.matchAll(/html\[data-moonset-skin\] body \[[^\]]+\]/g)].map((m) => m[0])
     expect(selectors).toEqual([
       "html[data-moonset-skin] body [aria-selected='true']",
       "html[data-moonset-skin] body [aria-current='page']",
       "html[data-moonset-skin] body [aria-current='true']",
       "html[data-moonset-skin] body [data-active='true']",
+      "html[data-moonset-skin] body [aria-pressed='true']",
     ])
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
     // No class-name hacks, no wildcard subtree selector, no !important.
@@ -405,9 +419,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(rules).not.toContain('*')
     // The rule colours the container and lets the label inherit; muted
     // children (timestamps, summaries) set their own colour and keep it.
-    const block = /\[data-active='true'\] \{([\s\S]*?)\}/.exec(rules)
-    expect(block).not.toBeNull()
-    expect(block![1]).toContain(`color: var(${ACCENT});`)
+    expect(colourBlock).toContain(`color: var(${ACCENT});`)
   })
 
   it('keeps the selected-item LABEL readable on the selected-row wash (AA >= 4.5:1)', () => {
@@ -424,6 +436,36 @@ describe('skinCss — the whitelisted rules', () => {
         scheme + ' selected label on the row wash = ' + ratio.toFixed(2) + ':1',
       ).toBeGreaterThanOrEqual(4.5)
     }
+  })
+  it('covers pressed chips and the selected-tab underline, both root-gated', () => {
+    const css = skinCss()
+    // Pressed chip (automation filter tabs): the SAME root-gated colour block,
+    // so "pressed" is one more "selected" spelling. Accepted trade-off:
+    // pressed like/dislike buttons take the accent too, which is the intent.
+    const colourStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
+    const colourBlock = css.slice(colourStart, css.indexOf('}', colourStart) + 1)
+    expect(colourBlock).toContain("html[data-moonset-skin] body [aria-pressed='true']")
+    expect(colourBlock).toContain(`color: var(${ACCENT});`)
+
+    // The selected tab's underline: the host draws it as a 2px ink bar
+    // (.tab[data-active='true']::after), so it follows the label colour.
+    // Audited: only the plugins tab renders an ::after on a data-active element
+    // (the retry arrow is summary::after; badge/feedback buttons have none), so
+    // the selector does not need narrowing to [role='tab'].
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(rules.match(/::after/g)).toHaveLength(1)
+    const underline = /html\[data-moonset-skin\] body \[data-active='true'\]::after \{([\s\S]*?)\}/.exec(rules)
+    expect(underline).not.toBeNull()
+    expect(underline![1]).toContain(`background: var(${ACCENT});`)
+  })
+
+  it('the underline rule paints only the bar, never its size or position', () => {
+    const underline = /html\[data-moonset-skin\] body \[data-active='true'\]::after \{([\s\S]*?)\}/.exec(skinCss())
+    if (underline === null) throw new Error('missing the selected-tab underline rule')
+    const declarations = underline[1].split(';').map((entry) => entry.trim()).filter(Boolean)
+    // Ours is the colour only; the bar's 2px size and placement stay host-owned
+    // (11.4: the sheet may not change layout).
+    expect(declarations).toEqual([`background: var(${ACCENT})`])
   })
 })
 

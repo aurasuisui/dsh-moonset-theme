@@ -104,6 +104,24 @@ export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
  * and keep it, so only the primary label turns violet. Measured contrast of the
  * accent label on the selected-row wash: light 6.45:1, dark 5.58:1.
  *
+ * Two more seats ride the same idea:
+ *
+ *  - **pressed chips** (`[aria-pressed='true']`): the automation filter tabs
+ *    spell "selected" as a pressed toggle. Accepted because in this UI pressed
+ *    and selected are the same state; the rule therefore also colours pressed
+ *    like/dislike buttons, which is the intended reading.
+ *  - **the selected tab's underline** (`[data-active='true']::after`): the host
+ *    draws it as a 2px ink bar, which would leave a black bar under violet text.
+ *    The selector is NOT narrowed to `[role='tab']`: only the plugins tab renders
+ *    an `::after` on a `data-active` element (audited in the installed sources —
+ *    the retry disclosure arrow is `summary::after`, the badge and feedback
+ *    buttons have no `::after`), so the broader selector is exact in practice.
+ *
+ * One seat remains out: `[aria-expanded='true']` (the automation page's selected
+ * task row) is deliberately NOT whitelisted — "expanded" is not "selected" and
+ * the same attribute sits on every menu trigger and disclosure, so colouring it
+ * would repaint states the skin should not touch.
+ *
  * How the exception maps onto §一 P5's whitelist:
  *
  *   `::selection`  text selection — cannot be expressed as a token (see the
@@ -129,8 +147,14 @@ export function skinCss(): string {
     "html[data-moonset-skin] body [aria-selected='true'],",
     "html[data-moonset-skin] body [aria-current='page'],",
     "html[data-moonset-skin] body [aria-current='true'],",
-    "html[data-moonset-skin] body [data-active='true'] {",
+    "html[data-moonset-skin] body [data-active='true'],",
+    "html[data-moonset-skin] body [aria-pressed='true'] {",
     '  color: var(--dsw-static-deepseek-500);',
+    '}',
+    '/* the host draws the selected tab underline as a 2px ink bar; keep it the',
+    '   label colour. Only the plugins tab renders an ::after on such an element. */',
+    "html[data-moonset-skin] body [data-active='true']::after {",
+    '  background: var(--dsw-static-deepseek-500);',
     '}',
   ].join('\n')
 }

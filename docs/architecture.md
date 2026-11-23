@@ -415,7 +415,7 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.1，全表两条规则，14 行）：
+当前登记（0.1.1，全表三条规则，19 行）：
 
 ```css
 /* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */
@@ -428,8 +428,14 @@ html body ::selection {
 html[data-moonset-skin] body [aria-selected='true'],
 html[data-moonset-skin] body [aria-current='page'],
 html[data-moonset-skin] body [aria-current='true'],
-html[data-moonset-skin] body [data-active='true'] {
+html[data-moonset-skin] body [data-active='true'],
+html[data-moonset-skin] body [aria-pressed='true'] {
   color: var(--dsw-static-deepseek-500);
+}
+/* the host draws the selected tab underline as a 2px ink bar; keep it the
+   label colour. Only the plugins tab renders an ::after on such an element. */
+html[data-moonset-skin] body [data-active='true']::after {
+  background: var(--dsw-static-deepseek-500);
 }
 ```
 
@@ -462,11 +468,26 @@ html[data-moonset-skin] body [data-active='true'] {
 | 设置侧栏 | `SettingsRoot.tsx` 的 `aria-current={row.id === active ? 'true' : undefined}` | `'true'` |
 | 主侧栏面板切换 | `SidebarRoot.tsx` 的 `aria-current={active ? 'page' : undefined}` | `'page'` |
 | 插件页 tab | `PluginsSettingsSection.tsx` 的 `aria-selected={selected}` + `data-active={selected ? 'true' : undefined}` | `'true'` |
+| 插件页 tab 下划线 | 宿主 `.tab[data-active='true']::after`（2px 墨条），用同一个 `data-active` 钩子重染 | `'true'` |
+| 自动化任务页 filter chip | `TaskManagerPage.tsx` 的 `aria-pressed={statusFilter === value}` | `'true'` |
 | 自动化任务页 detail tab | `TaskDetail.tsx` 的 `aria-selected={tab === value}` | `'true'`（宿主本来就是业务强调色） |
 
-两条**没有这四类钩子**的座位（只报告、不发明类名选择器）：自动化任务页的 filter chip
-只有 `aria-pressed`（`TaskManagerPage.tsx`）+ `.filterTabActive`，选中行只有
-`aria-expanded`（同文件）+ `.selectedRow`；要不要为它们另加规则由维护者决定。
+**「按下」也算选中**：自动化任务页的 filter chip 用的是 `aria-pressed`（不是
+`aria-selected`），这类按钮在本 UI 里就是「选中 chip」，所以并入同一个门控块；代价是同一条
+规则也会染到按下的 like/dislike 按钮——语义一致，接受。
+
+**下划线也必须跟着走**：插件页 tab 的选中指示是宿主画的 2px 墨条
+（`.tab[data-active='true']::after`），只染字会留下「紫字 + 墨条」，所以追加一条
+`[data-active='true']::after { background: accent }`。选择器**没有**收窄到
+`[role='tab']`：全量核对过安装态里 5 个产出 `data-active` 的组件，只有插件页 tab 在
+`data-active` 元素上画 `::after`（重试行的小箭头是 `summary::after`，badge 与
+反馈按钮没有 `::after`），所以宽选择器在实践中是精确的，也避免把规则写死在某一个
+`role` 上。
+
+**剩下一处没有稳定钩子**：自动化任务页的选中行只有 `aria-expanded`
+（`TaskManagerPage.tsx`）+ `.selectedRow`。「展开」不是「选中」，且
+`aria-expanded` 会命中所有菜单触发器/折叠区，副作用大于收益，因此**不纳入**白名单；
+真机若要它变紫，需要宿主给 `data-selected` 之类的专用钩子（记 backlog）。
 
 两个实现细节解释了这条规则为什么长这样：
 
@@ -482,6 +503,7 @@ html[data-moonset-skin] body [data-active='true'] {
 对比度（紫字压在选中行的淡紫底上，底色 = `--dsw-alias-interactive-bg-hover` 叠
 `bg-base`）：浅 **6.45:1** / 暗 **5.58:1**，均过 AA 4.5:1；`tests/skin.spec.ts` 用
 调色板重算这一对。
+
 **与 token 的分工**：选中 / 激活座位的**底色与描边**走 **token**，不进白名单——
 它们是生成器 `TOKEN_OVERRIDES` 的**七个**条目（主座位是
 `--dsw-alias-interactive-bg-hover` / `-active`，都是
