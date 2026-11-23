@@ -632,7 +632,7 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * `.tab[data-active='true']` (0,2,0), which is exactly the plugins-tab label
  * the first real-machine pass left ink; `html[data-moonset-skin] body
  * [data-active='true']` is (0,2,2) and wins. No `!important`, no wildcard
- * subtree selector: muted children (timestamps, summaries) set their own colour
+ * subtree sweep: muted children (timestamps, summaries) set their own colour
  * and keep it, so only the primary label turns violet. Measured contrast of the
  * accent label on the selected-row wash: light 6.45:1, dark 5.58:1.
  *
@@ -653,6 +653,29 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * task row) is deliberately NOT whitelisted — "expanded" is not "selected" and
  * the same attribute sits on every menu trigger and disclosure, so colouring it
  * would repaint states the skin should not touch.
+ *
+ * The 0.1.3 M2 block is the whitelist's step-row entry: the four STEP ROW
+ * implementations the installed client renders (the generic tool row
+ * `ToolRow`, the bash row, the reasoning row and the generic command card)
+ * all publish the SAME two stable hooks — the row root carries
+ * `[data-variant][data-state]`, and the "`·`" between the tool name and its
+ * arguments is `[data-shimmer-decoration]` — while the tool name and the
+ * arguments/path cells themselves carry only hashed class names. The rule
+ * therefore addresses the two cells RELATIVELY to that dot: the element whose
+ * next sibling is the dot is the name (`:has(+ …)`), the sibling after it is
+ * the arguments (`+ *`). The one universal selector in the sheet is that
+ * sibling position, not a sweep: it cannot escape the row, and the expanded body
+ * is a SIBLING of the disclosure row, so it is outside the rule by construction.
+ * The mono face is `--ds-font-family-code` (the theme layer's code stack, the
+ * same one the host's own diff totals read); the failure line and its exit
+ * capsule (`[data-tone]`) take `--dsw-alias-state-error-primary` — the token
+ * the host already uses for a failed summary. Measured on the canvas: name
+ * 7.58:1 / 6.33:1, arguments 8.62:1 / 9.32:1, failure 6.41:1 / 8.10:1 (light /
+ * dark). A SUCCESS capsule does not exist in this build: the exit badge renders
+ * only while `terminalFailed()` is true (`dsh-client-ui-tool/…/terminal-card-model.ts:96-112`,
+ * `ExitCodeBadge.tsx:12` hard-codes `tone="neutral"`), and the green alias
+ * measures 3.61:1 on the light canvas — below AA for text — so nothing is
+ * painted for the success case (§11.7 records the gap).
  *
  * The 0.1.2 GROUND is one more rule — the whitelist's third entry. It is a
  * single `background` on `body`, root-gated, three layers above the canvas
@@ -710,6 +733,8 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  *   `::selection`  text selection — cannot be expressed as a token (see the
  *                   module doc above), so it is the FIRST whitelist entry;
  *   body ground     (0.1.2) wash + two fixed spots, also whitelisted;
+ *   step rows       (0.1.3 M2) the two terminal-coloured cells of a step row,
+ *                   also whitelisted;
  *   material faces  (0.1.3) `::before` planes, also whitelisted.
  *
  * The selector is `html body ::selection` (0,0,2) so it outranks a plain
@@ -723,7 +748,7 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  */
 export function skinCss(options: SkinOptions = {}): string {
   const rules = [
-    '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
+    '/* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */',
     'html body ::selection {',
     '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
     '  color: var(--dsw-static-deepseek-500);',
@@ -741,6 +766,23 @@ export function skinCss(options: SkinOptions = {}): string {
     '   label colour. Only the plugins tab renders an ::after on such an element. */',
     "html[data-moonset-skin] body [data-active='true']::after {",
     '  background: var(--dsw-static-deepseek-500);',
+    '}',
+    '/* 0.1.3 M2: a step row reads as a terminal line. Hooks are the host\'s: a row',
+    '   carries [data-variant][data-state], and the dot between the tool name and its',
+    '   arguments is [data-shimmer-decoration] — name before it, arguments after. */',
+    "html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration]) {",
+    '  color: var(--dsw-static-deepseek-500);',
+    '  font-family: var(--ds-font-family-code);',
+    '}',
+    "html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + * {",
+    '  color: var(--dsw-alias-label-secondary);',
+    '  font-family: var(--ds-font-family-code);',
+    '}',
+    '/* failed step (exit != 0 / signal): the host capsules it, Tag = [data-tone]. */',
+    "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
+    "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
+    '  color: var(--dsw-alias-state-error-primary);',
+    '  font-weight: 500;',
     '}',
   ]
   if (options.glow !== false) {

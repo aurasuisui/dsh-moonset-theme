@@ -88,15 +88,33 @@ const MOON = '--dsw-static-amber-500'
 const CANVAS = '--dsw-alias-bg-base'
 
 /**
- * The 0.1.1 half of the sheet, restated verbatim.
+ * The sheet's line budget: 60 through 0.1.2, 75 since 0.1.3 M2.
+ *
+ * The M2 step-row block is the fourth whitelist entry and the first one that has
+ * to address TWO cells of a host row plus their failed state, so the ceiling
+ * moved by 15 lines (measured: 55 → 74) instead of being bent per rule. The
+ * architecture doc §11.5 carries the same number.
+ */
+const SHEET_BUDGET = 75
+
+/**
+ * Rule blocks in the default sheet: nine through 0.1.2, twelve since 0.1.3 M2
+ * (the tool/command name, its arguments, and the failed-step colour).
+ */
+const SHEET_RULES = 12
+
+/**
+ * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
  *
  * A literal on purpose: this string IS the whitelist entry, so the test has to
  * fail when the production rule is reworded, re-scoped or grows a declaration.
  * 0.1.2 appends the ground segment below; splitting the halves lets the
- * switch-off case assert the pre-glow sheet returns byte-for-byte.
+ * switch-off case assert the pre-glow sheet returns byte-for-byte. 0.1.3 M2
+ * appends the step-row colours to THIS half: they ride the same switch, so the
+ * pre-glow sheet still carries them.
  */
 const EXPECTED_BASE_CSS = [
-  '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
+  '/* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */',
   'html body ::selection {',
   '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
   '  color: var(--dsw-static-deepseek-500);',
@@ -114,6 +132,23 @@ const EXPECTED_BASE_CSS = [
   '   label colour. Only the plugins tab renders an ::after on such an element. */',
   "html[data-moonset-skin] body [data-active='true']::after {",
   '  background: var(--dsw-static-deepseek-500);',
+  '}',
+  '/* 0.1.3 M2: a step row reads as a terminal line. Hooks are the host\'s: a row',
+  '   carries [data-variant][data-state], and the dot between the tool name and its',
+  '   arguments is [data-shimmer-decoration] — name before it, arguments after. */',
+  'html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration]) {',
+  '  color: var(--dsw-static-deepseek-500);',
+  '  font-family: var(--ds-font-family-code);',
+  '}',
+  'html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + * {',
+  '  color: var(--dsw-alias-label-secondary);',
+  '  font-family: var(--ds-font-family-code);',
+  '}',
+  '/* failed step (exit != 0 / signal): the host capsules it, Tag = [data-tone]. */',
+  "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
+  "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
+  '  color: var(--dsw-alias-state-error-primary);',
+  '  font-weight: 500;',
   '}',
 ].join('\n')
 
@@ -392,20 +427,22 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 60 lines, nine rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 75 lines, twelve rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
-    // 60 since M3 (the dark composition) — the night anchor pairs add two more
-    // rules without coming close to the ceiling.
-    expect(lines.length).toBeLessThanOrEqual(60)
-    // Nine blocks: text selection, the selected-item label colour, the selected
-    // tab's underline, the night anchor (light), the night anchor (dark), the
-    // light ground, the DARK ground override, the visibility clear, and the M2
-    // bottom-band entry (an image, not a colour).
+    // 75 since 0.1.3 M2 (the step-row colours: three rules, 19 lines); 60 through
+    // 0.1.2 (the dark composition). The ceiling is the whitelist's, not the
+    // milestone's, so a new block has to buy its lines HERE before it ships.
+    expect(lines.length).toBeLessThanOrEqual(SHEET_BUDGET)
+    // Twelve blocks: text selection, the selected-item label colour, the selected
+    // tab's underline, the step-row name, its arguments, the failed step, the
+    // night anchor (light), the night anchor (dark), the light ground, the DARK
+    // ground override, the visibility clear, and the M2 bottom-band entry (an
+    // image, not a colour).
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(9)
-    expect(css.match(/\}/g)).toHaveLength(9)
+    expect(css.match(/\{/g)).toHaveLength(SHEET_RULES)
+    expect(css.match(/\}/g)).toHaveLength(SHEET_RULES)
     // Every additive block stays well inside the 12-line entry budget. The two
     // grounds and the visibility clear are blocks of ONE switchable segment, so
     // the budget is measured per block, not per segment.
@@ -417,15 +454,23 @@ describe('skinCss — the whitelisted rules', () => {
     const darkStart = css.indexOf('/* 0.1.2 ground (dark)')
     const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
     const bandStart = css.indexOf('/* 0.1.2 bottom band (M2)')
+    // 0.1.3 M2 sits between the selected-item rules and the ground: it is text
+    // colouring, not a paint layer, so it rides the 0.1.1 half of the sheet.
+    const stepStart = css.indexOf('/* 0.1.3 M2')
+    const stepEnd = css.indexOf('}', css.indexOf('~ [data-tone]')) + 1
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
-    expect(anchorStart).toBeGreaterThan(underlineEnd)
+    expect(stepStart).toBeGreaterThan(underlineEnd)
+    expect(anchorStart).toBeGreaterThan(stepEnd)
     expect(groundStart).toBeGreaterThan(anchorStart)
     expect(darkStart).toBeGreaterThan(groundStart)
     expect(clearStart).toBeGreaterThan(darkStart)
     expect(bandStart).toBeGreaterThan(clearStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
+    // The step-row entry: three rules, two of them one-liner cell rules, plus the
+    // two comment paragraphs that carry the hook evidence. 20 is its own ceiling.
+    expect(css.slice(stepStart, stepEnd).split('\n').length).toBeLessThanOrEqual(20)
     expect(css.slice(anchorStart, groundStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(groundStart, darkStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(darkStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
@@ -449,11 +494,20 @@ describe('skinCss — the whitelisted rules', () => {
       `var(${ACCENT})`,
       `var(${MOON})`,
       `var(${CANVAS})`,
+      // 0.1.3 M2: the step-row arguments and the failed-step line. Both are
+      // label/state aliases, so they follow the scheme without a literal.
+      'var(--dsw-alias-label-secondary)',
+      'var(--dsw-alias-state-error-primary)',
     ]))
     // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
     // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
-    // ground (night): one canvas. The night anchor refs are counted separately.
-    expect(tokens).toHaveLength(9)
+    // ground (night): one canvas. 0.1.3 M2: the step-row name is the accent
+    // again, plus its arguments and the failed-step line. The night anchor
+    // refs are counted separately.
+    expect(tokens).toHaveLength(12)
+    // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
+    // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
+    expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
     expect(css.match(/var\(--dsh-moonset-night\)/g) ?? []).toHaveLength(4)
     // The anchor is DECLARED in every sheet (it is a custom property, unused by
     // the other hues) and REFERENCED only by a ground whose hue is `night`.
@@ -562,12 +616,16 @@ describe('skinCss — the whitelisted rules', () => {
       "html[data-moonset-skin] body [aria-pressed='true']",
     ])
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
-    // No class-name hacks, no wildcard selector, no !important. The `*` in the
-    // ground's calc() products is arithmetic, not a selector, so only selector
-    // text (everything outside a declaration block) is checked for it.
+    // No class-name hacks, no !important, and exactly TWO universal selectors —
+    // both are 0.1.3 M2's `[data-shimmer-decoration] + *`, i.e. "the cell
+    // right after the separator dot" (the idle rule, and the failed-step rule that
+    // reuses the same cell). That is a single-sibling position inside a step row,
+    // not a subtree sweep — every other selector stays attribute-anchored. Only
+    // selector text (everything outside a declaration block) is checked.
     const selectorText = rules.replace(/\{[^}]*\}/g, '')
     expect(selectorText).not.toMatch(/\[class|\*=/)
-    expect(selectorText).not.toContain('*')
+    expect(selectorText.match(/\*/g) ?? []).toHaveLength(2)
+    expect(selectorText).toContain('[data-shimmer-decoration] + *')
     expect(rules).not.toContain('!important')
     // The rule colours the container and lets the label inherit; muted
     // children (timestamps, summaries) set their own colour and keep it.
@@ -851,8 +909,9 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   it('stays ONE root-gated sheet inside the 60-line budget (P2)', () => {
     const css = skinCss()
     const lines = css.split('\n')
-    // 60 since M3: the dark scheme is its own four-layer composition.
-    expect(lines.length).toBeLessThanOrEqual(60)
+    // 75 since 0.1.3 M2 (SHEET_BUDGET); the dark scheme is its own four-layer
+    // composition on top of the 0.1.1 half.
+    expect(lines.length).toBeLessThanOrEqual(SHEET_BUDGET)
     // 0.1.1's 19 lines + the light and dark ground segments.
     expect(lines.length).toBeGreaterThan(19)
     // Mounting still yields exactly ONE <style>, carrying exactly this CSS.
@@ -1083,7 +1142,7 @@ describe('skinCss — M2 地面范围 (A/B/C)', () => {
   it('keeps every sheet inside the 60-line budget, for every scope', () => {
     for (const scope of GLOW_SCOPES) {
       const lines = skinCss({ scope }).split('\n')
-      expect(lines.length).toBeLessThanOrEqual(60)
+      expect(lines.length).toBeLessThanOrEqual(SHEET_BUDGET)
       expect(lines.length).toBeGreaterThan(19)
       expect(withoutComments(skinCss({ scope }))).not.toContain('calc(')
     }
@@ -1267,7 +1326,7 @@ describe('skinCss — M6 深/浅两套光晕', () => {
     for (const hue of GLOW_HUES) {
       const sheet = skinCss({ hueLight: hue, hueDark: hue })
       expect(sheet.split('\n').length, hue).toBe(reference)
-      expect(sheet.match(/\{/g)).toHaveLength(9)
+      expect(sheet.match(/\{/g)).toHaveLength(SHEET_RULES)
     }
   })
 
@@ -1293,6 +1352,154 @@ describe('skinCss — M6 深/浅两套光晕', () => {
       expect(lightGroundRule(skinCss({ hueLight: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
       expect(darkGroundRule(skinCss({ hueDark: hue }))).not.toContain(NIGHT_BLUE_TOKEN)
     }
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 0.1.3 M2 — step rows (terminal colours)                              *
+ * ------------------------------------------------------------------ */
+
+/**
+ * The whitelist's fourth entry, audited against the INSTALLED sources rather
+ * than guessed: the four step-row implementations the client renders (the
+ * generic tool row, the bash row, the reasoning row and the generic command
+ * card) all publish the same two stable hooks —
+ *
+ *   row root  [data-variant][data-state]   (tool/bash/think/others + state)
+ *   the dot   [data-shimmer-decoration]    (between name and arguments)
+ *   capsule   [data-tone]                  (the ExitCodeBadge's Tag)
+ *
+ * and NO hook on the name or the arguments cell themselves (both carry only
+ * hashed class names). The two cells are therefore addressed RELATIVE to the
+ * dot — `:has(+ [data-shimmer-decoration])` for the name, `[data-shimmer-decoration] + *`
+ * for the arguments — which is why the sheet carries exactly two universal
+ * selectors; both are sibling positions inside a step row, never a sweep.
+ */
+describe('skinCss — 0.1.3 M2 工作步骤行（终端配色）', () => {
+  /** The M2 segment of the sheet, comments included. */
+  function stepSegment(): string {
+    const css = skinCss()
+    const start = css.indexOf('/* 0.1.3 M2')
+    const end = css.indexOf('/* 0.1.2 hue anchor')
+    if (start === -1 || end === -1) throw new Error('the step-row segment is missing')
+    return css.slice(start, end)
+  }
+
+  /** The M2 rules with comments stripped: selectors + declarations, in order. */
+  function stepRules(): { selectors: string[]; declarations: string[] }[] {
+    const text = stepSegment().replace(/\/\*[\s\S]*?\*\//g, '')
+    return [...text.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((match) => ({
+      selectors: match[1].split(',').map((part) => part.trim()).filter(Boolean),
+      declarations: match[2].split(';').map((part) => part.trim()).filter(Boolean),
+    }))
+  }
+
+  /** Every step-row selector, flattened. */
+  function stepSelectors(): string[] {
+    const out: string[] = []
+    for (const rule of stepRules()) out.push(...rule.selectors)
+    return out
+  }
+
+  it('keys both cells on the step row and on the dot the host draws between them', () => {
+    const rules = stepRules()
+    expect(rules).toHaveLength(3)
+    // Every selector is root-gated AND row-scoped: the gate is the switch (P2),
+    // and [data-variant][data-state] is what only a step row carries.
+    for (const selector of stepSelectors()) {
+      expect(selector.startsWith('html[data-moonset-skin] body [data-variant][data-state')).toBe(true)
+    }
+    const name = rules[0]
+    const args = rules[1]
+    if (name === undefined || args === undefined) throw new Error('the two cell rules are missing')
+    // The tool name is the cell BEFORE the dot: accent + the code face.
+    expect(name.selectors).toEqual(['html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration])'])
+    expect(name.declarations).toEqual([
+      'color: var(' + ACCENT + ')',
+      'font-family: var(--ds-font-family-code)',
+    ])
+    // The arguments/path are the cell AFTER the dot: secondary label + code face.
+    expect(args.selectors).toEqual(['html[data-moonset-skin] body [data-variant][data-state] [data-shimmer-decoration] + *'])
+    expect(args.declarations).toEqual([
+      'color: var(--dsw-alias-label-secondary)',
+      'font-family: var(--ds-font-family-code)',
+    ])
+  })
+
+  it('paints a failed step and its exit capsule, in the error colour', () => {
+    const failed = stepRules()[2]
+    if (failed === undefined) throw new Error('the failed-step rule is missing')
+    expect(failed.selectors).toEqual([
+      "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *",
+      "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone]",
+    ])
+    // The capsule is the ExitCodeBadge's Tag: the host hard-codes tone="neutral",
+    // so [data-tone] is its only stable attribute — the ROW's data-state is what
+    // says the exit was non-zero (terminal-card-model.ts:107-112).
+    expect(failed.declarations).toEqual([
+      'color: var(--dsw-alias-state-error-primary)',
+      'font-weight: 500',
+    ])
+  })
+
+  it('never leaves the step row: no prose, no expanded body, no host class name', () => {
+    for (const selector of stepSelectors()) {
+      // A class selector would be a per-build hash; none is allowed anywhere.
+      expect(selector).not.toMatch(/\.[a-z]/i)
+      // The expanded body is a SIBLING of the disclosure row, and the prose
+      // renderers (p / pre / code / blockquote) never sit inside a step row.
+      for (const forbidden of ['pre', 'code', 'blockquote', '::', '[data-error]', '[data-disclosure-row]']) {
+        expect(selector, selector).not.toContain(forbidden)
+      }
+    }
+    // The sheet's ONLY wildcards are that sibling-after-the-dot cell, twice.
+    const text = skinCss().replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(text.match(/\*/g) ?? []).toHaveLength(2)
+    expect(text).not.toContain('[class')
+  })
+
+  it('sets the mono face through the theme layer, and nothing else', () => {
+    const css = skinCss()
+    const families = [...css.matchAll(/font-family: ([^;]+);/g)].map((match) => match[1].trim())
+    // Exactly the two step-row cells, both reading the theme layer's code stack
+    // (declared on :root by ui-theme's base.css) — no literal font stack.
+    expect(families).toEqual(['var(--ds-font-family-code)', 'var(--ds-font-family-code)'])
+    expect(css).not.toMatch(/font-family:[^;]*\bmonospace\b/)
+  })
+
+  it('keeps both text roles AA-readable on the canvas (light + dark)', () => {
+    const roles: [string, string][] = [
+      ['tool name', ACCENT],
+      ['arguments', '--dsw-alias-label-secondary'],
+      ['failed step', '--dsw-alias-state-error-primary'],
+    ]
+    for (const [role, token] of roles) {
+      for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+        const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+        const painted = colourOf(table, table[token])
+        const ratio = contrastRatio(painted, canvas)
+        // Measured: name 7.58 / 6.33, arguments 8.62 / 9.32, failed 6.41 / 8.10.
+        expect(
+          ratio,
+          scheme + ' ' + role + ' on the canvas = ' + ratio.toFixed(2) + ':1',
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
+  it('paints nothing for a successful exit: this build renders no success capsule', () => {
+    // The exit capsule only exists while terminalFailed() is true and it is always
+    // tone="neutral" (ExitCodeBadge.tsx:12, terminal-card-model.ts:107-112), so a
+    // zero exit has no element to colour; the only success signal is
+    // [data-state='ok'] on the WHOLE row, and painting every settled step would
+    // colour the entire trajectory. The green alias is not a text colour either:
+    // measured 3.61:1 on the light canvas, below AA.
+    const css = skinCss()
+    expect(css).not.toContain('state-success-primary')
+    expect(css).not.toContain("[data-state='ok']")
+    const green = colourOf(MOONSET_LIGHT, MOONSET_LIGHT['--dsw-alias-state-success-primary'])
+    const canvas = colourOf(MOONSET_LIGHT, MOONSET_LIGHT['--dsw-alias-bg-base'])
+    expect(contrastRatio(green, canvas)).toBeLessThan(4.5)
   })
 })
 /* ------------------------------------------------------------------ *
