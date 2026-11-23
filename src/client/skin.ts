@@ -34,7 +34,12 @@
  * removes the Host's first-paint sheet; this module adds one attribute and one
  * element, then removes exactly those. No host node is restructured, no layout
  * property is written, and no inline style is attached to any element.
+ *
+ * The sheet is not unconditional, though: it paints OUR accent, so it may only
+ * exist while a Moonset theme does. {@link syncSkin} is the one place that
+ * policy lives, and `index.ts` calls it from every path that learns a choice.
  */
+import type { MoonsetChoice } from './choice.ts'
 
 /**
  * The root attribute that gates the skin.
@@ -220,4 +225,37 @@ export function unmountSkin(root?: SkinRoot): boolean {
     reportFailure('unmount', error)
     return removed
   }
+}
+
+/**
+ * Align the skin with the stored choice (0.1.1): `off` → off, anything else → on.
+ *
+ * Why the skin is choice-gated at all: the sheet paints OUR accent, and `off`
+ * means "the user runs the official theme" — a Moonset-violet text selection on
+ * top of the official palette is exactly the inconsistency this milestone is
+ * supposed to remove, not install. `light` / `dark` / `follow` all paint a
+ * Moonset palette (the last one through the follow layer), so the skin stays.
+ *
+ * This function owns the POLICY, not the moments. `index.ts` calls it from
+ * every path that learns or changes the choice:
+ *
+ *  - the boot `restore()` — the first place a stored value is readable (a
+ *    profile that stored `off` must not keep a sheet `apply()` mounted);
+ *  - `pick()` — a click in our section;
+ *  - the mirror path — the user picked an official theme in Appearance, so the
+ *    choice is handed back as `off`.
+ *
+ * Both branches are idempotent ({@link mountSkin} / {@link unmountSkin} are), so
+ * calling it with the same choice twice is free — which is what lets the boot
+ * path call it without first asking whether the skin is on.
+ * @param choice - the stored choice (a queued intent included).
+ * @param root - document surface; defaults to the page's own.
+ * @returns whether the skin is ON after this call (diagnostics only).
+ */
+export function syncSkin(choice: MoonsetChoice, root?: SkinRoot): boolean {
+  if (choice === 'off') {
+    unmountSkin(root)
+    return false
+  }
+  return mountSkin(root)
 }

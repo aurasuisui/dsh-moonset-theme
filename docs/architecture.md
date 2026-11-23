@@ -440,7 +440,8 @@ html body ::selection {
 **与 token 的分工**：选中行（「淡紫底 + 紫字」）走的是 **token**，不进白名单——它是
 生成器 `TOKEN_OVERRIDES` 的两个条目（`--dsw-specific-sidebar-nav-item-active` =
 `color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))`，
-`…-active-accent` = `var(--dsw-static-deepseek-500)`，见 §3）。白名单只收 token
+`…-active-accent` = `var(--dsw-static-deepseek-500)`，见 §3；逐条的改前/改后值在
+[palette.md §2.1](palette.md#21-011-的两处-token-覆盖b1-的显式例外)）。白名单只收 token
 表达不了的；两者不重叠。
 
 ### 11.4 禁止什么（写进来就是回退）

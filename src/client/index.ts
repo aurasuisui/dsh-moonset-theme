@@ -94,7 +94,7 @@ import {
   type MoonsetSectionLabels,
   type MoonsetSectionView,
 } from './settings-section.tsx'
-import { mountSkin, unmountSkin } from './skin.ts'
+import { mountSkin, syncSkin, unmountSkin } from './skin.ts'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
 import { tolerantRegistration } from './registration-tolerance.ts'
 
@@ -149,6 +149,7 @@ export {
   SKIN_SHEET_SELECTOR,
   mountSkin,
   skinCss,
+  syncSkin,
   unmountSkin,
 } from './skin.ts'
 export type { SkinRoot, SkinSheetElement } from './skin.ts'
@@ -221,10 +222,13 @@ export function apply(ctx: ClientContext): void {
   // them and a re-activation registers them again.
   ctx.effect(() => registerMoonsetThemes(ctx.theme), 'moonset: light/dark theme registrations')
   // 0.1.1 skin layer (P1/P2): one root attribute plus one sheet, entered and
-  // left with the fiber. Mounted unconditionally — the skin has no switch of its
-  // own yet (0.1.2/0.1.3 add them), and a sheet that outlived its plugin would
-  // be a rule with no owner. Mount/unmount are idempotent and total; a document
-  // that refuses the write loses the skin, never the boot (see skin.ts).
+  // left with the fiber. It starts ON so the first paint after activation has
+  // the selection colour even before a settings form binds; the three paths
+  // that learn a stored choice (restore / pick / the official-pick mirror) call
+  // `syncSkin` and turn it OFF again for `off`, so "official theme, Moonset
+  // sheet" cannot outlive the first readable snapshot. Mount/unmount are
+  // idempotent and total; a document that refuses the write loses the skin,
+  // never the boot (see skin.ts).
   ctx.effect(() => {
     mountSkin()
     return () => {
@@ -358,8 +362,14 @@ function wireSettings(ctx: ClientContext): void {
     // is exactly the rollback this milestone exists to prevent.
     if (durable.pendingLocal !== undefined) return
     const choice = durable.read()
-    // `off` has no sheet to remove (the Host injects none for it), so the early
-    // return keeps this path to exactly one responsibility.
+    // 0.1.1: the skin follows the choice. `off` means the official theme is in
+    // use — our accent has no business painting its text selection — while
+    // every other choice paints a Moonset palette and keeps the sheet. This is
+    // the FIRST moment a stored choice is readable, so the sheet `apply()`
+    // mounted is corrected here before anything renders otherwise.
+    syncSkin(choice)
+    // `off` has no theme to apply (and the Host injected no first-paint sheet
+    // for it), so the early return keeps this path to exactly one responsibility.
     if (choice === 'off') return
     restored = true
     applyChoice(choice, deps)
@@ -387,6 +397,9 @@ function wireSettings(ctx: ClientContext): void {
     repairStopped = false
     repairAnnounced = false
     durable.write(choice)
+    // 0.1.1: same alignment as the boot restore — a click on "off" takes the
+    // sheet off, every other click keeps (or re-mounts) it.
+    syncSkin(choice)
     applyChoice(choice, deps)
     // Same handover as the boot restore: a pick can be the FIRST apply on a page
     // whose restore never ran (no settings form bound yet, or a pending intent
@@ -409,6 +422,9 @@ function wireSettings(ctx: ClientContext): void {
    */
   const mirrorOfficialPick = (): void => {
     durable.write('off')
+    // 0.1.1: the user just chose an official theme, so the Moonset sheet must go
+    // with our theme — third and last place the skin follows the choice.
+    syncSkin('off')
     follow.disable()
   }
 

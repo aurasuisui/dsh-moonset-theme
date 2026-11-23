@@ -49,7 +49,7 @@
 | 类 | 判定 | 处理 | light | dark |
 |---|---|---|---|---|
 | **A** | 键名以 `--dsw-static-` 开头（82 个原语） | 按家族阶梯重建：step 500 = 家族锚点，低于 500 靠浅端、高于 500 靠深端；浅色 00=canvas / 1000=ink，暗色端点对调（00=ink / 1000=canvas），方向恒定，所以官方 alias 层照旧生效 | 82 | 82 |
-| **B1** | `var(--dsw-…)` 或 `color-mix(in srgb, …)` 表达式 | **逐字照抄**；被引用的 static 在同一张表里，所以它随 A 类一起变 | 109 | 110 |
+| **B1** | `var(--dsw-…)` 或 `color-mix(in srgb, …)` 表达式 | **逐字照抄**；被引用的 static 在同一张表里，所以它随 A 类一起变。0.1.1 起有两个显式例外，见 [§2.1](#21-011-的两处-token-覆盖b1-的显式例外) | 109 | 110 |
 | **B2** | 纯中性字面量：`rgba(0,0,0,a)`、`rgba(255,255,255,a)`、`#000`、`#fff`、`transparent` | α 保留，颜色换成**本方案自己的**端点（浅：黑→ink、白→canvas；暗：黑→canvas、白→ink）；暗色端点对调是有意的，照字面会把描边画成 canvas 叠 canvas | 14 | 16 |
 | **B3** | 其它颜色字面量 | 逐条查 `CHROMA_LITERALS` 显式表（含 7 个 `--dsw-alias-json-tree-*`，keyword 与 number 分开列）；表里没有条目就拒绝生成 | 23 | 20 |
 | **B4** | 兜底 | **不存在**：生成器打印该键并 exit 1，不写文件 | 0 | 0 |
@@ -66,6 +66,35 @@ B1 被定义为「引用同表内 token 的表达式照抄」，不是「保留�
 **证据**：`scripts/generate-palettes.mjs` 的 `classify()` / `buildPalettes()`；
 `src/client/palettes.ts` 的 `MOONSET_CLASSES`；`tests/palettes.spec.ts` 用**独立重写**的分类器
 重算 82/109/14/23/0 与 82/110/16/20/0 并与文件比对。
+
+### 2.1 0.1.1 的两处 token 覆盖（B1 的显式例外）
+
+0.1.1 起生成器里多了一张**显式覆盖表** `TOKEN_OVERRIDES`：官方值是 B1 表达式、但
+值必须换成月落色的 token，在那里逐条列出。它只覆盖 B1 的值，不碰 A / B2 / B3，也
+**不改变分类计数**（计数按官方值所属的类统计，所以仍是 109/110）。当前两条，都是
+「选中行」：
+
+| token | 改前（官方） | 改后（月落） | 目的与落地观感 |
+|---|---|---|---|
+| `--dsw-specific-sidebar-nav-item-active` | 浅 `var(--dsw-static-neutral-bluish-100)` / 暗 `var(--dsw-static-neutral-bluish-750)` | `color-mix(in srgb, var(--dsw-static-deepseek-500) 10%, var(--dsw-alias-bg-base))` | 选中行底色 = accent 10% 叠 canvas；浅 `#E8E7F7` / 暗 `#1A1D2E`（画在 `bg-base` 上） |
+| `--dsw-specific-sidebar-nav-item-active-accent` | 浅 `var(--dsw-static-deepseek-100)` / 暗 `var(--dsw-static-neutral-bluish-800)` | `var(--dsw-static-deepseek-500)` | 选中行文字/图标 = accent 当文字色；浅 `#4338CA`（对底色 **6.45:1**）/ 暗 `#818CF8`（**5.58:1**） |
+
+为什么它属于 **token** 而不是 CSS：选中行是宿主组件已有的 token 座位，改值就能全局
+跟随；只有 token 装不下的东西才进 [架构 §11](architecture.md#11-css-注入白名单p5-例外登记)
+的 CSS 注入白名单（0.1.1 的文本选区、0.1.2 的地面渐变、0.1.3 的材质面）。两条替代值
+都引用同一张表里的 token，所以浅深与主题切换自动跟随，没有第二份色源；具体是
+`--dsw-static-deepseek-500`（= `deepseek` 阶梯 500 = 源板 `accent`：浅 `#4338CA` /
+暗 `#818CF8`）和 `--dsw-alias-bg-base`（= 画布）。
+
+守卫：`validateOverrides()` 对「未知键 / `--dsw-static-*` 键 / 与 `CHROMA_LITERALS` 撞车 /
+引用表外 token / 与官方值相同」任一情形 exit 1，`buildPalettes()` 还拒绝未被消费的条目。
+覆盖过的名字导出为 `MOONSET_TOKEN_OVERRIDES`；测试侧 `tests/palettes.spec.ts` 断言
+`overridden.size === 2` 并逐个断言「值 ≠ 官方值且仍是合法 CSS 形状」（其余 B1 表达式
+照旧逐字比对），`tests/skin.spec.ts` 断言这两个 token 与选区规则取自同一个 accent。
+
+**证据**：`scripts/generate-palettes.mjs` 的 `TOKEN_OVERRIDES` / `validateOverrides()`；
+`src/client/palettes.ts` 的 `MOONSET_TOKEN_OVERRIDES`；`tests/palettes.spec.ts`；
+`tests/skin.spec.ts`（`pairs with the token half`）。
 
 ## 3. 22 条对比度契约（实测值）
 

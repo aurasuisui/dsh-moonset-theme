@@ -13,6 +13,9 @@
  *  - UNMOUNT — attribute off, sheet gone, ZERO residue, idempotent both ways;
  *  - WIRING — `apply()` mounts, the fiber teardown unmounts (`ctx.effect`), so
  *    the skin cannot outlive its plugin;
+ *  - CHOICE — the sheet is not unconditional: `off` (the official theme) takes it
+ *    off from all three paths that learn a choice (boot restore, our section's
+ *    pick, the official-Appearance mirror);
  *  - TOKENS — the colours the rule reads are the palette's own accent, i.e. the
  *    sheet follows the theme instead of duplicating it.
  *
@@ -25,6 +28,7 @@
 import { readFileSync } from 'node:fs'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
+import { BOOT_SHEET_SELECTOR } from '../src/client/boot-cleanup'
 import { apply } from '../src/client/index'
 import { MOONSET_DARK, MOONSET_LIGHT, MOONSET_TOKEN_OVERRIDES } from '../src/client/palettes'
 import {
@@ -33,6 +37,7 @@ import {
   SKIN_SHEET_SELECTOR,
   mountSkin,
   skinCss,
+  syncSkin,
   unmountSkin,
   type SkinRoot,
   type SkinSheetElement,
@@ -108,6 +113,9 @@ class StubDocument implements SkinRoot {
   }
 
   querySelector(selector: string): SkinSheetElement | null {
+    // The boot sheet is a different channel (boot-cleanup.ts) that runs on the
+    // same document; this stub never carries one.
+    if (selector === BOOT_SHEET_SELECTOR) return null
     if (selector !== SKIN_SHEET_SELECTOR) throw new Error('unexpected selector: ' + selector)
     const match = this.sheets.find(
       (sheet) => sheet.attached && sheet.tagName === 'style' && sheet.attributes.has(SKIN_SHEET_ATTR),
@@ -308,8 +316,229 @@ describe('apply — the skin belongs to the fiber', () => {
     try {
       expect(mountSkin()).toBe(false)
       expect(unmountSkin()).toBe(false)
+      expect(syncSkin('light')).toBe(false)
+      expect(syncSkin('off')).toBe(false)
     } finally {
       vi.unstubAllGlobals()
     }
   })
 })
+/* ------------------------------------------------------------------ *
+ * syncSkin — the skin follows the choice (0.1.1)                      *
+ * ------------------------------------------------------------------ */
+
+describe('syncSkin — the skin follows the choice', () => {
+  it('leaves the document alone while the choice is off', () => {
+    const doc = new StubDocument()
+
+    expect(syncSkin('off', doc)).toBe(false)
+    expect(doc.attributes.size).toBe(0)
+    expect(doc.attached()).toHaveLength(0)
+  })
+
+  it('takes a mounted sheet off when the choice becomes off', () => {
+    const doc = new StubDocument()
+    expect(syncSkin('light', doc)).toBe(true)
+    expect(doc.attached()).toHaveLength(1)
+
+    expect(syncSkin('off', doc)).toBe(false)
+    expect(doc.attributes.size).toBe(0)
+    expect(doc.attached()).toHaveLength(0)
+  })
+
+  it('re-mounts on the way back from off, and stays a singleton', () => {
+    const doc = new StubDocument()
+
+    syncSkin('light', doc)
+    syncSkin('off', doc)
+    expect(syncSkin('dark', doc)).toBe(true)
+    expect(syncSkin('follow', doc)).toBe(true)
+
+    expect(doc.attributes.get(SKIN_ATTR)).toBe('')
+    expect(doc.attached()).toHaveLength(1)
+    expect(doc.sheets).toHaveLength(2) // one detached by the off step, one live
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * wiring: the three paths that learn a choice                         *
+ * ------------------------------------------------------------------ */
+
+/**
+ * One in-memory settings form (the shape `configForms.get` hands back).
+ *
+ * Reduced copy of the fake in `tests/settings.spec.ts`: only the members this
+ * file needs, so a new requirement in `durable.ts` shows up as a missing
+ * member here instead of passing silently against an over-stuffed fake.
+ */
+class FakeForm {
+  section: { choice?: unknown }
+  revision = 1
+  /** Every set call, in order (the mirror / pick writes land here). */
+  readonly sets: { field: string; value: unknown }[] = []
+  private readonly listeners = new Set<() => void>()
+
+  constructor(section: { choice?: unknown } = {}) {
+    this.section = section
+  }
+
+  getSnapshot(): { value: { choice?: unknown }; revision: number } {
+    return { value: this.section, revision: this.revision }
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  async set(field: string, value: unknown): Promise<boolean> {
+    this.sets.push({ field, value })
+    this.section = { ...this.section, [field]: value }
+    this.revision += 1
+    for (const listener of [...this.listeners]) listener()
+    return true
+  }
+}
+
+/** What one reduced-context apply hands a test. */
+interface Wiring {
+  readonly doc: StubDocument
+  readonly form: FakeForm
+  readonly disposers: (() => void)[]
+  /** The section face `apply()` registered; `onPick` is a user click. */
+  face(): { onPick(choice: string): void }
+  /** Publish a `theme/change` the way the official runtime would. */
+  emitThemeChange(preference: string): void
+}
+
+/**
+ * Apply the plugin with a stored choice and a real settings form binding.
+ *
+ * This is the smallest context that reaches the three choice paths: the theme
+ * runtime, the slot registry, the locale registry, `configForms` (durable.ts
+ * binds its form through `ctx.inject`) and `ctx.on('theme/change')`.
+ * @param choice - the choice the stored settings section carries on boot.
+ * @returns the stub document, the form, and the two drivers.
+ */
+function applyWithStoredChoice(choice: string): Wiring {
+  const doc = new StubDocument()
+  vi.stubGlobal('document', doc)
+  const form = new FakeForm({ choice })
+  const disposers: (() => void)[] = []
+  const sections: { inject?: () => unknown }[] = []
+  const themeChange: ((snapshot: { preference: string }) => void)[] = []
+  const theme = {
+    preference: 'system',
+    register: () => () => {},
+    overrideTokens: () => () => {},
+    getTheme: () => ({ preference: theme.preference }),
+    setTheme(id: string): void { theme.preference = id },
+  }
+  const ctx = {
+    theme,
+    slots: {
+      inject(_key: string, callback: () => (() => void) | void): () => void {
+        const release = callback()
+        return () => { release?.() }
+      },
+      register(options: { inject?: () => unknown }): () => void {
+        sections.push(options)
+        return () => {}
+      },
+    },
+    locale: {
+      register: () => () => {},
+      bind: () => (key: string): string => key,
+    },
+    effect(execute: () => (() => void) | void): () => void {
+      const dispose = execute()
+      const release = (): void => { dispose?.() }
+      disposers.push(release)
+      return release
+    },
+    inject(_deps: string[], callback: (formsCtx: unknown) => (() => void) | void) {
+      const release = callback({ configForms: { get: () => form } })
+      return { dispose: async () => { release?.() } }
+    },
+    on(_event: string, handler: (snapshot: { preference: string }) => void): () => void {
+      themeChange.push(handler)
+      return () => {}
+    },
+  }
+  apply(ctx as unknown as ClientContext)
+  return {
+    doc,
+    form,
+    disposers,
+    face(): { onPick(choice: string): void } {
+      const options = sections[0]
+      const face = typeof options?.inject === 'function' ? options.inject() : undefined
+      return face as { onPick(choice: string): void }
+    },
+    emitThemeChange(preference: string): void {
+      for (const handler of [...themeChange]) handler({ preference })
+    },
+  }
+}
+
+describe('apply — the skin follows the stored choice', () => {
+  it('keeps the sheet on for a stored light choice', () => {
+    const wiring = applyWithStoredChoice('light')
+    try {
+      expect(wiring.doc.attributes.get(SKIN_ATTR)).toBe('')
+      expect(wiring.doc.attached()).toHaveLength(1)
+    } finally {
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('takes the sheet off when the STORED choice is off', () => {
+    // apply() mounts for the first paint; the boot restore corrects it in the
+    // same activation call, so a profile on the official theme never keeps it.
+    const wiring = applyWithStoredChoice('off')
+    try {
+      expect(wiring.doc.attributes.size).toBe(0)
+      expect(wiring.doc.attached()).toHaveLength(0)
+    } finally {
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('takes the sheet off when the user picks off in our section', () => {
+    const wiring = applyWithStoredChoice('light')
+    try {
+      expect(wiring.doc.attached()).toHaveLength(1)
+
+      wiring.face().onPick('off')
+      expect(wiring.doc.attributes.size).toBe(0)
+      expect(wiring.doc.attached()).toHaveLength(0)
+
+      // The unload flush is what lands the debounced write (M5.1).
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+      expect(wiring.form.sets).toEqual([{ field: 'choice', value: 'off' }])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('takes the sheet off when the user picks an official theme in Appearance', () => {
+    const wiring = applyWithStoredChoice('light')
+    try {
+      expect(wiring.doc.attached()).toHaveLength(1)
+
+      // An explicit official pick with no local write on the clock is the
+      // user's own action, and M5.1's mirror hands the UI back as `off`.
+      wiring.emitThemeChange('dark')
+      expect(wiring.doc.attributes.size).toBe(0)
+      expect(wiring.doc.attached()).toHaveLength(0)
+
+      for (const dispose of [...wiring.disposers].reverse()) dispose()
+      expect(wiring.form.sets).toEqual([{ field: 'choice', value: 'off' }])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
