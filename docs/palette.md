@@ -28,7 +28,7 @@
 | `warning` | `#D97706` | `#FBBF24` | 警告（amber-600 / 400） |
 | `danger` | `#E11D48` | `#FB7185` | 危险（rose-600 / 400） |
 | `info` | `#0284C7` | `#38BDF8` | 信息（sky-600 / 400） |
-| `moon` | `#F59E0B` | `#F59E0B` | 琥珀月光；0.1.0 只作为 `amber-500` 的锚点，**没有光晕**（见 [backlog](backlog-v0.2.md)） |
+| `moon` | `#F59E0B` | `#F59E0B` | 琥珀月光；`amber-500` 的锚点，0.1.2 起也是右下暖光的色相来源 |
 
 两点容易误会：
 
@@ -38,6 +38,11 @@
 - `moon` 不是一个独立 token 族：它被钉在 `--dsw-static-amber-500` 上，因为官方
   自己也把 amber-500 用在月光/警告的共享位置上。它和官方同值 `#F59E0B` 属于
   **A 类锚点恰好同色**，不是 B3 回落（见 §2 的判定）。
+
+0.1.2 的地面光晕不新增色源：靛蓝月晕混自 `--dsw-static-deepseek-500`（= `accent`），
+右下琥珀暖光混自 `--dsw-static-amber-500`（= `moon`），两者都以固定百分比与
+`transparent` 混出；规则形状与 alpha 数字见
+[architecture §11](architecture.md#11-css-注入白名单p5-例外登记)。
 
 **证据**：`themes/moonset-palette.json`；`tests/palettes.spec.ts` 的
 「shapes … as 16 hex roles per scheme」与「pins every family 500 rung to its board anchor colour」。

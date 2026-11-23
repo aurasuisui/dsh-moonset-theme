@@ -415,10 +415,10 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **地面渐变** | `html[data-moonset-skin] body { background: … }` | 多层图层 + 视口固定，单 token 装不下 | 0.1.2 |
 | **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
 
-当前登记（0.1.1，全表三条规则，19 行）：
+当前登记（0.1.2，全表四条规则，28 行）：
 
 ```css
-/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */
+/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */
 html body ::selection {
   background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);
   color: var(--dsw-static-deepseek-500);
@@ -437,6 +437,15 @@ html[data-moonset-skin] body [aria-pressed='true'] {
 html[data-moonset-skin] body [data-active='true']::after {
   background: var(--dsw-static-deepseek-500);
 }
+/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The
+   strength factor is inlined in each color-mix (`calc(N% * 1)` = 100% here):
+   a custom-property hop would not recompute on Chromium (0.1.2 D2). */
+html[data-moonset-skin] body {
+  background:
+    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),
+    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),
+    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);
+}
 ```
 
 三个选择上的理由：
@@ -454,6 +463,28 @@ html[data-moonset-skin] body [data-active='true']::after {
 3. **选择器 `html body ::selection`（0,0,2）**：压过任何第三方 `::selection`
    （0,0,1）；表又是在宿主样式之后插入的，同特异性也赢。宿主 9 张表零命中，所以
    当前没有实战冲突（D2 的兜底留在这里）。
+
+**地面渐变（0.1.2，第三条）**：`html[data-moonset-skin] body` 上**一条** `background`，
+三层（顶→底）：靛蓝月晕 `radial-gradient(ellipse at 50% -10%, accent 16% → transparent 62%)`、
+琥珀暖光 `radial-gradient(ellipse at 92% 88%, amber 10% → transparent 60%)`、wash
+`linear-gradient(165deg, accent 1.5% → transparent 70%)`。最后一层的颜色是画布 token
+`--dsw-alias-bg-base`——`background` 简写会把 `background-color` 重置成透明，地面必须
+在同一条声明里带上底色，否则画布会漏底。颜色全部由 `--dsw-static-deepseek-500`
+（accent）与 `--dsw-static-amber-500`（moon）同 `transparent` 混出，没有字面色。wash 的
+左右两端横向差（1920×1080 视口）：浅 **1.34/255** / 暗 **1.62/255**，落在契约的
+「≤2/255」带内；两枚光斑固定视口，多面板各读到不同切片（D1：接受，0.1.3 做玻璃时一起调，
+本轮不加 blur、不加第二张表）。
+
+**强度内联，不进中间变量**：每个 `color-mix()` 的 alpha 写成 `calc(16% * 1)`，`1` 是
+M1 的常量 100%；M2 只要把 `1` 换成 `var(--dsh-moonset-glow-strength, 1)`，表达式形状
+不变。把乘式预先算进一个中间 custom property 再让 `background` 引用是**错的**：
+catppuccin 在 Chromium 上实测过「性质失效传播不重算」，旋钮会失灵（0.1.2 D2）。本仓库另用
+Playwright Chromium 复核了同一内联形状——`calc(16% * var(--strength, 1))` 在 1→2 时计算值
+从 alpha 0.16 变 0.32（`color-mix` 里允许 `calc()` 百分比），所以 M2 的代入路径成立。
+
+**开关 = 整条规则消失**：地面在 `skinCss()` 里是独立一段（`GLOW_RULES`），
+`skinCss({ glow: false })` 返回 0.1.1 那张 19 行的表——不是 alpha 归零（0 alpha 仍参与
+合成，0.1.2 §一）。M2 只需把这个选项接到 `Config`，不用再拆规则。
 
 **选中项文字色这一条的前因**：0.1.1 首验把选中行底色换成淡紫之后，文字仍是墨色
 （宿主用 `--dsw-alias-label-primary` 写在选中容器上），观感是「紫底黑字」。任务列表、
@@ -527,13 +558,14 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 ### 11.5 新增一条白名单项的门槛
 
 1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
-2. 规则总数 ≤ 20 行、单选择器、无 `!important`、无 `@media`；
+2. 全表 ≤ 40 行（0.1.2 起；单条新增仍 ≤ 20 行）、单选择器、无 `!important`、无 `@media`；
 3. 颜色只从 token 混出；
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（12 条：挂载、单例、逐字 CSS、
-预算、装饰色取自 token、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与
-fiber teardown 卸载）；`src/client/index.ts` 的 `moonset: skin sheet` effect；
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（30 条：挂载、单例、逐字 CSS、
+预算、装饰/地面色取自 token、地面双光斑与强度内联、开关整条消失、卸载零残留、重复挂载、
+无 document 静默、`apply()` 挂载与 fiber teardown 卸载）；`src/client/index.ts` 的
+`moonset: skin sheet` effect；
 生成器的 `TOKEN_OVERRIDES`（选中行 token 侧）；安装态 0.2.2-rc.5 的 9 张主题样式表
 `::selection` 0 命中。

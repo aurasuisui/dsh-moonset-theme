@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * 0.1.1 skin layer: one root attribute, one injected sheet, and the exact rules.
+ * 0.1.1–0.1.2 skin layer: one root attribute, one injected sheet, and the exact rules.
  *
  * The cases are grouped by contract rather than by function:
  *
@@ -8,8 +8,11 @@
  *    `<style data-dsh-moonset-skin>` in the head (P2: a second sheet would fight
  *    the first, and the winner would depend on document order);
  *  - THE SHEET — the CSS text is the contract: byte-for-byte, inside the
- *    whitelist budget (<= 20 lines, no layout properties), and every colour
+ *    whitelist budget (<= 40 lines, no layout properties), and every colour
  *    comes from a `--dsw-*` token rather than a literal (P5);
+ *  - GROUND — the 0.1.2 wash + two viewport-fixed spots: root-gated, token-only,
+ *    both radial layers at their contract alphas, the strength factor inlined,
+ *    and the WHOLE rule absent when the (M2) switch says off;
  *  - SELECTED ITEMS — the selected row's LABEL is the accent, hooked on the four
  *    stable attributes the real UI renders (never a host class name), root-
  *    gated so it outranks the host's own selected-tab colour, and readable on
@@ -20,8 +23,8 @@
  *  - CHOICE — the sheet is not unconditional: `off` (the official theme) takes it
  *    off from all three paths that learn a choice (boot restore, our section's
  *    pick, the official-Appearance mirror);
- *  - TOKENS — the colours the rule reads are the palette's own accent, i.e. the
- *    sheet follows the theme instead of duplicating it.
+ *  - TOKENS — the colours the rules read are the palette's own accent / moon /
+ *    canvas anchors, i.e. the sheet follows the theme instead of duplicating it.
  *
  * No DOM implementation is involved (this repo carries none — PLAN §九 已知债):
  * `skin.ts` is written against a structural surface, and the stub below models
@@ -53,14 +56,22 @@ const board = JSON.parse(readFileSync(BOARD_URL, 'utf8')) as Record<'light' | 'd
 /** The accent the skin draws from: the static token the palette anchors `accent` to. */
 const ACCENT = '--dsw-static-deepseek-500'
 
+/** The moon anchor: the amber the 0.1.2 warm light is mixed from. */
+const MOON = '--dsw-static-amber-500'
+
+/** The canvas: the base colour under the gradient layers. */
+const CANVAS = '--dsw-alias-bg-base'
+
 /**
- * The complete sheet, restated here verbatim.
+ * The 0.1.1 half of the sheet, restated verbatim.
  *
  * A literal on purpose: this string IS the whitelist entry, so the test has to
  * fail when the production rule is reworded, re-scoped or grows a declaration.
+ * 0.1.2 appends the ground segment below; splitting the halves lets the
+ * switch-off case assert the pre-glow sheet returns byte-for-byte.
  */
-const EXPECTED_CSS = [
-  '/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */',
+const EXPECTED_BASE_CSS = [
+  '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
   'html body ::selection {',
   '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
   '  color: var(--dsw-static-deepseek-500);',
@@ -80,6 +91,22 @@ const EXPECTED_CSS = [
   '  background: var(--dsw-static-deepseek-500);',
   '}',
 ].join('\n')
+
+/** The 0.1.2 ground segment, restated verbatim. */
+const EXPECTED_GLOW_CSS = [
+  '/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The',
+  '   strength factor is inlined in each color-mix (`calc(N% * 1)` = 100% here):',
+  '   a custom-property hop would not recompute on Chromium (0.1.2 D2). */',
+  'html[data-moonset-skin] body {',
+  '  background:',
+  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),',
+  '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),',
+  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
+  '}',
+].join('\n')
+
+/** The complete 0.1.2 sheet: the 0.1.1 rules plus the ground. */
+const EXPECTED_CSS = EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS
 
 
 /* ------------------------------------------------------------------ *
@@ -287,23 +314,27 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 20 lines, three rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 40 lines, four rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
-    expect(lines.length).toBeLessThanOrEqual(20)
-    // Three blocks: text selection, the selected-item label colour, the
-    // selected tab's underline.
+    expect(lines.length).toBeLessThanOrEqual(40)
+    // Four blocks: text selection, the selected-item label colour, the selected
+    // tab's underline, the 0.1.2 ground.
     expect(lines.filter((line) => line === 'html body ::selection {')).toHaveLength(1)
-    expect(css.match(/\{/g)).toHaveLength(3)
-    expect(css.match(/\}/g)).toHaveLength(3)
-    // Both additive blocks stay well inside the 12-line entry budget.
+    expect(css.match(/\{/g)).toHaveLength(4)
+    expect(css.match(/\}/g)).toHaveLength(4)
+    // Every additive block stays well inside the 12-line entry budget.
     const selectedStart = css.indexOf("html[data-moonset-skin] body [aria-selected")
     const underlineStart = css.indexOf("html[data-moonset-skin] body [data-active='true']::after")
+    const underlineEnd = css.indexOf('}', underlineStart) + 1
+    const groundStart = css.indexOf('html[data-moonset-skin] body {')
     expect(selectedStart).toBeGreaterThan(-1)
     expect(underlineStart).toBeGreaterThan(selectedStart)
+    expect(groundStart).toBeGreaterThan(underlineStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
-    expect(css.slice(underlineStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(groundStart).split('\n').length).toBeLessThanOrEqual(12)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
@@ -312,12 +343,13 @@ describe('skinCss — the whitelisted rules', () => {
   it('takes every colour from a token and writes no literal', () => {
     const css = skinCss()
 
-    // Every declaration reads the ONE accent token: the wash and the text are
-    // the same colour at different opacities (documentation-site semantics),
-    // and the selected-item label plus the tab underline reuse it.
+    // Every declaration reads a `--dsw-*` token: the accent at several
+    // opacities, the moon anchor for the warm light, and the canvas under the
+    // ground. Nothing is duplicated as a literal.
     const tokens = css.match(/var\(--dsw-[a-z0-9-]+\)/g) ?? []
-    expect(new Set(tokens)).toEqual(new Set([`var(${ACCENT})`]))
-    expect(tokens).toHaveLength(4)
+    expect(new Set(tokens)).toEqual(new Set([`var(${ACCENT})`, `var(${MOON})`, `var(${CANVAS})`]))
+    // accent x6 (selection bg/text, label, underline, halo, wash) + moon + canvas.
+    expect(tokens).toHaveLength(8)
     // Nothing opaque: no hex, no rgb()/hsl() literal anywhere in the sheet.
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(css).not.toMatch(/\b(?:rgba?|hsla?)\(/)
@@ -414,9 +446,13 @@ describe('skinCss — the whitelisted rules', () => {
       "html[data-moonset-skin] body [aria-pressed='true']",
     ])
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
-    // No class-name hacks, no wildcard subtree selector, no !important.
-    expect(rules).not.toMatch(/\[class|\*=|!important/)
-    expect(rules).not.toContain('*')
+    // No class-name hacks, no wildcard selector, no !important. The `*` in the
+    // ground's calc() products is arithmetic, not a selector, so only selector
+    // text (everything outside a declaration block) is checked for it.
+    const selectorText = rules.replace(/\{[^}]*\}/g, '')
+    expect(selectorText).not.toMatch(/\[class|\*=/)
+    expect(selectorText).not.toContain('*')
+    expect(rules).not.toContain('!important')
     // The rule colours the container and lets the label inherit; muted
     // children (timestamps, summaries) set their own colour and keep it.
     expect(colourBlock).toContain(`color: var(${ACCENT});`)
@@ -466,6 +502,142 @@ describe('skinCss — the whitelisted rules', () => {
     // Ours is the colour only; the bar's 2px size and placement stay host-owned
     // (11.4: the sheet may not change layout).
     expect(declarations).toEqual([`background: var(${ACCENT})`])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * the 0.1.2 ground                                                    *
+ * ------------------------------------------------------------------ */
+
+describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
+  /** The ground block: the only root-gated `body { … }` rule in the sheet. */
+  const GROUND_RULE = /html\[data-moonset-skin\] body \{\n([\s\S]*?)\n\}/
+
+  it('paints the ground from tokens only, root-gated, strength inlined', () => {
+    const css = skinCss()
+    // Exactly one ground block, and it is the root-gated body rule (P2's gate).
+    expect(css.match(/html\[data-moonset-skin\] body \{/g)).toHaveLength(1)
+    const block = GROUND_RULE.exec(css)
+    expect(block).not.toBeNull()
+    const declarations = block![1]
+
+    // Three layers, top-first: the two spots above the wash.
+    expect(declarations.match(/(?:radial|linear)-gradient\(/g)).toEqual([
+      'radial-gradient(',
+      'radial-gradient(',
+      'linear-gradient(',
+    ])
+    // The canvas token rides the LAST layer: a background shorthand resets
+    // background-color, so the base has to be in the same declaration.
+    expect(declarations).toContain('var(--dsw-alias-bg-base)')
+
+    // Colours are tokens mixed with transparent — and the alpha carries the
+    // strength factor INLINE. No literal colour, no intermediate custom
+    // property (a property hop is what breaks the M2 knob — D2).
+    expect(declarations).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(declarations).not.toMatch(/\b(?:rgba?|hsla?)\(/)
+    expect(declarations).not.toMatch(/--[a-z0-9-]+\s*:/)
+    expect(declarations).not.toContain('dsh-moonset-glow-strength')
+    const mixes = [
+      ...declarations.matchAll(
+        /color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) calc\(([\d.]+)% \* 1\), transparent\)/g,
+      ),
+    ]
+    expect(mixes.map((match) => [match[1], Number(match[2])])).toEqual([
+      [ACCENT, 16],
+      [MOON, 10],
+      [ACCENT, 1.5],
+    ])
+    expect(declarations.match(/calc\([\d.]+% \* 1\)/g)).toHaveLength(3)
+  })
+
+  it('carries BOTH spots: indigo moon halo top-centre, amber warm light bottom-right', () => {
+    const spots = [
+      ...skinCss().matchAll(
+        /radial-gradient\(ellipse at (\d+)% (-?\d+)%, color-mix\(in srgb, var\((--dsw-static-[a-z0-9-]+)\) calc\(([\d.]+)% \* 1\), transparent\) 0%, transparent (\d+)%\)/g,
+      ),
+    ]
+    expect(spots).toHaveLength(2)
+    const spot = (match: RegExpMatchArray): Record<string, unknown> => ({
+      x: Number(match[1]),
+      y: Number(match[2]),
+      token: match[3],
+      alpha: Number(match[4]),
+      fade: Number(match[5]),
+    })
+    // Top-centre (-10% pulls the halo off the top edge) and the 92%/88% corner.
+    expect(spot(spots[0])).toEqual({ x: 50, y: -10, token: ACCENT, alpha: 16, fade: 62 })
+    expect(spot(spots[1])).toEqual({ x: 92, y: 88, token: MOON, alpha: 10, fade: 60 })
+    // Both hues are the board's own anchors in each scheme: no second colour
+    // source, and the warm light is exactly the palette's `moon` role.
+    expect(MOONSET_LIGHT[MOON]).toBe(board.light.moon.toUpperCase())
+    expect(MOONSET_DARK[MOON]).toBe(board.dark.moon.toUpperCase())
+    expect(MOONSET_LIGHT[ACCENT]).toBe(board.light.accent.toUpperCase())
+    expect(MOONSET_DARK[ACCENT]).toBe(board.dark.accent.toUpperCase())
+  })
+
+  it('keeps the wash inside the <= 2/255 horizontal band at 1920x1080', () => {
+    const css = skinCss()
+    // A 165deg CSS gradient spans L = W·|sin θ| + H·|cos θ|; moving horizontally
+    // by dx shifts the gradient position by dx·|sin θ| / L. The wash starts at
+    // `alpha` and dies at `fade`, so left vs right edge differ by
+    // alpha · (W·sin θ / L) / fade. The colour deltas are the palette's own.
+    const wash =
+      /linear-gradient\(165deg, color-mix\(in srgb, var\((--dsw-[a-z0-9-]+)\) calc\(([\d.]+)% \* 1\), transparent\) 0%, transparent (\d+)%\)/.exec(
+        css,
+      )
+    expect(wash).not.toBeNull()
+    const alpha = Number(wash![2]) / 100
+    const fade = Number(wash![3]) / 100
+    const width = 1920
+    const height = 1080
+    const angle = (165 * Math.PI) / 180
+    const horizontal = width * Math.abs(Math.sin(angle))
+    const span = horizontal + height * Math.abs(Math.cos(angle))
+    const positionShift = horizontal / span
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const glow = rgbOf(resolveToken(table, wash![1]))
+      const canvas = rgbOf(resolveToken(table, CANVAS))
+      const deltaAlpha = (alpha * positionShift) / fade
+      const delta =
+        Math.max(
+          Math.abs(glow.r - canvas.r),
+          Math.abs(glow.g - canvas.g),
+          Math.abs(glow.b - canvas.b),
+        ) * deltaAlpha
+      expect(
+        delta,
+        scheme + ' wash left/right spread = ' + delta.toFixed(2) + '/255',
+      ).toBeLessThanOrEqual(2)
+    }
+  })
+
+  it('stays ONE root-gated sheet inside the 40-line budget (P2)', () => {
+    const css = skinCss()
+    const lines = css.split('\n')
+    expect(lines.length).toBeLessThanOrEqual(40)
+    // 0.1.1's 19 lines + the 9-line ground segment.
+    expect(lines.length).toBeGreaterThan(19)
+    // Mounting still yields exactly ONE <style>, carrying exactly this CSS.
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.attached()).toHaveLength(1)
+    expect(doc.attached()[0].textContent).toBe(css)
+    // The ground is behind the root attribute, never a bare `body` rule.
+    expect(css).toMatch(/^html\[data-moonset-skin\] body \{$/m)
+    expect(css).not.toMatch(/^body \{$/m)
+  })
+
+  it('drops the WHOLE ground rule when the M2 switch is off (never alpha 0)', () => {
+    // Off means the rule does not exist: alpha 0 would still composite
+    // (0.1.2 §一), and D4's bar is a pre-glow screenshot.
+    const off = skinCss({ glow: false })
+    expect(off).toBe(EXPECTED_BASE_CSS)
+    expect(off).not.toContain('radial-gradient')
+    expect(off).not.toContain('linear-gradient')
+    expect(off).not.toMatch(/html\[data-moonset-skin\] body \{/)
+    // On is the default and is still the full contract sheet.
+    expect(skinCss({ glow: true })).toBe(EXPECTED_CSS)
   })
 })
 

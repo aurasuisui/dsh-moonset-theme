@@ -1,5 +1,5 @@
 /**
- * The skin layer (0.1.1): ONE root attribute plus ONE injected stylesheet, and
+ * The skin layer (0.1.1–0.1.2): ONE root attribute plus ONE injected stylesheet, and
  * nothing else in the document.
  *
  * Why a stylesheet at all is a decision, not a default (contract §一 P5): the
@@ -68,14 +68,51 @@ export const SKIN_SHEET_ATTR = 'data-dsh-moonset-skin'
 export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
 
 /**
- * The skin's rules, as text — a PURE function of nothing.
+ * Options accepted by {@link skinCss}.
+ *
+ * The signature is the seam for 0.1.2's user-facing switch (M2): the ground
+ * rule is already one independent segment, so "off" can remove the whole
+ * `background` instead of writing alpha 0 (which still composites — 0.1.2 §一).
+ */
+export interface SkinOptions {
+  /** The 0.1.2 environment glow — the wash and both fixed spots. Defaults on. */
+  glow?: boolean
+}
+
+/**
+ * The 0.1.2 ground segment — kept apart from the 0.1.1 rules so the M2 switch
+ * can emit nothing at all instead of a zero-alpha rule.
+ *
+ * One `background`, layers top-first: the moon halo, the warm light, then the
+ * wash; the final layer carries the canvas token as its colour (the shorthand
+ * would otherwise reset `background-color` to transparent). Every colour is a
+ * `color-mix()` of a static token with `transparent`, and the alpha product is
+ * inlined (`calc(N% * 1)`), never routed through an intermediate custom
+ * property — see {@link skinCss} for the Chromium evidence behind that rule
+ * (0.1.2 D2).
+ */
+const GLOW_RULES: readonly string[] = [
+  '/* 0.1.2 ground: canvas + wash + two fixed spots in ONE declaration. The',
+  '   strength factor is inlined in each color-mix (`calc(N% * 1)` = 100% here):',
+  '   a custom-property hop would not recompute on Chromium (0.1.2 D2). */',
+  'html[data-moonset-skin] body {',
+  '  background:',
+  '    radial-gradient(ellipse at 50% -10%, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(16% * 1), transparent) 0%, transparent 62%),',
+  '    radial-gradient(ellipse at 92% 88%, color-mix(in srgb, var(--dsw-static-amber-500) calc(10% * 1), transparent) 0%, transparent 60%),',
+  '    linear-gradient(165deg, color-mix(in srgb, var(--dsw-static-deepseek-500) calc(1.5% * 1), transparent) 0%, transparent 70%) var(--dsw-alias-bg-base);',
+  '}',
+]
+
+/**
+ * The skin's rules, as text — a PURE function of its options only.
  *
  * Pure on purpose: the sheet's exact bytes are the contract the tests pin
  * (`tests/skin.spec.ts` compares them verbatim), so it must not depend on the
  * document, the clock, the palette or the scheme. Scheme-correctness comes from
- * the token the rule references: `--dsw-static-deepseek-500` is the accent
- * anchor (light #4338CA, dark #818CF8), so one rule follows both schemes and
- * every theme switch automatically.
+ * the tokens the rules reference: `--dsw-static-deepseek-500` is the accent
+ * anchor (light #4338CA, dark #818CF8), `--dsw-static-amber-500` is the moon
+ * anchor (#F59E0B in both schemes) and `--dsw-alias-bg-base` is the canvas, so
+ * every rule follows both schemes and every theme switch automatically.
  *
  * The rule mirrors the documentation site's `selection:bg-indigo-500/20`
  * `selection:text-indigo-700` pair: a 22% accent wash with the accent ITSELF as
@@ -122,22 +159,46 @@ export const SKIN_SHEET_SELECTOR = `style[${SKIN_SHEET_ATTR}]`
  * the same attribute sits on every menu trigger and disclosure, so colouring it
  * would repaint states the skin should not touch.
  *
+ * The 0.1.2 GROUND is one more rule — the whitelist's third entry. It is a
+ * single `background` on `body`, root-gated, three layers above the canvas
+ * token: a low-contrast wash (`linear-gradient(165deg, accent 1.5% → transparent
+ * 70%)`; the left-to-right spread at 1920×1080 is ~1.3/255 in light and
+ * ~1.6/255 in dark, inside the contract's "<= 2/255" band) plus two
+ * viewport-fixed spots — an indigo moon halo at top-centre (16%) and an amber
+ * warm light at the bottom-right (10%). The hues are mixed from
+ * `--dsw-static-deepseek-500` (accent) and `--dsw-static-amber-500` (moon);
+ * no literal colour enters the sheet. The canvas token rides as the colour of
+ * the final layer on purpose: a `background` shorthand resets
+ * `background-color` to transparent, so the base has to be part of the same
+ * declaration or the ground would go see-through.
+ *
+ * The strength factor lives INSIDE each `color-mix()` percentage as
+ * `calc(16% * 1)` — 1 is M1's constant 100%, and M2 substitutes the user value
+ * (`var(--dsh-moonset-glow-strength, 1)`) in exactly that seat. It is inlined
+ * instead of being pre-computed into an intermediate custom property because
+ * catppuccin measured on Chromium that such a hop does not recompute when the
+ * property changes, i.e. the knob "dies" (0.1.2 D2). The ground also lives in
+ * its own segment ({@link GLOW_RULES}) so the M2 switch can drop the WHOLE
+ * rule — alpha 0 would still composite (0.1.2 §一).
+ *
  * How the exception maps onto §一 P5's whitelist:
  *
  *   `::selection`  text selection — cannot be expressed as a token (see the
  *                   module doc above), so it is the FIRST whitelist entry;
- *   body wash       (0.1.2) surface gradient, also whitelisted;
+ *   body ground     (0.1.2) wash + two fixed spots, also whitelisted;
  *   material faces  (0.1.3) `::before` planes, also whitelisted.
  *
  * The selector is `html body ::selection` (0,0,2) so it outranks a plain
  * `::selection` (0,0,1) from any third-party sheet that happens to set one; the
  * sheet is also appended after the host's sheets, so a same-specificity rule
  * still loses to ours.
+ * @param options - the emit switches; omitted means every 0.1.2 layer is on
+ *   (the default 100% look). Only the ground segment is switchable so far.
  * @returns the complete CSS text of the single skin sheet.
  */
-export function skinCss(): string {
-  return [
-    '/* dsh-moonset[0.1.1]: skin — P5 whitelist (selection + selected-item text) */',
+export function skinCss(options: SkinOptions = {}): string {
+  const rules = [
+    '/* dsh-moonset[0.1.2]: skin — P5 whitelist (selection, selected-item text, ground) */',
     'html body ::selection {',
     '  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);',
     '  color: var(--dsw-static-deepseek-500);',
@@ -156,7 +217,9 @@ export function skinCss(): string {
     "html[data-moonset-skin] body [data-active='true']::after {",
     '  background: var(--dsw-static-deepseek-500);',
     '}',
-  ].join('\n')
+  ]
+  if (options.glow !== false) rules.push(...GLOW_RULES)
+  return rules.join('\n')
 }
 
 /**
