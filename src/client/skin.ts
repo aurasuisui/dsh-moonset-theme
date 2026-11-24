@@ -873,12 +873,174 @@ function glassRules(): readonly string[] {
     `  margin-top: calc(-1 * var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px));`,
     `  padding-top: calc(var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px) + 12px);`,
     '}',
-    '/* M5: the code block\'s sticky banner pins at the SCROLLPORT top, which the',
-    '   float pushed above the header — so it has to stop BELOW the header instead',
-    '   (the host uses the same `:has(> [data-code-block-banner])` shape for its own',
-    '   compaction offset, so the hook is the host\'s, not a class-name guess). */',
+    '/* M5/0.1.5 G1: the banner pins below the header. Chromium resolves a sticky',
+    '   offset against the scroller\'s CONTENT box, so the float\'s padding (header-h',
+    '   + 12) rides along: `top: H` landed at header-bottom + 12 + H (measured 88px',
+    '   at H=76). Give the 12px air back — `top: -12px` — and the gap is 0. */',
     `${SKIN_GATE} [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {`,
-    `  top: var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px);`,
+    '  top: -12px;',
+    '}',
+  ]
+}
+
+/**
+ * The 0.1.5 colour entries — three small fixes in ONE always-on segment.
+ *
+ * Every declaration here is a colour (background / border / text / a custom
+ * property), so the block is emitted UNCONDITIONALLY (after the two switchable
+ * segments): it must not vanish with the ground or the material switches, and it
+ * writes no layout property.
+ *
+ *  - **G2, the turn-changes card.** `[data-changed-files]` is the attribute the
+ *    card root renders (`ChangedFiles.tsx:69`), and the host sheet paints it
+ *    `background: var(--dsw-alias-bg-layer-1)` with a 60px header on
+ *    `--changes-fill: var(--dsw-alias-card-fill)`
+ *    (`ChangedFiles.module.css:2`, same text in the shipped
+ *    `dsh-client-ui-deliverables/lib/client.js`). In the DARK palette layer-1 is
+ *    near-black while `card-fill` is a NEUTRAL grey, which the user read as
+ *    黑灰 — but the first fix (`bg-layer-2`) made the card VANISH: in the light
+ *    table layer-2 IS the canvas token (`bluish-00` = `#FAFAFC` = page), and
+ *    re-pointing `--changes-fill` had removed the only other visible surface
+ *    (the host's grey 60px header). A faithful fixture measured the card at
+ *    card-vs-page **1.000** in light (and 1.192 in dark, where the header's
+ *    1.390 grey band had gone flat). R1 therefore paints ONE accent-tinted
+ *    platform surface — `bg-module-platform` = 12% accent over the canvas, which
+ *    flips with the scheme — for the body AND the header (`--changes-fill`), the
+ *    edge with `border-l2` plus a 1px `inset` ring of the same token so the frame
+ *    reads even where the tint is subtle: measured 1.214 (light) / 1.169 (dark)
+ *    against the page, title 14.65 / 13.52 and rows 5.04 / 5.84 on the card.
+ *    It is NOT a global surface/layer override (D3): the selector is the card's
+ *    own attribute and the property is declared on that card, so nothing else
+ *    moves.
+ *  - **G3, the `上下文注入` row.** It is a `DisclosureRow` whose row root carries
+ *    no `data-variant`, so the 0.1.3 step-row rules never reach it
+ *    (`ContextInjectionRow.tsx:51`). Its collapsed content publishes the only
+ *    stable hooks — `[data-context-source]` (`:69`) and `[data-context-summary]`
+ *    (`:73`) — so the row is coloured through `:has()` on those two, and the
+ *    TITLE follows by inheritance: `DisclosureRow` paints its row div
+ *    `color: var(--dsw-alias-label-tertiary)` (`._row_l4nv8_26` in the shipped
+ *    sheet, hashed per build — hence its own hook) and wraps the title in a
+ *    TextShimmer whose root and text are `color: inherit`; one `color` at our
+ *    specificity out-ranks the row's shorthand and the hover rule, and the title
+ *    inherits it. `.source` / `.summary` / `.chevron` set their own label
+ *    colours and the expanded body declares its own, so 正文 keeps its ink. No
+ *    hue of its own: it reads the SAME `--dsh-moonset-step-name` the step rows
+ *    read, and the fallback (the accent) is the sheet's "unknown tool" colour —
+ *    a per-kind hue is one declaration block away.
+ *  - **G4, the LIGHT failure red.** `--dsw-alias-state-error-primary` is
+ *    `#B31B3E` in light and the user read it as too red. The light scheme mixes
+ *    it 70/30 toward the label ink (the recipe the step hues already use), which
+ *    lands on `#821934`: 9.43:1 on the canvas and 7.77:1 on the exit capsule's
+ *    own fill (measured; the paler direction — mixing toward the canvas — fails
+ *    D2 ON THE CAPSULE at 3.94:1). The property is declared under
+ *    `body:not([data-ds-dark-theme])` ONLY and the failed-step rule reads it
+ *    with the host token as the FALLBACK, so dark keeps the 0.1.4 colour
+ *    byte-for-byte.
+ * @returns the rule lines (three rules).
+ */
+function colourRules(): readonly string[] {
+  return [
+    '/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the',
+    '   context-injection row and the LIGHT failure red. No layout property. */',
+    'html[data-moonset-skin] body [data-changed-files] {',
+    '  background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform);',
+    '}',
+    "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
+    '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
+    '}',
+    'html[data-moonset-skin] body:not([data-ds-dark-theme]) {',
+    '  --dsh-moonset-error: color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, var(--dsw-alias-label-primary));',
+    '}',
+  ]
+}
+
+/**
+ * The 0.1.5 M2 turn-rail entry — the docs-site timeline, painted on the host's
+ * existing rail (the user's ask: 「导航轨可以改成网页的这种形式和配色」).
+ *
+ * THE HOST, read out of the installed `dsh-client-ui-chat` sources
+ * (`src/client/chat/TurnNavigator.module.css:1-152` / `TurnNavigator.tsx:233-283`):
+ *
+ *   div.slot            absolute (sticky inside a scrollport), height 0, z-index 7
+ *   └ nav.frame         aria-label = 'chat.turnNavigation.label', right: 12px,
+ *                       width 28px, translateY(-50%), max-height <= 420px,
+ *                       `contain: layout`, and the DOMINANT hook: a semantic <nav>
+ *                       that always carries an aria-label;
+ *     └ div.scroller    overflow-y: auto, mask fades at both scrollable ends
+ *       └ div.marks     position: relative (height = virtualizer total)
+ *         └ button.mark 10px tall, 28px wide, ABSOLUTE at top: 0 and positioned
+ *                       by the virtualizer's inline `transform: translateY(...)`;
+ *                       carries data-index (TurnNavigator.tsx:63), and its state
+ *                       attributes are the ONLY stable per-mark hooks:
+ *                         aria-current='true'   the current turn  (:70)
+ *                         aria-busy='true'      a jump still paging (:71)
+ *                         aria-describedby      the previewed turn (:72)
+ *                       `.mark::before` is the host's 20x2px tick, right-aligned,
+ *                       centred - its centre sits 10px inside the frame's right
+ *                       edge.
+ *
+ * The user reverted the round-dot form on the real machine (「导航轨这样不好看，
+ * 改回原来的形式，加上颜色渐变就可以了」), so this entry keeps the host's OWN
+ * ladder — the 20x2px ticks and their per-state `scaleX` transform — and adds
+ * only COLOUR: the nav's background gains ONE hairline track (2px wide, 100%
+ * tall) whose gradient runs indigo -> amber, the ticks themselves take the
+ * accent, and the CURRENT turn's tick takes amber. (A true "colour follows the
+ * position along the track" needs one rule per `data-index` value — an unbounded
+ * set — or a canvas; two colours is the CSS-only fallback the plan allowed.)
+ * NOTHING about the ladder moves: every declaration is `background` or a custom
+ * property, and the geometry proof is a test (the segment's declarations are
+ * limited to background / border / border-radius / box-shadow / opacity / color).
+ *
+ * The accent is a scheme pair like the night anchor: `deepseek-500` on light and
+ * `deepseek-400` on dark (the user's call: 暗色用 400 那一档), published once on
+ * the rail as `--dsh-moonset-rail-accent` and read by every layer.
+ *
+ * Known gap: `.markUnloaded` (a turn whose transcript is not paged in yet) has
+ * NO attribute — it is a hashed class only — so an unloaded mark paints like a
+ * resting one. The host's own `scaleX(0.4) + opacity .6` tick shrink is gone with
+ * the tick; the difference is only visible on rails whose history is partially
+ * loaded.
+ * @returns the rule lines (five rules).
+ */
+function railRules(): readonly string[] {
+  /**
+   * The gate is the root attribute ONLY: the rail is chrome, so it must survive
+   * "glass off" (the material's switch) exactly like the step rows do.
+   */
+  const gate = 'html[data-moonset-skin]'
+  /** The rail inside the scrollport: the only `nav[aria-label]` there is. */
+  const rail = `[data-conversation-scroll] nav[aria-label]`
+  /** One mark: the host's `button.mark`, hooked on its `data-index`. */
+  const mark = `${gate} ${rail} [data-index]`
+  return [
+    '/* 0.1.5 M2: the rail keeps the HOST ladder (20x2px ticks, scaleX states) and',
+    '   only re-paints it: accent ticks, amber for the current, ±2 steps mixed. */',
+    `${gate} ${rail} {`,
+    '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-500);',
+    '}',
+    `${gate} body[data-ds-dark-theme] ${rail} {`,
+    '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-400);',
+    '}',
+    `${mark}::before {`,
+    '  background: var(--dsh-moonset-rail-accent); transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease;',
+    '}',
+    `${mark}[aria-current='true']::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary)); box-shadow: 0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent);',
+    '}',
+    `${mark}[aria-current='true'] + [data-index]::before, ${mark}:has(+ [data-index][aria-current='true'])::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));',
+    '}',
+    `${mark}[aria-current='true'] + [data-index] + [data-index]::before, ${mark}:has(+ [data-index] + [data-index][aria-current='true'])::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));',
+    '}',
+    `${mark}[aria-describedby]::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary)); box-shadow: 0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent);',
+    '}',
+    `${mark}[aria-describedby] + [data-index]::before, ${mark}:has(+ [data-index][aria-describedby])::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));',
+    '}',
+    `${mark}[aria-describedby] + [data-index] + [data-index]::before, ${mark}:has(+ [data-index] + [data-index][aria-describedby])::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));',
     '}',
   ]
 }
@@ -1044,7 +1206,10 @@ function glassRules(): readonly string[] {
  *   body ground     (0.1.2) wash + two fixed spots, also whitelisted;
  *   step rows       (0.1.3 M2) the two terminal-coloured cells of a step row,
  *                   also whitelisted;
- *   material faces  (0.1.4 M1) `::before` planes, also whitelisted.
+ *   material faces  (0.1.4 M1) `::before` planes, also whitelisted;
+ *   colour entries  (0.1.5) the turn-changes card's surface, the context-row
+ *                   hue and the light-scheme failure red — see
+ *                   {@link colourRules}.
  *
  * The selector is `html body ::selection` (0,0,2) so it outranks a plain
  * `::selection` (0,0,1) from any third-party sheet that happens to set one; the
@@ -1111,7 +1276,7 @@ export function skinCss(options: SkinOptions = {}): string {
     "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
-    '  color: var(--dsw-alias-state-error-primary);',
+    '  color: var(--dsh-moonset-error, var(--dsw-alias-state-error-primary));',
     '}',
   ]
   if (options.glow !== false) {
@@ -1126,6 +1291,12 @@ export function skinCss(options: SkinOptions = {}): string {
   // 0.1.4 M1: the material is its OWN switch (GLASS_ATTR), not part of the
   // ground segment — "glow off, glass on" is a legal state (the plan's §一).
   if (options.glass !== false) rules.push(...glassRules())
+  // 0.1.5: three colour-only entries. Always emitted — they belong to no switch
+  // (the failure-red property rides the same base half as the rule that reads it).
+  rules.push(...colourRules())
+  // 0.1.5 M2: the turn rail, painted on the host's ladder (its own segment, also
+  // switch-free — the rail is chrome, not ground or material).
+  rules.push(...railRules())
   return rules.join('\n')
 }
 
