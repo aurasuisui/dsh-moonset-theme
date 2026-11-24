@@ -53,6 +53,9 @@
       planeZIndex: cs.zIndex,
     };
   };
+  // 0.1.4 M6: the sidebar is NO LONGER a material face — this read is the control
+  // that proves we left it alone: planeContent should be 'none' and hostBackground
+  // should still be the host's --dsw-specific-sidebar-fill.
   out.state.sidebar = readPlane(document.querySelector("#root [data-slot='sidebar'] > div"));
   // 0.1.4 M3: the conversation header, plus the host fact that decides how much
   // the material there can show — does any transcript content pass BEHIND it?

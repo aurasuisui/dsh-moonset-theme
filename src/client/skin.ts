@@ -158,14 +158,12 @@ const WINDOWS_GATE = 'html[data-windows-titlebar][data-moonset-skin][data-moonse
  * {@link syncHeaderHeight} can never disagree about which node the header is.
  *
  *  - `CARD_HOOK`: the input card's own attribute (`InputBar.tsx:462`);
- *  - `SIDEBAR_HOOK`: the sidebar slot anchor's only child (the anchor is
- *    `display: contents`), i.e. SidebarRoot's `.root`;
+
  *  - `HEADER_HOOK`: the header slot anchor's only child, i.e. the real
  *    `<header>` (`ConversationHeader.tsx:18` via `ConversationMainPanel.tsx:39`);
  *  - `STRIP_HOOK`: the Windows caption strip, which IS the frame's `::before`.
  */
 export const CARD_HOOK = '[data-composer-card]'
-export const SIDEBAR_HOOK = "#root [data-slot='sidebar'] > div"
 export const HEADER_HOOK = "[data-slot='conversation.header'] > header"
 export const STRIP_HOOK = "#root [data-slot='root'] > div::before"
 
@@ -751,8 +749,15 @@ function visibilityRules(scope: GlowScope): readonly string[] {
 }
 
 /**
- * The 0.1.4 material: FOUR faces, ONE recipe (M1 input card, M2 sidebar + top
- * bar, M3 conversation header).
+ * The 0.1.4 material: THREE faces, ONE recipe (M1 input card, M2 top bar, M3
+ * conversation header).
+ *
+ * M6 (2026-11-24) removed the SIDEBAR face on the user's instruction
+ * (「侧栏先不做玻璃材质了」): the sidebar keeps `--dsw-specific-sidebar-fill`
+ * exactly as the host paints it, and nothing here touches that node any more.
+ * The M4 scheme-split base that existed only to make the dark sidebar legible
+ * went with it, so this block is back to ONE base shared by every face. The
+ * probe still reads the sidebar, as the control that proves we left it alone.
  *
  * Every face is addressed by a STABLE hook, never by a host class name (those
  * are hashed per build) and never by counting more than one hop:
@@ -760,10 +765,6 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  *   input card  `[data-composer-card]` — the node the installed InputBar renders
  *               with that attribute (InputBar.tsx:462), whose class paints
  *               `--dsw-specific-input-major` (InputBar.module.css:71);
- *   sidebar     `#root [data-slot='sidebar'] > div` — the renderer's slot anchor
- *               is `display: contents`, so its child IS SidebarRoot's `.root`,
- *               the element painting `--dsw-specific-sidebar-fill`
- *               (SidebarRoot.module.css:19);
  *   header      `#root [data-slot='conversation.header'] > header` — the header
  *               slot anchor (ConversationMainPanel.tsx:39) is `display: contents`,
  *               so its child is ConversationHeader's `<header>` — the element
@@ -782,14 +783,9 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  *
  * WHAT EACH FACE HAS BEHIND IT (this decides how visible the material can be):
  *   input card — the transcript, so the blur has text and bubbles to melt;
- *   sidebar     — the ground only;
- *   header      — the ground only. The host header is NOT sticky and the
- *                 transcript scrolls inside `.body`, BELOW it (`.scrollBody {
- *                 overflow-y: auto }`, ConversationRoot.module.css:485-494;
- *                 `.root[data-phase='active'] .header { flex: none }` at :451-453;
- *                 measured: the first message starts 18px below the header). So
- *                 the header glass shows the halo/ground behind it — it can not
- *                 show blurred messages, because nothing renders behind it;
+ *   header      — the transcript, since M4/M5: the header FLOATS over the scroll
+ *                 body (see the float rules below), so messages scroll under it
+ *                 and are blurred through the plane;
  *   top bar     — the ground (the halo core sits near it in dark).
  *
  * The shape is fixed by P6: a face paints nothing (`background: transparent`
@@ -811,34 +807,23 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * emitted twice): the canvas at 62% plus a 10% near-white top highlight
  * (`--dsw-static-neutral-bluish-00`) — a token, not the plan's
  * `rgba(255,255,255,0.10)`, so P5's "every colour from a token" rule holds (the
- * sheet's only literals stay the two night anchors). Two faces deviate on
- * purpose, and only in the way the user's dark-scheme report demanded:
- *
- *  - SIDEBAR: its own base. `--dsw-specific-sidebar-fill` is `#F4F4F7` light /
- *    `#15171F` dark, i.e. within a few units of "62% canvas over the ground"
- *    (measured on/off: Δ5.4 light, Δ7.6 dark), so the shared material was
- *    invisible there — the user's 「深色下侧栏看不出区别」. The glass base is
- *    `--dsw-alias-bg-module-platform` (12% accent over the canvas) at 72%, which
- *    measures Δ10.4 light / Δ11.7 dark — a tinted panel in both schemes, still
- *    a token mix, and the blur is unchanged;
- *  - HEADER: keeps the host's 0.5px `border-bottom` (nothing here writes
- *    `border`) and adds the material's own bottom edge on the plane, because a
- *    1px line under a 62%-opaque plane would be muted to invisibility. The line
- *    is `--dsw-alias-border-l3`, the same token the host border uses.
+ * sheet's only literals stay the two night anchors). The HEADER is the one face
+ * that adds anything: it keeps the host's 0.5px `border-bottom` (nothing here
+ * writes `border`) and paints the material's own bottom edge on the plane,
+ * because a 1px line under a 62%-opaque plane would be muted to invisibility.
+ * The line is `--dsw-alias-border-l3`, the same token the host border uses.
  *
  * What this block may NOT touch: layout — `position` (the `::before`'s
  * containing block) is the one exception the milestone budget bought, and
  * `isolation` is paint-only. No size, margin, padding or overflow is written;
  * every face keeps its box, its radius (`border-radius: inherit`) and its host
  * shadow.
- * @returns the rule lines (five rules: the planes, the sidebar base, the header
- *   edge, the strip, the faces).
+ * @returns the rule lines (five rules: the planes, the header edge, the strip,
+ *   the faces, the float pair + the banner offset).
  */
 function glassRules(): readonly string[] {
   /** The input card (M1): the host's own stable attribute. */
   const card = `${SKIN_GATE} ${CARD_HOOK}`
-  /** The sidebar column's inner root (M2): the slot anchor's only child. */
-  const sidebar = `${SKIN_GATE} ${SIDEBAR_HOOK}`
   /** The conversation header (M3): the header slot anchor's only child. */
   const header = `${SKIN_GATE} #root ${HEADER_HOOK}`
   /** The Windows caption strip (M2): the frame's existing ::before. */
@@ -850,25 +835,16 @@ function glassRules(): readonly string[] {
     '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
   ]
   return [
-    '/* 0.1.4 glass (M1 card, M2 sidebar + top bar, M3 header): ONE material on',
-    '   four planes. P6: the face paints nothing and the material sits on its',
-    '   ::before, so the blur samples what is BEHIND the face; z-index -1 plus',
-    '   isolation keeps it behind the face content. The top bar is the Windows',
+    '/* 0.1.4 glass (M1 card, M2 top bar, M3 header; the sidebar left in M6): ONE',
+    '   material on three planes. P6: the face paints nothing and the material sits',
+    '   on its ::before, so the blur samples what is BEHIND the face; z-index -1',
+    '   plus isolation keeps it behind the face content. The top bar is the Windows',
     '   caption strip, which is already the frame ::before. */',
     `${card}::before,`,
-    `${sidebar}::before,`,
     `${header}::before {`,
     "  content: ''; position: absolute; inset: 0; z-index: -1;",
     '  border-radius: inherit; pointer-events: none;',
     ...material,
-    '}',
-    '/* M4: the sidebar base is SCHEME-SPLIT. LIGHT keeps the shared canvas',
-    '   material (the user found the tinted one too dark); DARK needs its own —',
-    '   its host fill sits within a few units of "62% canvas over the',
-    '   ground", so the shared one measured Δ7.6 = invisible. Dark: the same',
-    '   base at bg-module-platform @72% → Δ11.7. Same blur and highlight. */',
-    `${SKIN_GATE} body[data-ds-dark-theme] ${SIDEBAR_HOOK}::before {`,
-    '  background: color-mix(in srgb, var(--dsw-alias-bg-module-platform) 72%, transparent);',
     '}',
     '/* M3: the header keeps the host 0.5px border-bottom and adds the material',
     '   edge on the plane (a line under a 62% plane would be muted away). */',
@@ -879,7 +855,6 @@ function glassRules(): readonly string[] {
     ...material,
     '}',
     `${card},`,
-    `${sidebar},`,
     `${header} {`,
     '  position: relative; isolation: isolate; background: transparent;',
     '}',
