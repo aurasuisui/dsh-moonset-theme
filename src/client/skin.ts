@@ -940,12 +940,8 @@ function glassRules(): readonly string[] {
  */
 function colourRules(): readonly string[] {
   return [
-    '/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the',
-    '   context-injection row and the LIGHT failure red. No layout property. */',
-    'html[data-moonset-skin] body [data-changed-files] {',
-    '  background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2);',
-    '  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform);',
-    '}',
+    '/* 0.1.5 G3/G4: two colour-only entries — the context-injection row and the',
+    '   LIGHT failure red. (G2, the card: tried, REVERTED — architecture §11.8.) */',
     "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
     '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
     '}',
@@ -1014,12 +1010,10 @@ function railRules(): readonly string[] {
   /** One mark: the host's `button.mark`, hooked on its `data-index`. */
   const mark = `${gate} ${rail} [data-index]`
   return [
-    '/* 0.1.5 M2: the turn rail keeps the HOST ladder (20x2px ticks, 10px pitch)',
-    '   and gains the COLOUR: one hairline track (indigo -> amber) behind the ticks,',
-    '   the ticks in the accent, the CURRENT turn in amber. PAINT ONLY. */',
+    '/* 0.1.5 M2: the rail keeps the HOST ladder (20x2px ticks, scaleX states) and',
+    '   only re-paints it: accent ticks, amber for the current, ±2 steps mixed. */',
     `${gate} ${rail} {`,
     '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-500);',
-    '  background: linear-gradient(to bottom, color-mix(in srgb, var(--dsh-moonset-rail-accent) 65%, transparent), color-mix(in srgb, var(--dsw-static-amber-500) 65%, transparent)) no-repeat right 9px center / 2px 100%;',
     '}',
     `${gate} body[data-ds-dark-theme] ${rail} {`,
     '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-400);',
@@ -1029,6 +1023,12 @@ function railRules(): readonly string[] {
     '}',
     `${mark}[aria-current='true']::before {`,
     '  background: var(--dsw-static-amber-500);',
+    '}',
+    `${mark}[aria-current='true'] + [data-index]::before, ${mark}:has(+ [data-index][aria-current='true'])::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));',
+    '}',
+    `${mark}[aria-current='true'] + [data-index] + [data-index]::before, ${mark}:has(+ [data-index] + [data-index][aria-current='true'])::before {`,
+    '  background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));',
     '}',
   ]
 }
