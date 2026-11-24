@@ -105,8 +105,8 @@ const CANVAS = '--dsw-alias-bg-base'
  * The sheet's line budget: 60 through 0.1.2, 75 for the first 0.1.3 M2 pass,
  * 95 for the per-class pass (M2b), **130 for the 0.1.4 material (three faces)**,
  * **155 for 0.1.5's colour entries** (141 → 152 default, 143 → 154 at scope C, the
- * widest sheet), **172 for the final 0.1.5 sheet** — G2 (the card) was reverted
- * and the rail kept only its paint: measured 169 default / 171 at scope C.
+ * widest sheet), **185 for the final 0.1.5 sheet** — G2 (the card) is back and the
+ * rail grew its hover ramp + glow: measured 181 default / 183 at scope C.
  *
  * The step-row entry is the first whitelist class that addresses TWO cells of a
  * host row, a per-kind hue for each of them, and their failed state: four class
@@ -115,7 +115,7 @@ const CANVAS = '--dsw-alias-bg-base'
  * material declarations (measured 104 → 114, i.e. +10 lines for the sidebar and
  * the Windows caption strip). The architecture doc §11.5 carries the same number.
  */
-const SHEET_BUDGET = 172
+const SHEET_BUDGET = 185
 
 /**
  * Rule blocks in the default sheet: nine through 0.1.2, sixteen since 0.1.3 M2b
@@ -125,11 +125,11 @@ const SHEET_BUDGET = 172
  * edge, the caption strip's material, and the faces' clear — all five inside
  * the one switchable segment. Twenty-six since 0.1.5: the three colour entries
  * (turn-changes card, context-injection row, light-scheme failure red).
- * Thirty-one in the final 0.1.5 sheet: G2's card rule is gone (reverted), and the
- * turn rail carries six rules (scheme accent pair + accent ticks + amber current
- * + the two 55%/28% neighbours).
+ * Thirty-five in the final 0.1.5 sheet: G2's card rule is back, and the turn rail
+ * carries nine rules (scheme accent pair + accent ticks + amber current + its two
+ * 55%/28% neighbours + the same three states for the hovered/previewed tick).
  */
-const SHEET_RULES = 31
+const SHEET_RULES = 35
 
 /**
  * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
@@ -305,21 +305,25 @@ const EXPECTED_GLASS_CSS = [
 /**
  * The 0.1.5 colour segment, verbatim — appended after the material.
  *
- * TWO rules, both colour-only: the context-injection row (G3) and the LIGHT
- * failure red (G4). They are their own segment because they ride no switch:
- * "glow off" and "glass off" both keep them. (0.1.5 G2, the turn-changes card,
- * was tried in this segment and REVERTED — the host card is kept as-is; see
- * docs/architecture.md §11.8 for the three measurements that closed it.)
+ * THREE rules, all colour-only: the turn-changes card (G2 — restored after a
+ * false-alarm revert: the card is the host's in-memory projection of the turn,
+ * so a restart clearing it is HOST behaviour, not a skin bug), the
+ * context-injection row (G3) and the LIGHT failure red (G4). They ride no
+ * switch: "glow off" and "glass off" both keep them. The card's visibility
+ * numbers are in docs/architecture.md §11.8 (light 1.214:1 / dark 1.169:1).
  */
 const EXPECTED_COLOUR_CSS = [
-  '/* 0.1.5 G3/G4: two colour-only entries — the context-injection row and the',
-  '   LIGHT failure red. (G2, the card: tried, REVERTED — architecture §11.8.) */',
+  "/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the",
+  "   context-injection row and the LIGHT failure red. No layout property. */",
+  "html[data-moonset-skin] body [data-changed-files] {",
+  "  background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform);",
+  "}",
   "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
-  '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
-  '}',
-  'html[data-moonset-skin] body:not([data-ds-dark-theme]) {',
-  '  --dsh-moonset-error: color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, var(--dsw-alias-label-primary));',
-  '}',
+  "  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));",
+  "}",
+  "html[data-moonset-skin] body:not([data-ds-dark-theme]) {",
+  "  --dsh-moonset-error: color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, var(--dsw-alias-label-primary));",
+  "}",
 ].join('\n')
 
 /**
@@ -329,30 +333,46 @@ const EXPECTED_COLOUR_CSS = [
  * 样子再染色"), so the host's 20x2px ticks, their 10px pitch and every
  * `scaleX`/`opacity` state stay exactly as shipped; the ONLY thing re-pointed is
  * the tick's own `background` — accent at rest, amber for the current turn, and
- * the two ticks on either side mixing amber 55% / 28% into the accent.
- * PAINT ONLY: every declaration is `background` or a custom property.
+ * the two ticks on either side mixing amber 55% / 28% into the accent. The SAME
+ * ramp follows the hovered tick (`[aria-describedby]`, which the host sets on the
+ * previewed mark only — TurnNavigator.tsx:72/256), so the pointer preview gets
+ * the gradient too. Two paint-only compensations for the host's fixed width
+ * ladder (scaleX .4 / .6 / .9 / 1): the current/preview tick carries a soft amber
+ * glow (a halo reads as "highlighted" instead of "wider"), and the whole ladder
+ * keeps the host's 140ms transition, extended to `box-shadow`.
+ * PAINT ONLY: every declaration is `background` / `transition` / `box-shadow` or
+ * a custom property — no geometry.
  */
 const EXPECTED_RAIL_CSS = [
-  '/* 0.1.5 M2: the rail keeps the HOST ladder (20x2px ticks, scaleX states) and',
-  '   only re-paints it: accent ticks, amber for the current, ±2 steps mixed. */',
-  'html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] {',
-  '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-500);',
-  '}',
-  'html[data-moonset-skin] body[data-ds-dark-theme] [data-conversation-scroll] nav[aria-label] {',
-  '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-400);',
-  '}',
-  'html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]::before {',
-  '  background: var(--dsh-moonset-rail-accent);',
-  '}',
+  "/* 0.1.5 M2: the rail keeps the HOST ladder (20x2px ticks, scaleX states) and",
+  "   only re-paints it: accent ticks, amber for the current, ±2 steps mixed. */",
+  "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] {",
+  "  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-500);",
+  "}",
+  "html[data-moonset-skin] body[data-ds-dark-theme] [data-conversation-scroll] nav[aria-label] {",
+  "  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-400);",
+  "}",
+  "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]::before {",
+  "  background: var(--dsh-moonset-rail-accent); transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease;",
+  "}",
   "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-current='true']::before {",
-  '  background: var(--dsw-static-amber-500);',
-  '}',
+  "  background: color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary)); box-shadow: 0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent);",
+  "}",
   "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-current='true'] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index][aria-current='true'])::before {",
-  '  background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));',
-  '}',
+  "  background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));",
+  "}",
   "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-current='true'] + [data-index] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index] + [data-index][aria-current='true'])::before {",
-  '  background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));',
-  '}',
+  "  background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));",
+  "}",
+  "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-describedby]::before {",
+  "  background: color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary)); box-shadow: 0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent);",
+  "}",
+  "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-describedby] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index][aria-describedby])::before {",
+  "  background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));",
+  "}",
+  "html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-describedby] + [data-index] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index] + [data-index][aria-describedby])::before {",
+  "  background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));",
+  "}",
 ].join('\n')
 
 /** The complete 0.1.5 sheet: base, ground, material, colour entries, the rail. */
@@ -652,7 +672,7 @@ describe('skinCss — the whitelisted rules', () => {
     const glassStart = css.indexOf('/* 0.1.4 glass')
     // 0.1.5 appends TWO segments, in order: the three colour entries, then M2's
     // turn rail (also switch-free).
-    const colourStart = css.indexOf('/* 0.1.5 G3/G4')
+    const colourStart = css.indexOf('/* 0.1.5 G2/G3/G4')
     const railStart = css.indexOf('/* 0.1.5 M2')
     // 0.1.3 M2 sits between the selected-item rules and the ground: it is text
     // colouring, not a paint layer, so it rides the 0.1.1 half of the sheet.
@@ -689,11 +709,15 @@ describe('skinCss — the whitelisted rules', () => {
     // R1 gave the card a surface + an inset ring, one line more) — still inside a
     // 14-line ceiling for this three-entry block.
     expect(css.slice(colourStart, railStart).split('\n').length).toBeLessThanOrEqual(14)
-    // ...and the M2 rail entry: five rules, 19 lines measured — inside the
-    // 20-line single-entry ceiling §11.5 sets.
-    expect(css.slice(railStart).split('\n').length).toBeLessThanOrEqual(20)
-    // No layout, no structure, no conditional animation: this sheet paints.
-    expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
+    // ...and the M2 rail entry: nine rules, 29 lines measured — the largest single
+    // entry in the sheet, because it carries the current-turn ramp AND the same
+    // ramp for the hovered tick. The ceiling moved 20 -> 30 with it (§11.5).
+    expect(css.slice(railStart).split('\n').length).toBeLessThanOrEqual(30)
+    // No layout, no structure, no animation: this sheet paints. (A `transition` is
+    // allowed now — the host already transitions its own tick and 0.1.5 only
+    // EXTENDS that list; the dedicated case below pins it down to that one
+    // declaration so the sheet cannot grow a self-driven animation.)
+    expect(css).not.toMatch(/@media|@supports|!important|animation|@keyframes/)
     // ...with ONE documented exception (0.1.4 M1): the material's ::before needs
     // a positioned host and a full-bleed inset. Everything before that segment
     // is still layout-free, and inside it the exception is ENUMERATED, so it
@@ -764,6 +788,11 @@ describe('skinCss — the whitelisted rules', () => {
       // uses. (M6 dropped the sidebar face, and with it the tinted base that was
       // its only reader.)
       'var(--dsw-alias-border-l3)',
+      // 0.1.5 G2 (restored): the card's accent-tinted surface and the hairline ring
+      // — the host's own card surface is a bg-layer rung, which equals the canvas
+      // in the light table, so the surface has to be an accent mix.
+      'var(--dsw-alias-bg-module-platform)',
+      'var(--dsw-alias-border-l2)',
     ]))
     // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
     // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
@@ -774,11 +803,11 @@ describe('skinCss — the whitelisted rules', () => {
     // canvas under its plane and the near-white on its top edge. 0.1.5 adds two
     // for the card (background + edge), one for the context row's accent
     // fallback, and two for the light-scheme failure mix (error + label ink):
-    // 34 -> 40 for the step rows / colour entries; the final rail adds the accent
-    // twice (light + dark), the amber three times (current + the two neighbour
-    // mixes) and... nothing else: G2's card rule was reverted, so its two tokens
-    // are gone. 42 total. The night anchor refs are counted separately.
-    expect(tokens).toHaveLength(42)
+    // 34 -> 40 for the step rows / colour entries; G2's card adds two (surface +
+    // ring); the rail adds the accent twice (light + dark) and the amber eight
+    // times (current/preview + 55% and 28% neighbour mixes on both sides):
+    // 53 total. The night anchor refs are counted separately.
+    expect(tokens).toHaveLength(53)
     // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
     // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
     expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
@@ -2405,7 +2434,7 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
   /** The material segment of one sheet (its comment up to the 0.1.5 colour one). */
   function materialSegment(css: string): string {
     const start = css.indexOf('/* 0.1.4 glass')
-    const end = css.indexOf('/* 0.1.5 G3/G4')
+    const end = css.indexOf('/* 0.1.5 G2/G3/G4')
     if (start === -1 || end === -1) throw new Error('the sheet carries no material segment:\n' + css)
     return css.slice(start, end).replace(/\n$/, '')
   }
@@ -2430,7 +2459,7 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     // IS the host's own ::before), plus the 0.1.5 M2 rail's SIX ::before selectors
     // (accent, amber, and the 2+2 neighbour steps — the only ::before entries
     // outside the material), and no ::after of ours (the host owns the outline).
-    expect(rules.match(/::before/g)).toHaveLength(10)
+    expect(rules.match(/::before/g)).toHaveLength(15)
     expect(rules.match(/::after/g)).toHaveLength(1)
   })
 
@@ -2676,7 +2705,7 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     const css = skinCss()
     // The MATERIAL segment only: 0.1.5's card rule below it legitimately reads the
     // platform surface, which is also the token the sidebar's removed tint used.
-    const segment = css.slice(css.indexOf('/* 0.1.4 glass'), css.indexOf('/* 0.1.5 G3/G4'))
+    const segment = css.slice(css.indexOf('/* 0.1.4 glass'), css.indexOf('/* 0.1.5 G2/G3/G4'))
     // No plane on the sidebar, no host clear, no scheme-split base, no tint.
     expect(segment).not.toContain("data-slot='sidebar'")
     expect(segment).not.toContain('bg-module-platform')
@@ -2917,7 +2946,7 @@ describe('skinCss — 0.1.5 色彩条目', () => {
 
   /** The 0.1.5 segment of a sheet, comments stripped: selectors + declarations. */
   function colourRules(css: string = skinCss()): { selectors: string[]; declarations: string[] }[] {
-    const start = css.indexOf('/* 0.1.5 G3/G4')
+    const start = css.indexOf('/* 0.1.5 G2/G3/G4')
     const end = css.indexOf('/* 0.1.5 M2')
     if (start === -1 || end === -1) throw new Error('the sheet carries no 0.1.5 segment:\n' + css)
     const text = css.slice(start, end).replace(/\/\*[\s\S]*?\*\//g, '')
@@ -2938,6 +2967,82 @@ describe('skinCss — 0.1.5 色彩条目', () => {
 
 
 
+
+  it('0.1.5 G2: paints the turn-changes card as ONE bluish surface, card-scoped', () => {
+    const css = skinCss()
+    const card = colourRules(css).find((rule) => rule.selectors.some((selector) => selector.includes('[data-changed-files]')))
+    if (card === undefined) throw new Error('no [data-changed-files] rule')
+    // The card is addressed by the attribute ChangedFiles.tsx:69 renders on its
+    // root; behind it the host paints
+    // `.card{--changes-fill: var(--dsw-alias-card-fill); …; background: var(--dsw-alias-bg-layer-1)}`
+    // (ChangedFiles.module.css:2 — same text in the shipped deliverables bundle).
+    expect(card.selectors).toEqual(['html[data-moonset-skin] body [data-changed-files]'])
+    // Four declarations, none of them the `background` shorthand: the host radius
+    // and its overflow stay untouched.
+    expect(card.declarations).toEqual([
+      'background-color: var(--dsw-alias-bg-module-platform)',
+      'border-color: var(--dsw-alias-border-l2)',
+      'box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2)',
+      '--changes-fill: var(--dsw-alias-bg-module-platform)',
+    ])
+    // D3: the re-point is CARD-SCOPED — the surface token appears only inside this
+    // rule, and no bg-layer rung is re-pointed anywhere.
+    const surfaceMentions = [...css.matchAll(/--dsw-alias-bg-module-platform/g)].map((match) => match.index ?? -1)
+    expect(surfaceMentions).toHaveLength(2)
+    for (const index of surfaceMentions) {
+      expect(css.slice(css.lastIndexOf('}', index) + 1, index)).toContain('[data-changed-files]')
+    }
+    expect(css).not.toContain('--dsw-alias-bg-layer-')
+    for (const token of ['--dsw-alias-bg-module-platform', '--dsw-alias-border-l2']) {
+      expect(MOONSET_LIGHT[token], token).toBeDefined()
+      expect(MOONSET_DARK[token], token).toBeDefined()
+    }
+  })
+
+  it('0.1.5 G2: the card surface is VISIBLE in both schemes (restored after a false alarm)', () => {
+    // 0.1.5 first shipped `bg-layer-2`, which in the LIGHT table IS the canvas
+    // token, so the card rendered at 1.000:1 and looked gone. It was then reverted
+    // wholesale on the assumption that the skin broke it — but the card is the
+    // host's in-memory projection of the turn, so a RESTART clearing it is host
+    // behaviour. The colouring is back, with the numbers measured in a fixture.
+    const css = skinCss()
+    const card = colourRules(css).find((rule) => rule.selectors.some((selector) => selector.includes('[data-changed-files]')))
+    if (card === undefined) throw new Error('no [data-changed-files] rule')
+    const fill = '--dsw-alias-bg-module-platform'
+    // The fill must not be the canvas token in either scheme (that WAS the bug).
+    for (const table of [MOONSET_LIGHT, MOONSET_DARK]) {
+      expect(table[fill]).toBeDefined()
+      expect(table[fill]).not.toBe(table['--dsw-alias-bg-base'])
+      // ...and it is an accent tint over the canvas, so both schemes follow.
+      expect(table[fill]).toContain('color-mix(in srgb')
+      expect(table[fill]).toContain('var(--dsw-static-deepseek-500) 12%')
+      expect(table[fill]).toContain('var(--dsw-alias-bg-base)')
+    }
+    const measured: Record<string, number> = {}
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const surface = colourOf(table, table[fill])
+      const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+      measured[scheme + '-surface'] = contrastRatio(surface, canvas)
+      measured[scheme + '-title'] = contrastRatio(colourOf(table, table['--dsw-alias-label-primary']), surface)
+      measured[scheme + '-row'] = contrastRatio(colourOf(table, table['--dsw-alias-label-tertiary']), surface)
+      // Fixture-measured surface separation: light 1.214:1 / dark 1.169:1. A surface
+      // only has to be SEPARATED from the page (the tint + the 1.5px ring do the
+      // rest); the content on it must clear AA.
+      expect(
+        measured[scheme + '-surface'],
+        scheme + ' card surface vs page = ' + measured[scheme + '-surface'].toFixed(3) + ':1',
+      ).toBeGreaterThanOrEqual(1.15)
+      expect(measured[scheme + '-title'], scheme + ' title on the card').toBeGreaterThanOrEqual(4.5)
+      expect(measured[scheme + '-row'], scheme + ' rows on the card').toBeGreaterThanOrEqual(4.5)
+      // One slab: the header is the same surface as the body (no grey band).
+      expect(table[fill]).not.toBe(table['--dsw-alias-card-fill'])
+    }
+    expect(measured['light-surface']).toBeGreaterThan(1)
+    expect(measured['dark-surface']).toBeGreaterThan(1)
+    // The edge is drawn twice — the host's 0.5px border plus our 1px inset ring.
+    expect(card.declarations).toContain('border-color: var(--dsw-alias-border-l2)')
+    expect(card.declarations).toContain('box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2)')
+  })
 
   it('0.1.5 G3: gives the context-injection row the step-row hue, and only that row', () => {
     const css = skinCss()
@@ -3030,16 +3135,16 @@ describe('skinCss — 0.1.5 色彩条目', () => {
     expect(contrastRatio(paler, capsuleFill)).toBeLessThan(4.5)
   })
 
-  it('0.1.5: the two remaining entries ride no switch and write no layout', () => {
+  it('0.1.5: the three entries ride no switch and write no layout', () => {
     const reference = colourRules()
-    expect(reference).toHaveLength(2)
+    expect(reference).toHaveLength(3)
     // Every switch combination carries the block, byte for byte.
     for (const options of [{ glow: false }, { glass: false }, { glow: false, glass: false }, { scope: 'all' as const }]) {
       expect(colourRules(skinCss(options)), JSON.stringify(options)).toEqual(reference)
     }
     // Colour-only: no layout property, no literal colour, no imperative CSS.
     const css = skinCss()
-    const segment = css.slice(css.indexOf('/* 0.1.5 G3/G4'))
+    const segment = css.slice(css.indexOf('/* 0.1.5 G2/G3/G4'))
     expect(segment).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow|inset|z-index|top)\s*:/)
     expect(segment).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(segment).not.toMatch(/\b(?:rgba?|hsla?)\(/)
@@ -3059,7 +3164,10 @@ describe('skinCss — 0.1.5 色彩条目', () => {
 
 describe('skinCss — 0.1.5 M2 回合导航轨', () => {
   /** Declarations the rail entry may write: appearance only, no geometry. */
-  const APPEARANCE = new Set(['background', 'border', 'border-radius', 'box-shadow', 'opacity', 'color'])
+  // The lead's allow-list for this entry: paint only. `transition` is included
+  // because the host already transitions the tick (transform + background) and we
+  // only extend that list with `box-shadow` — a transition cannot move a box.
+  const APPEARANCE = new Set(['background', 'border', 'border-radius', 'box-shadow', 'opacity', 'color', 'transition'])
 
   /** The rail segment, comments stripped, as selectors + declarations rules. */
   function railRules(css: string = skinCss()): { selectors: string[]; declarations: string[] }[] {
@@ -3093,9 +3201,10 @@ describe('skinCss — 0.1.5 M2 回合导航轨', () => {
     expect(rules[3]?.selectors).toEqual([rail + " [data-index][aria-current='true']::before"])
     // The scheme flip is the same rail, gated on the host's dark marker.
     expect(rules[1]?.selectors).toEqual(['html[data-moonset-skin] body[data-ds-dark-theme] [data-conversation-scroll] nav[aria-label]'])
-    // ...and it is the ONLY nav the sheet ever mentions (2 gate rules + 1 + 1 +
-    // 2 + 2 neighbour selectors = 8).
-    expect(css.match(/nav/g) ?? []).toHaveLength(8)
+    // ...and it is the ONLY nav the sheet ever mentions: 2 gate rules + 1 accent
+    // tick + 1 amber current + 2+2 current neighbours + 1 preview + 2+2 preview
+    // neighbours = 13.
+    expect(css.match(/nav/g) ?? []).toHaveLength(13)
     for (const rule of rules) {
       for (const selector of rule.selectors) {
         expect(selector.startsWith('html[data-moonset-skin]'), selector).toBe(true)
@@ -3159,7 +3268,15 @@ describe('skinCss — 0.1.5 M2 回合导航轨', () => {
     // the host's own 20x2px tick, its scaleX states and the missing hairline track
     // all stay as shipped; only the tick's paint changes.
     expect(declarationOf(rules[2]!, 'background')).toBe('var(--dsh-moonset-rail-accent)')
-    expect(declarationOf(rules[3]!, 'background')).toBe('var(--dsw-static-amber-500)')
+    // The current tick: a slightly desaturated amber (the lead's "降一点饱和", so the
+    // host's fixed width jump scaleX .6 -> 1 reads as a highlight, not as "bigger"),
+    // plus a soft amber glow that bridges the same width step. Both paint-only.
+    expect(declarationOf(rules[3]!, 'background')).toBe(
+      'color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary))',
+    )
+    expect(declarationOf(rules[3]!, 'box-shadow')).toBe(
+      '0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent)',
+    )
     // ...and the rail root carries NO `background` any more: the "亮暗割裂" track
     // is gone (that was the round-dot version's spine).
     expect(rules[0]?.declarations).toEqual(['--dsh-moonset-rail-accent: var(--dsw-static-deepseek-500)'])
@@ -3185,6 +3302,52 @@ describe('skinCss — 0.1.5 M2 回合导航轨', () => {
     }
   })
 
+  it('0.1.5 M2: the hovered tick previews the same ramp (aria-describedby)', () => {
+    const rules = railRules()
+    const rail = 'html[data-moonset-skin] [data-conversation-scroll] nav[aria-label]'
+    // Hover hook: TurnNavigator.tsx:256 passes `previewId` only for the previewed
+    // mark and :72 puts it in `aria-describedby` — so THAT attribute is the hover
+    // state (the `.markPreview` class is hashed per build and `:hover` dies as soon
+    // as the pointer leaves the 20x2px tick). The tooltip card the host renders
+    // (role="tooltip", :267-278) is left alone: it is a host surface, not a rail
+    // mark, and its own colours already come from tokens.
+    const preview = rail + ' [data-index][aria-describedby]'
+    expect(rules[6]?.selectors).toEqual([preview + '::before'])
+    // The same colour + glow as the current tick, so the preview reads as "this is
+    // where you would go" rather than as a third state.
+    expect(declarationOf(rules[6]!, 'background')).toBe(
+      'color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary))',
+    )
+    expect(declarationOf(rules[6]!, 'box-shadow')).toBe(
+      '0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent)',
+    )
+    // ...and the pointer preview gets the SAME ±2 ramp, addressed from the hovered
+    // tick with the same adjacent/forward-only combinators.
+    expect(rules[7]?.selectors).toEqual([
+      preview + ' + [data-index]::before',
+      rail + ' [data-index]:has(+ [data-index][aria-describedby])::before',
+    ])
+    expect(declarationOf(rules[7]!, 'background')).toBe(
+      'color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent))',
+    )
+    expect(rules[8]?.selectors).toEqual([
+      preview + ' + [data-index] + [data-index]::before',
+      rail + ' [data-index]:has(+ [data-index] + [data-index][aria-describedby])::before',
+    ])
+    expect(declarationOf(rules[8]!, 'background')).toBe(
+      'color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent))',
+    )
+    // Adjacency is still bounded: no general sibling combinator, no child
+    // combinator, no descendant step inside the rail.
+    const segment = skinCss().slice(skinCss().indexOf('/* 0.1.5 M2')).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(segment).not.toContain('~')
+    expect(segment).not.toContain(' > ')
+    // The hover ramp is ADDITIVE: the current-turn ramp is untouched, so a hovered
+    // neighbour still shows its own step when the two ramps overlap.
+    expect(rules[3]?.selectors).toEqual([rail + " [data-index][aria-current='true']::before"])
+    expect(rules[6]?.selectors).toEqual([preview + '::before'])
+  })
+
   it('is paint-only: every declaration is appearance, so the host ladder cannot move', () => {
     const rules = railRules()
     for (const rule of rules) {
@@ -3207,21 +3370,43 @@ describe('skinCss — 0.1.5 M2 回合导航轨', () => {
       'transform', 'translate', 'scale', 'rotate', 'contain', 'z-index']) {
       expect(segment, property).not.toMatch(new RegExp('\\b' + property + '\\s*:'))
     }
-    // The only length-like tokens are INSIDE a background layer (2px 100%, 7px 7px)
-    // — paint sizes, not boxes: assert every px/percent literal sits in a background.
+    // Length-like tokens may only live in PAINT declarations — background layers
+    // (2px 100%), the glow (0 0 4px) and the transition's duration — never in a
+    // box-sizing property. That is what makes the geometry proof hold.
     for (const rule of rules) {
       for (const declaration of rule.declarations) {
         if (declaration.startsWith('--')) continue
         if (!/[0-9]/.test(declaration)) continue
-        expect(declaration.startsWith('background: '), declaration.slice(0, 40)).toBe(true)
+        expect(
+          /^(?:background|box-shadow|transition): /.test(declaration),
+          'length literal outside a paint declaration: ' + declaration.slice(0, 48),
+        ).toBe(true)
       }
     }
   })
 
+  it('extends the host transition of the tick instead of replacing it', () => {
+    const css = skinCss()
+    const declarations = [...css.matchAll(/transition: ([^;]+);/g)].map((match) => match[1].trim())
+    // Exactly ONE transition in the whole sheet, and it is the rail's: the host
+    // already animates the tick (transform 140ms ease, background-color 140ms ease;
+    // TurnNavigator.module.css:108), so writing our own must keep BOTH of those
+    // properties and only ADD box-shadow for the glow — otherwise the width change
+    // the user watches while scrolling would stop animating (which is exactly the
+    // '大小转变太割裂' symptom).
+    expect(declarations).toHaveLength(1)
+    expect(declarations[0]).toBe('transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease')
+    const segment = css.slice(css.indexOf('/* 0.1.5 M2'))
+    expect(segment).toContain('transition: ' + declarations[0])
+    // A transition cannot move a box, and nothing else in the segment does either.
+    expect(segment).not.toMatch(/\b(?:position|inset|margin|padding|width|height|transform)\s*:/)
+  })
+
   it('rides no switch, survives glass off, and stays one root-gated entry', () => {
     const reference = railRules()
-    // accent pair + accent ticks + amber current + the 55% / 28% neighbour pairs.
-    expect(reference).toHaveLength(6)
+    // accent pair + accent ticks + amber current + its 55%/28% pairs + the same
+    // three states for the hovered tick.
+    expect(reference).toHaveLength(9)
     for (const options of [{ glow: false }, { glass: false }, { glow: false, glass: false }, { scope: 'all' as const }]) {
       expect(railRules(skinCss(options)), JSON.stringify(options)).toEqual(reference)
     }

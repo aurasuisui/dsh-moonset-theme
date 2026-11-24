@@ -419,10 +419,10 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `night` 色相读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
 | **轨迹步骤行**（按类型分色） | 两条格子规则 `html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration])`（工具名）与 `… [data-shimmer-decoration] + *`（参数/路径），读行上发布的两个自定义属性 `--dsh-moonset-step-name/-args`；四条类声明 `… [data-variant='bash' \| 'read' \| 'write' \| 'edit' \| 'search' \| 'think'] { … }`；失败规则 `… [data-state='error']`（两格 + `~ [data-tone]` 胶囊，写在最后） | 步骤行的**工具名**与**参数/路径**两个格子都只有按构建哈希的 CSS Module 类名，没有 `data-*`；但行根有 `[data-variant][data-state]`（工具行还有 `[data-tool]`）、名字与参数之间那颗 `·` 有 `[data-shimmer-decoration]`、退出码胶囊是 `Tag` 的 `[data-tone]`。两格只能**相对那颗点**定位；「每类一个色相」又要**两套方案都成立**，所以色相用 `color-mix(family, label token)` 交给方案自适应，再由行上的自定义属性把「类 → 两格」接起来 | 0.1.3 M2b |
 | **材质面**（0.1.4 M1 输入卡 / M2 顶栏 / M3 header / M4 header 悬浮；**侧栏 M6 起不做**） | 三面**共用一份材质**（`background: color-mix(bg-base 62%)` + `backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)` + `inset 0 1px 0` 近白高光），只换选择器：① `[data-composer-card]`（输入卡，宿主稳定属性，`InputBar.tsx:462`）；② `#root [data-slot='conversation.header'] > header`（会话 header：header 槽锚点 `display:contents`，其子元素就是 `ConversationHeader` 的 `<header>`，`ConversationHeader.tsx:18` / `ConversationMainPanel.tsx:39`；用槽键锚点而不是 `[data-window-drag]`，因为侧栏也有两行带这个拖动标记）；③ `html[data-windows-titlebar] … #root [data-slot='root'] > div::before`（Windows 标题条）。①② 用 `position: relative` / `isolation: isolate` / `background: transparent` 清底并托管 `::before` 平面（`content` / `position: absolute` / `inset: 0` / `z-index: -1` / `border-radius: inherit` / `pointer-events: none`）；③ 是**叶子平面**（本就无内容），材质直接画在它身上，几何全留宿主。header 额外在**平面上**画一条 `inset 0 -1px 0 var(--dsw-alias-border-l3)` 底边（宿主那条 0.5px `border-bottom` 一条字都不写、原样保留）。**侧栏自 2026-11-24 起不做材质**（用户决定「侧栏先不做玻璃材质了」）：材质段不再出现 `data-slot='sidebar'`，侧栏恢复宿主原样、由 `--dsw-specific-sidebar-fill` 自己画；M4 那档 tinted 底色随之一并删除。整表唯一的侧栏提及是 0.1.2 起的 **C 档地面规则**（`all` 这个「全透明」比较模式，非材质，默认 `main` 不碰侧栏）。 | P6：材质必须画在**背靠内容**的平面上——容器本体若也画，`backdrop-filter` 只会糊到自己；而「该有内容的平面却压在内容之下」则只透不糊。**面背后是什么**：输入卡与 header 背后都是正文（header 自 M4 起**悬浮**），顶栏背后是地面。**M5 的教训**：悬浮那条规则一度写成 `[data-phase='active'] #root …`，而 `#root` 是相位元素的**祖先**，真机上一字未匹配——header 没有 `z-index`、正文盖住它（点击失效、只透不糊、滑块无效），现由结构守卫测试锁住（任何选择器里 `#root` 必须在相位门之前）。**实测**：少了 `z-index:-1` 时平面按定位层绘制、盖在 in-flow 正文之上（M1，Chromium）；header 带右半段玻璃开时出现低至 19/255 的糊字像素、关玻璃最暗 223/255（M5）；侧栏两种配方的开/关均值差 浅 Δ5.4 / 暗 Δ7.6（共享材质）与 暗 Δ11.7（M4 tinted，已随 M6 移除）。 | 0.1.4 M1…M6 |
-| **0.1.5 两处色彩条目**（`上下文注入` 行 / 浅色失败红） | ① 上下文行：`html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) { color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500)) }`（行色随继承落到 title，正文与两格旁注各写自己的色）；② 浅色失败红：`… body:not([data-ds-dark-theme]) { --dsh-moonset-error: color-mix(… error-primary 70%, label-primary) }`，失败行那一格以宿主 token 作 fallback 读它。**回合改动卡（G2）曾在这条里，现已整体回退**——见 §11.8 的复现数字 | ① `上下文注入` 行走的是 `DisclosureRow`，行根**没有** `[data-variant][data-state]`（`ContextInjectionRow.tsx:51`），0.1.3 那两条格子规则够不到；它唯一稳定的钩子是折叠内容上的 `data-context-source` / `data-context-summary`，而 title 是 TextShimmer 的 `color: inherit`，所以只能「钩行 → 继承给 title」；② 失败色是**每条失败行同一格**，浅色下 `state-error-primary` = `#B31B3E` 过艳，而调色板里更浅的红（`red-400` `#E95F7E` = 3.14:1）与任何「向画布混」的 82% 混合（画布 4.78:1 但**胶囊底只有 3.94:1**）都过不了 D2，只有「向墨色混」既降彩度又保 AA（9.43 / 7.77），而它必须**只**在浅色生效（暗色保持 0.1.4 原色），所以是一条 `:not([data-ds-dark-theme])` 门 | 0.1.5 |
-| **0.1.5 M2 回合导航轨**（宿主形态 + 染色） | 六条规则，**只上色不上几何**：`… [data-conversation-scroll] nav[aria-label] { --dsh-moonset-rail-accent: deepseek-500 }` + 暗色同名覆盖为 `deepseek-400`；刻度：`… [data-index]::before { background: var(--dsh-moonset-rail-accent) }`（全部 accent）、`… [data-index][aria-current='true']::before { background: var(--dsw-static-amber-500) }`（当前项琥珀）、以及**前后各两项的过渡**：`… [aria-current] + [data-index]::before, … [data-index]:has(+ [data-index][aria-current])::before { background: color-mix(in srgb, amber 55%, accent) }` / `… [aria-current] + [data-index] + [data-index]::before, … [data-index]:has(+ [data-index] + [data-index][aria-current])::before { background: color-mix(in srgb, amber 28%, accent) }` | 宿主那根轨道本来就是**每回合一根 20×2px 的横刻度**（`.mark::before`，右对齐、10px 一档、按状态 `scaleX` / `opacity`），配色全写在按构建哈希的类规则里；状态只有 `aria-current` / `aria-busy` / `aria-describedby` 三个属性可稳定选中，行根是 `<nav aria-label>`（`TurnNavigator.tsx:233-235`），滚动容器里只有它一个 nav。**两次真机反馈**：圆点形态被否（「改回原来的形式」），随后 2px 竖线渐变被否（「亮暗非常割裂，先恢复成 dsh 默认的样子再染色」）——所以**轨道线与圆点都不再有**，只剩刻度自己的 ${BT}background${BT}。**真·逐 index 沿轨道渐变不行**（`[data-index]` 取值是开集），按契约退成「所有刻度 accent + 当前项琥珀 + 前后各两项混色」；相邻/前向选择器（`+` 与 `:has(+ …)`）保证只碰紧邻的两项，**不用** `~`。零几何改动（宿主刻度的 transform/opacity 一个不写；fixture 里 nav 与刻度的矩形两遍逐项相同）。 | 0.1.5 M2 |
+| **0.1.5 三处色彩条目**（回合改动卡 / `上下文注入` 行 / 浅色失败红） | ① 卡片：`html[data-moonset-skin] body [data-changed-files] { background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform) }`；② 上下文行：`… body [data-disclosure-row]:has([data-context-source], [data-context-summary]) { color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500)) }`；③ 浅色失败红：`… body:not([data-ds-dark-theme]) { --dsh-moonset-error: color-mix(… error-primary 70%, label-primary) }` | ① 卡片的底与 header 的底是**两条**宿主规则里的字面 token（`ChangedFiles.module.css:2`：`background: var(--dsw-alias-bg-layer-1)` + `--changes-fill: var(--dsw-alias-card-fill)`），而浅色表里那个 layer 就是画布 token——第一版照它改（`bg-layer-2`）结果卡片/页面 1.000:1 整张消失；现在用 `bg-module-platform`（12% accent 叠画布）+ 1px inset 环，实测 浅 1.214 / 暗 1.169、标题 14.65 / 13.52、文件行 5.04 / 5.84（§11.8）。**曾误判为「皮肤把卡片弄没了」而整体回退，用户澄清后恢复：这张卡是宿主内存里本轮回合的投影，重启后消失是宿主正常行为**；② `上下文注入` 行走的是 `DisclosureRow`（行根无 `[data-variant][data-state]`），唯一稳定钩子是 `data-context-source` / `data-context-summary`，title 是 TextShimmer 的 `color: inherit`；③ 失败色浅色下过艳，`red-400` 与「向画布混」都过不了 D2（胶囊底 3.94:1），只有向墨色混既降彩度又保 AA（9.43 / 7.77），且只在浅色生效 | 0.1.5（G2 曾误回退、已恢复） |
+| **0.1.5 M2 回合导航轨**（宿主形态 + 染色 + 悬停预览） | 九条规则，**只上色不上几何**：`… nav[aria-label] { --dsh-moonset-rail-accent: deepseek-500 }` + 暗色覆盖 `deepseek-400`；刻度 `[data-index]::before { background: accent; transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease }`；当前项 `[aria-current='true']::before { background: color-mix(amber 86%, label-primary); box-shadow: 0 0 4px color-mix(amber 55%, transparent) }`；当前项前后各 1 / 2 项 = `color-mix(amber 55% / 28%, accent)`（`+` 与 `:has(+ …)` 成对定位）；**悬停预览**用 `[aria-describedby]` 走同一套（琥珀 + 前后各两项混色） | 宿主那根轨道是**每回合一根 20×2px 横刻度**（`.mark::before`，右对齐、10px 一档），状态完全由 `scaleX` 决定：静止 `.6`、未加载 `.4 + opacity .6`、预览 `.9`、当前 `1`（`TurnNavigator.module.css:106 / :113 / :118 / :127`）；配色全在按构建哈希的类规则里，稳定属性只有 `aria-current` / `aria-busy` / `aria-describedby`，行根是 `<nav aria-label>`（`TurnNavigator.tsx:233-235`）。三次真机反馈：圆点形态被否 → 竖线渐变被否（「亮暗非常割裂」）→ 定稿**只染色**，并针对宿主固定的宽度阶梯（`.4/.6/.9/1`，几何不许动）做两处**纯外观补偿**：当前 / 悬停项加一圈 4px 琥珀光晕（读作「高亮」而不是「变宽」），以及把宿主自己的 140ms 过渡 **扩写**（保留 transform + background-color，只加 box-shadow）。**悬停钩子**：`TurnNavigator.tsx:256` 只给被预览的那根刻度传 `previewId`，:72 把它写进 `aria-describedby`，所以该属性就是悬停态（`.markPreview` 是哈希类，且刻度只有 20×2px，`:hover` 一离开就没了）；宿主的 tooltip 卡（`role=tooltip`）不动。**真·逐 index 沿轨道渐变不行**（`[data-index]` 取值开集） | 0.1.5 M2 |
 
-当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1…M6 + 0.1.5 G1…G4 + M2 导航轨，全表三十一条规则，169 行 / C 档 171 行）：
+当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1…M6 + 0.1.5 G1…G4 + M2 导航轨，全表三十五条规则，181 行 / C 档 183 行）：
 
 ```css
 /* dsh-moonset[0.1.4]: skin — P5 whitelist (selection, item text, ground, step
@@ -566,8 +566,11 @@ html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversa
 html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {
   top: -12px;
 }
-/* 0.1.5 G3/G4: two colour-only entries — the context-injection row and the
-   LIGHT failure red. (G2, the card: tried, REVERTED — architecture §11.8.) */
+/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the
+   context-injection row and the LIGHT failure red. No layout property. */
+html[data-moonset-skin] body [data-changed-files] {
+  background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform);
+}
 html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {
   color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));
 }
@@ -583,15 +586,24 @@ html[data-moonset-skin] body[data-ds-dark-theme] [data-conversation-scroll] nav[
   --dsh-moonset-rail-accent: var(--dsw-static-deepseek-400);
 }
 html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]::before {
-  background: var(--dsh-moonset-rail-accent);
+  background: var(--dsh-moonset-rail-accent); transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
 }
 html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-current='true']::before {
-  background: var(--dsw-static-amber-500);
+  background: color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary)); box-shadow: 0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent);
 }
 html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-current='true'] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index][aria-current='true'])::before {
   background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));
 }
 html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-current='true'] + [data-index] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index] + [data-index][aria-current='true'])::before {
+  background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));
+}
+html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-describedby]::before {
+  background: color-mix(in srgb, var(--dsw-static-amber-500) 86%, var(--dsw-alias-label-primary)); box-shadow: 0 0 4px color-mix(in srgb, var(--dsw-static-amber-500) 55%, transparent);
+}
+html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-describedby] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index][aria-describedby])::before {
+  background: color-mix(in srgb, var(--dsw-static-amber-500) 55%, var(--dsh-moonset-rail-accent));
+}
+html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index][aria-describedby] + [data-index] + [data-index]::before, html[data-moonset-skin] [data-conversation-scroll] nav[aria-label] [data-index]:has(+ [data-index] + [data-index][aria-describedby])::before {
   background: color-mix(in srgb, var(--dsw-static-amber-500) 28%, var(--dsh-moonset-rail-accent));
 }
 ```
@@ -875,18 +887,24 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
   止于两个稳定属性 + 一条 `:has()`（不写类选择器、不数层级、不碰展开正文——正文是行根的同级兄弟），
   色值读第六类那同一个 `--dsh-moonset-step-name`；浅色失败红只是一条 `body:not([data-ds-dark-theme])`
   门里的一个自定义属性，失败格仍只有一条 `color`；
-  ④ §11.3 第九类「0.1.5 M2 回合导航轨」：**只允许外观**——`background`（含它自带的
-  `position`/`size`/`repeat` 子值，那是画的位置与大小，不是盒子的）、
-  `border`、`border-radius`、`box-shadow`、`opacity`、`color`，
+  ④ §11.3 第九类「0.1.5 M2 回合导航轨」：**只允许外观**——`background`、
+  `border`、
+`border-radius`、
+`box-shadow`、
+`opacity`、
+`color`、
+  **`transition`（只用于**扩写**宿主自己的过渡：必须同时保留 `transform` 与 `background-color`，
+  只允许再加 `box-shadow`；写别的等于把宿主的宽度动画掐掉，就是用户说的「大小转变太割裂」），
   以及自定义属性；`position` / `inset` / `top` / `right` / `left` /
   `width` / `height` / `margin` / `padding` / `display` /
   `flex` / `grid` / `overflow` / `transform` / `contain` /
   `z-index` 一个都不许写（0.1.4 已经为「改布局」付过一次代价）。**宿主形态必须保留**：
-  两版真机返工都来自「动形态」——圆点那次清了 `.mark::before`，竖线那次给 nav 铺了渐变；定稿
+  三版真机返工都来自「动形态」——圆点那次清了 `.mark::before`，竖线那次给 nav 铺了渐变；定稿
   **不给 nav 铺任何 background、不动刻度的 `transform`/`opacity`**，只在刻度自己的
-  `::before` 上写一条 `background`，位置关系全靠相邻兄弟（`+`）与前向（`:has(+ …)`）
-  选择器，禁止 `~`。这条是四条例外里唯一 **纯上色** 的：它不改任何宿主面的位置、尺寸或状态；
-  这些例外只借结构、或只换画法；借它改结构、尺寸或位置仍然是回退；
+  `::before` 上写 `background` / `box-shadow`，位置关系全靠相邻兄弟（`+`）与前向（`:has(+ …)`）
+  选择器，禁止 `~`。悬停态只认 `[aria-describedby]`（宿主只在被预览的那根刻度上写它；
+  `.markPreview` 是哈希类），tooltip 卡（`role=tooltip`）不动。这条是四条例外里
+  唯一 **纯上色** 的：它不改任何宿主面的位置、尺寸或状态；
 - **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
 - **堆第二张表**：要扩就改 `skinCss()`，两处声明就是两份真相（P2）；
 - **写死颜色**：白名单里的每个颜色必须由 `var(--dsw-*)` 混出，否则跟随/主题切换会掉队
@@ -897,13 +915,13 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 ### 11.5 新增一条白名单项的门槛
 
 1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
-2. 全表 ≤ **172** 行（0.1.5 定稿起；实测 **169 / C 档 171**。历史：M2 第一版曾抬到 175、实测 171；0.1.5 前 155、实测 152 / C 档 154；0.1.4 M6 时 141、M5 时 151、M4 时 143、M3 时 127、M2 时 114、M1 时 115、0.1.3 M2b 时 95、M2 首版 75、0.1.2 时 60、0.1.1 时 40；**单条新增仍 ≤ 20 行**——导航轨定稿 20 行，正好卡线）、无
+2. 全表 ≤ **185** 行（0.1.5 定稿起；实测 **181 / C 档 183**。历史：M2 第一版曾抬到 175、实测 171；回退到 172 后又因恢复卡片与悬停渐变回到 185；0.1.5 前 155、实测 152 / C 档 154；0.1.4 M6 时 141、M5 时 151、M4 时 143、M3 时 127、M2 时 114、M1 时 115、0.1.3 M2b 时 95、M2 首版 75、0.1.2 时 60、0.1.1 时 40；**单条新增 ≤ 30 行**——导航轨 29 行（当前/悬停两套渐变 + 光晕 + 过渡））、无
    `!important`、无 `@media`、无 `@supports`；
 3. 颜色只从 token 混出（字体例外：字体不是颜色，允许读主题层的 `--ds-*`，见第六类）；
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（101 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（105 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载；
 0.1.3 M2 增 6 条：两格规则逐字、失败行逐字、不出步骤行、等宽只读 `--ds-font-family-code`、
@@ -921,12 +939,14 @@ padding 公式里解析出来**再断言 `top` = −空气，公式一改就红�
 0.1.5 增 4 条：卡片的三个声明 + 「层 token 只出现在这张卡里」（D3）+ 两套方案下两个 token 都在；
 上下文行的两个钩子 + 只染行不染格 + 失败态优先级不变；浅色失败红的逐字混合 + 两套方案 × 两个面
 （画布 / 胶囊）的 AA 复算（含「更浅的红为什么不行」的反证）；三处条目在四种开关组合下字节相同且零布局；
-0.1.5 M2 增 5 条（两轮真机返工后改 2 条、删 0 条）：轨道钩子是 `nav[aria-label]` + `[data-index]`（且全表只
-出现这八处 `nav`）、刻度的 `::before` 只换 `background`（accent / 琥珀 / 前后各两项的 55% 与 28% 混色）、
-**相邻与前向选择器只够到 ±2**（不用 `~`，测试断言该段不含 `~` 与子选择器）、浅 `deepseek-500` /
-暗 `deepseek-400` 换档且两套方案都过 3:1 非文本对比、**逐条断言该段只用外观属性**、四种开关组合字节
-相同且不吃 `[data-moonset-glass]`；**删掉 2 条**：G2 卡片的逐字断言与其 R1 可见性守卫（规则本身已整体回退，
-见 §11.8）；
+0.1.5 M2 增 6 条（三版真机返工后定稿）：轨道钩子是 `nav[aria-label]` + `[data-index]`（全表 13 处 `nav`）、`::before` 只换 `background` / `box-shadow`、**相邻与前向选择器只够到 ±2**（不用 `~`，测试断言该段
+不含 `~` 与子选择器）、**悬停预览走 `[aria-describedby]` 的同一套渐变**、**过渡必须扩写而非替换**
+（逐字断言全表只有一条 `transition`，且同时保留 `transform` + `background-color`）、浅 `deepseek-500` / 暗 `deepseek-400` 换档
+且两套方案都过 3:1 非文本对比、四种开关组合字节相同且不吃 `[data-moonset-glass]`；**恢复 2 条**：G2 卡片的逐字断言与
+它的可见性守卫（卡/页 ≥1.15、标题与文件行 ≥4.5、header 与卡同层、边是双线）——上一轮误删，本轮连规则一起恢复；
+0.1.4 M4 增 5 条：悬浮两条只剩两项声明且 padding = |margin| + 12（公式自洽）、header 只写
+`z-index` 一条、实测高度写/重写/零高度的拒绝、四次有界重试读到即停且卸载取消、
+关玻璃与卸载把 `--dsh-moonset-header-h` 一起清掉；
 0.1.4 M3 增 4 条：header 进共享平面 + 只清底色且**一字不写 border**、header 底边画在
 平面上并复用共享高光与 `border-l3`、侧栏自成一档底色（只 1 条声明、不动 blur 与高光）、
 四面共用同一个模糊变量（两处发射、值集合只有 1）；
@@ -1068,30 +1088,25 @@ header 76 + 浮层 + 宿主代码块，滚动到 banner 已粘住）实测：
 与 H 无关，它就是「空气 + H」里的 H。反过来，空气改成 0 后 `top: H` 仍留 76px：缝来自
 padding 与 top 的叠加，不是来自 H。真机复核脚本见 `docs/probes/v0.1.5-banner-probe.js`。
 
-**G2：卡片钩子 —— 尝试过，已整体回退（2026-11-24 20:18 用户决定）。** `ChangedFiles.tsx:69` 在卡片根上渲染
-`data-changed-files`；宿主样式 `ChangedFiles.module.css:2`（与安装态
-`dsh-client-ui-deliverables/lib/client.js` 里的
+**G2：卡片钩子 —— 曾因误判回退，现已恢复（2026-11-24 22:28 用户澄清）。** `ChangedFiles.tsx:69` 在卡片根上渲染
+`data-changed-files`；宿主样式 `ChangedFiles.module.css:2`（与安装态 `dsh-client-ui-deliverables/lib/client.js` 里的
 `.HOHHba_card{--changes-fill:var(--dsw-alias-card-fill);…;background:var(--dsw-alias-bg-layer-1)}` 逐字一致）。
-0.1.5 在这里试了**两版**，都撤了，后人不必再试：
 
-1. **第一版 `bg-layer-2`**：浅色表里 `bg-layer-2` = `bluish-00` = `#FAFAFC` = `--dsw-alias-bg-base`
-   （同一个 token），而 `--changes-fill` 又被一起改掉、宿主那条 60px 灰色 header 也没了 → **卡片整张消失**
-   （浅色 fixture：卡底 `#FAFAFC`、header `#FAFAFC`、卡/页 **1.000:1**；暗色 卡/header `#20222C`、1.192:1，宿主那条
-   1.390 的灰 band 也变平）。
-2. **R1 改用 accent 染色面**（`bg-module-platform` = 12% accent 叠画布，header 同层，`border-l2` + 1px inset 环）：
-   量到了 **1.214:1（浅）/ 1.169:1（暗）**，标题 14.65 / 13.52、文件行 5.04 / 5.84 —— 技术上「可见」了，但用户
-   看真机后仍决定**要 0.1.4 原样的卡片**，所以整条规则连同它的两条测试一起删除。
+**误判经过**：这张卡是宿主**内存里本轮回合改动的投影**，重启后消失是宿主的正常行为；当时把它当成皮肤 bug，
+整条规则连同测试一起回退了。用户澄清后按 R1 的实测版本恢复。两次尝试的数字都留在这里，
+后人不用再试：
 
-**保留的结论（供 0.1.6 参考）**：卡片的 `getBoundingClientRect()` 在「只有宿主」与「宿主 + 皮肤」两遍里
-**逐项相同**（`[178, 40, 620, 197]`、header `618×60`）——颜色规则从来不会把卡片挤走，任何「卡片消失」
-都只会是**颜色/对比度**问题；而这张卡的可见性完全依赖宿主自己的 `card-fill` 灰 header（浅色卡底本来就
-等于画布），所以**任何**把 `--changes-fill` 一起改掉的方案都会让它在浅色下消失。
-`color: var(--dsw-alias-label-tertiary)`（外加一条 hover 的 `label-secondary`），
-title 外层 TextShimmer 的 `root/text` 则是 `color: inherit`——所以在行根上写一条
-`color`（私有化后特指度 0,4,x 对 0,1,0 / 0,2,0）就能把 title 染色，而 `.source` /
-`.summary` / `.chevron` 各自写 label 色、展开正文写自己的色，都不受影响。
-残留缺口见 §11.7 缺口 3。
+1. **第一版 `bg-layer-2`**：浅色表里 `bg-layer-2` = `bluish-00` = `#FAFAFC` = `--dsw-alias-bg-base`（同一个 token），
+   而 `--changes-fill` 又被一起改掉、宿主那条 60px 灰色 header 也没了 → 浅色 卡/页 **1.000:1**（卡片看着整张消失）；
+   暗色 卡/header `#20222C`、1.192:1，宿主那条 1.390 的灰 band 变平。
+2. **现版本（恢复的 R1 形状）**：`bg-module-platform`（= 12% accent 叠画布，随方案翻转）作底、header 同层、
+   `border-l2` + 同 token 的 1px inset 环。fixture 实测 卡/页 **浅 1.214 / 暗 1.169**、标题 14.65 / 13.52、
+   文件行 5.04 / 5.84（都过 AA）；卡片矩形 `[178, 40, 620, 197]`、header `618×60` 在「只有宿主」与「宿主 + 皮肤」
+   两遍**逐项相同**——颜色规则从来不会把卡片挤走。
 
+**保留的结论**：这张卡的可见性完全依赖宿主自己的 `card-fill` 灰 header（浅色卡底本来就等于画布），
+所以**任何**把 `--changes-fill` 一起改掉的方案都会让它在浅色下消失；恢复的版本是一块 accent 染色面 + 双线描边，
+两套方案都留出了 1.17~1.21 的面差和 1.5px 的边。
 **G4：浅色失败红的实测数字**（浅/暗各两个面；D2 要求都 ≥ 4.5:1）：
 
 | 方案 | 颜色 | 画布 `bg-base` | 退出胶囊 `bg-module-platform` |
@@ -1114,8 +1129,9 @@ title 外层 TextShimmer 的 `root/text` 则是 `color: inherit`——所以在�
 | 轨道根 | `TurnNavigator.tsx:234-243`：`div.slot`（absolute/sticky，`height: 0`，`z-index: 7`）> `nav.frame`（`aria-label` = `chat.turnNavigation.label`，宽 28px、`translateY(-50%)`、`contain: layout`） | **`nav[aria-label]`**（语义标签 + 无障碍标签；会话滚动容器 `[data-conversation-scroll]` 内**只有它一个 nav**——header 的面包屑 nav 与侧栏 nav 都在滚动容器之外） |
 | 每根刻度 | `TurnNavigator.tsx:61-71`：`button.mark`，`data-index`，由虚拟化器用行内 `transform: translateY(...)` 摆位 | **`[data-index]`** |
 | 当前项 | 同上 + `aria-current='true'`（`:70`） | **`[aria-current='true']`** |
-| 忙碌项 / 预览项 | `aria-busy='true'`（`:71`）/ `aria-describedby`（`:72`） | 已登记，本版未单独上色 |
-| 刻度本体 | `TurnNavigator.module.css:97-109`：`.mark::before` = 20×2px 圆角横条，右对齐，按状态 `scaleX` / `opacity` | **无属性**（只有哈希类名）→ 用 `[data-index]::before` **只改 `background`**（形态与状态转换全留给宿主） |
+| 忙碌项 | `aria-busy='true'`（`:71`） | 已登记，本版未单独上色 |
+| **悬停 / 预览项** | `TurnNavigator.tsx:256` 只给被预览的那根刻度传 `previewId`，`:72` 写进 `aria-describedby`（指向 `:267-278` 的 tooltip 卡 `role="tooltip"`） | **`[aria-describedby]`** —— 本版用它给「悬停预览」上同一套渐变 |
+| 刻度本体 | `TurnNavigator.module.css:97-109`：`.mark::before` = 20×2px 圆角横条，右对齐；宽度状态：静止 `scaleX(0.6)`（`:106`）、未加载 `scaleX(0.4)+opacity .6`（`:112-115`）、预览 `scaleX(0.9)`（`:117-120`）、当前 `scaleX(1)`（`:126-129`）；自带 `transition: transform 140ms ease, background-color 140ms ease`（`:108`） | **无属性**（只有哈希类名）→ 用 `[data-index]::before` **只改 `background` / `box-shadow`**（形态与状态转换全留给宿主） |
 
 **结论**：**不需要 `[class*=]` 例外**。轨道有语义 `<nav aria-label>`、刻度有 `data-index`、
 当前项有 `aria-current`，三者都是宿主为无障碍/虚拟化写下的**契约属性**，与 0.1.3 的
@@ -1140,27 +1156,29 @@ grid / overflow / transform / contain / z-index` 一个都不能以 `名字:` �
 （`2px`、`7px`、`100%`）只能出现在 `background` 里——那是**画**的尺寸，不是盒子的。
 
 **颜色几何（定稿）**：不再有轨道线，也没有圆点——nav 上**不铺任何 background**，刻度保持宿主自己的
-20×2px / 10px 一档 / `scaleX` 状态，只把 `::before` 的 `background` 换掉：
+20×2px / 10px 一档 / `scaleX` 状态，只把 `::before` 的 `background`（+ 当前/悬停项的一圈光晕）换掉：
 
-| 位置 | 颜色 | 选择器 |
+| 位置 | 颜色 / 装饰 | 选择器 |
 |---|---|---|
-| 当前项 | 琥珀 | `[data-index][aria-current='true']::before` |
-| 前后各 1 项 | `color-mix(amber 55%, accent)` | `[aria-current] + [data-index]::before` / `[data-index]:has(+ [data-index][aria-current])::before` |
-| 前后各 2 项 | `color-mix(amber 28%, accent)` | `[aria-current] + [data-index] + [data-index]::before` / `[data-index]:has(+ [data-index] + [data-index][aria-current])::before` |
+| 当前项 | `color-mix(amber 86%, label-primary)` + `0 0 4px color-mix(amber 55%, transparent)` 光晕 | `[data-index][aria-current='true']::before` |
+| 当前项前后各 1 | `color-mix(amber 55%, accent)` | `[aria-current] + [data-index]::before` / `[data-index]:has(+ [data-index][aria-current])::before` |
+| 当前项前后各 2 | `color-mix(amber 28%, accent)` | 同上再加一个 `+ [data-index]` |
+| **悬停预览** | 与当前项同色同光晕 | `[data-index][aria-describedby]::before` |
+| 悬停项前后各 1 / 2 | 同 55% / 28% | `[aria-describedby] + [data-index]::before` / `:has(+ [data-index] + [data-index][aria-describedby])` |
 | 其余 | accent（浅 `deepseek-500` / 暗 `deepseek-400`） | `[data-index]::before` |
 
-**为什么只够到 ±2**：`+` 是相邻兄弟组合器（`A + B` 只匹配紧跟在 A 后的那一个元素），
-所以 `[aria-current] + [data-index]` 恰好是当前项后 1 项、再加一个 `+ [data-index]` 恰好是
-后 2 项；`:has(+ X)` 同理只看**下一个**兄弟，`:has(+ [data-index] + [data-index][aria-current])`
-恰好是当前项前 2 项；全段没有 `~`（一般兄弟）也没有子选择器，刻度又是 `.marks` 的直接子元素
-（虚拟化器逐个渲染成兄弟），所以「相邻兄弟」= 「相邻回合」，窗口被结构限死在 ±2。fixture 实测
-（11 根刻度、当前项在第 6 位）：第 1–3 与前 3 根 = accent、第 4/8 根 = 55% 混合、第 5/7 根 = 28% 混合、
-第 6 根 = 琥珀，**第 1–3 根没有被染到**。**两次真机回退记录**：① 圆点形态被否（「改回原来的形式」）；
-② 2px 竖线渐变被否（「亮暗非常割裂，先恢复成 dsh 默认的样子再染色」）；"逐 index 沿轨道渐变" 需要
-每个 `data-index` 一条规则（开集）或 canvas，纯 CSS 表达不了，所以按契约退成
-「所有刻度 accent + 当前项琥珀 + 前后各两项混色」。
+**为什么只够到 ±2**：`+` 是**相邻兄弟**组合器（只匹配紧跟在 A 后的那一个元素），所以
+`[aria-current] + [data-index]` 恰好是后 1 项、再 `+ [data-index]` 恰好是后 2 项；`:has(+ X)` 同理只看
+**下一个**兄弟，`:has(+ [data-index] + [data-index][aria-current])` 恰好是前 2 项；全段没有 `~`（一般兄弟）
+也没有子选择器，刻度又是 `.marks` 的直接子元素（虚拟化器逐个渲染成兄弟），所以「相邻兄弟」=
+「相邻回合」，窗口被结构限死在 ±2。fixture 实测（11 根刻度、当前项在第 6 位、第 9 根带 `aria-describedby`）：
+第 1–3 / 10–11 根纯 accent、±1 位置 55%、±2 位置 28%、当前与悬停项琥珀 + 光晕，**更远的刻度没有被染到**。
 
-**未加载态没有被破坏（实测）**：`.markUnloaded` 的 `transform: scaleX(0.4)` 与 `opacity: 0.6` 是宿主写在
+**「大小转变太割裂」的处置（几何零改动）**：宽度阶梯 .4 / .6 / .9 / 1 是宿主的，按规矩不动；两处纯外观补偿：
+① 当前 / 悬停项加一圈 4px 琥珀光晕（读起来是「高亮」，而不是「这一根突然变宽」）；② 把宿主自己的 140ms
+过渡**扩写**成 `transform / background-color / box-shadow` 三项（只加不减——写少了会把宿主的宽度动画掐掉，
+那才是真正让「大小转变」变硬的写法）；③ 当前项的琥珀降一点饱和（86% + 14% 墨色），让色差与宽度差
+不要叠在一起放大。三处都只写颜色/阴影/过渡，没有一条几何声明。
 哈希类规则里的，我们只写 `background`，两者不冲突——fixture 里给一根刻度挂上未加载类后量到
 `matrix(0.4,0,0,1,0,-1) + opacity 0.6`（普通刻度 `matrix(0.6,…) + opacity 1`），所以未加载刻度**仍然
 更短更淡**，只是色相跟随位置（若它恰好落在 ±2 内就是混色）。
