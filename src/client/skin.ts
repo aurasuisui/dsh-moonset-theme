@@ -873,12 +873,75 @@ function glassRules(): readonly string[] {
     `  margin-top: calc(-1 * var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px));`,
     `  padding-top: calc(var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px) + 12px);`,
     '}',
-    '/* M5: the code block\'s sticky banner pins at the SCROLLPORT top, which the',
-    '   float pushed above the header — so it has to stop BELOW the header instead',
-    '   (the host uses the same `:has(> [data-code-block-banner])` shape for its own',
-    '   compaction offset, so the hook is the host\'s, not a class-name guess). */',
+    '/* M5/0.1.5 G1: the banner pins below the header. Chromium resolves a sticky',
+    '   offset against the scroller\'s CONTENT box, so the float\'s padding (header-h',
+    '   + 12) rides along: `top: H` landed at header-bottom + 12 + H (measured 88px',
+    '   at H=76). Give the 12px air back — `top: -12px` — and the gap is 0. */',
     `${SKIN_GATE} [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {`,
-    `  top: var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px);`,
+    '  top: -12px;',
+    '}',
+  ]
+}
+
+/**
+ * The 0.1.5 colour entries — three small fixes in ONE always-on segment.
+ *
+ * Every declaration here is a colour (background / border / text / a custom
+ * property), so the block is emitted UNCONDITIONALLY (after the two switchable
+ * segments): it must not vanish with the ground or the material switches, and it
+ * writes no layout property.
+ *
+ *  - **G2, the turn-changes card.** `[data-changed-files]` is the attribute the
+ *    card root renders (`ChangedFiles.tsx:69`), and the host sheet paints it
+ *    `background: var(--dsw-alias-bg-layer-1)` with a 60px header on
+ *    `--changes-fill: var(--dsw-alias-card-fill)`
+ *    (`ChangedFiles.module.css:2`, same text in the shipped
+ *    `dsh-client-ui-deliverables/lib/client.js`). In the DARK palette layer-1 is
+ *    near-black while `card-fill` is a NEUTRAL grey, which the user read as
+ *    黑灰. One card-scoped rule re-points the surface to `bg-layer-2` (the
+ *    bluish-indigo family the code blocks are drawn from), the edge to
+ *    `border-l2` (the single-file variant otherwise keeps `border-l1`), and the
+ *    host's OWN `--changes-fill` knob so the header stops being the grey band.
+ *    It is NOT a global `bg-layer` override (D3): the selector is the card's own
+ *    attribute and the property is declared on that card, so nothing else moves.
+ *  - **G3, the `上下文注入` row.** It is a `DisclosureRow` whose row root carries
+ *    no `data-variant`, so the 0.1.3 step-row rules never reach it
+ *    (`ContextInjectionRow.tsx:51`). Its collapsed content publishes the only
+ *    stable hooks — `[data-context-source]` (`:69`) and `[data-context-summary]`
+ *    (`:73`) — so the row is coloured through `:has()` on those two, and the
+ *    TITLE follows by inheritance: `DisclosureRow` paints its row div
+ *    `color: var(--dsw-alias-label-tertiary)` (`._row_l4nv8_26` in the shipped
+ *    sheet, hashed per build — hence its own hook) and wraps the title in a
+ *    TextShimmer whose root and text are `color: inherit`; one `color` at our
+ *    specificity out-ranks the row's shorthand and the hover rule, and the title
+ *    inherits it. `.source` / `.summary` / `.chevron` set their own label
+ *    colours and the expanded body declares its own, so 正文 keeps its ink. No
+ *    hue of its own: it reads the SAME `--dsh-moonset-step-name` the step rows
+ *    read, and the fallback (the accent) is the sheet's "unknown tool" colour —
+ *    a per-kind hue is one declaration block away.
+ *  - **G4, the LIGHT failure red.** `--dsw-alias-state-error-primary` is
+ *    `#B31B3E` in light and the user read it as too red. The light scheme mixes
+ *    it 70/30 toward the label ink (the recipe the step hues already use), which
+ *    lands on `#821934`: 9.43:1 on the canvas and 7.77:1 on the exit capsule's
+ *    own fill (measured; the paler direction — mixing toward the canvas — fails
+ *    D2 ON THE CAPSULE at 3.94:1). The property is declared under
+ *    `body:not([data-ds-dark-theme])` ONLY and the failed-step rule reads it
+ *    with the host token as the FALLBACK, so dark keeps the 0.1.4 colour
+ *    byte-for-byte.
+ * @returns the rule lines (three rules).
+ */
+function colourRules(): readonly string[] {
+  return [
+    '/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the',
+    '   context-injection row and the LIGHT failure red. No layout property. */',
+    'html[data-moonset-skin] body [data-changed-files] {',
+    '  background-color: var(--dsw-alias-bg-layer-2); border-color: var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-layer-2);',
+    '}',
+    "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
+    '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
+    '}',
+    'html[data-moonset-skin] body:not([data-ds-dark-theme]) {',
+    '  --dsh-moonset-error: color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, var(--dsw-alias-label-primary));',
     '}',
   ]
 }
@@ -1044,7 +1107,10 @@ function glassRules(): readonly string[] {
  *   body ground     (0.1.2) wash + two fixed spots, also whitelisted;
  *   step rows       (0.1.3 M2) the two terminal-coloured cells of a step row,
  *                   also whitelisted;
- *   material faces  (0.1.4 M1) `::before` planes, also whitelisted.
+ *   material faces  (0.1.4 M1) `::before` planes, also whitelisted;
+ *   colour entries  (0.1.5) the turn-changes card's surface, the context-row
+ *                   hue and the light-scheme failure red — see
+ *                   {@link colourRules}.
  *
  * The selector is `html body ::selection` (0,0,2) so it outranks a plain
  * `::selection` (0,0,1) from any third-party sheet that happens to set one; the
@@ -1111,7 +1177,7 @@ export function skinCss(options: SkinOptions = {}): string {
     "html[data-moonset-skin] body [data-variant][data-state='error'] :has(+ [data-shimmer-decoration]),",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] + *,",
     "html[data-moonset-skin] body [data-variant][data-state='error'] [data-shimmer-decoration] ~ [data-tone] {",
-    '  color: var(--dsw-alias-state-error-primary);',
+    '  color: var(--dsh-moonset-error, var(--dsw-alias-state-error-primary));',
     '}',
   ]
   if (options.glow !== false) {
@@ -1126,6 +1192,9 @@ export function skinCss(options: SkinOptions = {}): string {
   // 0.1.4 M1: the material is its OWN switch (GLASS_ATTR), not part of the
   // ground segment — "glow off, glass on" is a legal state (the plan's §一).
   if (options.glass !== false) rules.push(...glassRules())
+  // 0.1.5: three colour-only entries. Always emitted — they belong to no switch
+  // (the failure-red property rides the same base half as the rule that reads it).
+  rules.push(...colourRules())
   return rules.join('\n')
 }
 
