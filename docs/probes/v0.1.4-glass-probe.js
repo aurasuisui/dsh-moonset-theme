@@ -54,6 +54,26 @@
     };
   };
   out.state.sidebar = readPlane(document.querySelector("#root [data-slot='sidebar'] > div"));
+  // 0.1.4 M3: the conversation header, plus the host fact that decides how much
+  // the material there can show — does any transcript content pass BEHIND it?
+  const headerEl = document.querySelector("#root [data-slot='conversation.header'] > header");
+  out.state.header = readPlane(headerEl);
+  const contentScroller = document.querySelector('[data-conversation-scroll]');
+  if (headerEl !== null && contentScroller !== null) {
+    const hb = headerEl.getBoundingClientRect();
+    const savedTop = contentScroller.scrollTop;
+    contentScroller.scrollTop = 0;
+    const first = contentScroller.firstElementChild;
+    const fb = first === null ? null : first.getBoundingClientRect();
+    contentScroller.scrollTop = savedTop;
+    out.headerBackdrop = {
+      headerTop: Math.round(hb.top),
+      headerBottom: Math.round(hb.bottom),
+      firstContentTopAtScroll0: fb === null ? null : Math.round(fb.top),
+      contentUnderHeader: fb === null ? null : fb.top < hb.bottom,
+      note: 'false = 正文不会跑到 header 背后（宿主 header 不 sticky，正文在下面的滚动容器里），',
+    };
+  }
   const frame = document.querySelector("#root [data-slot='root'] > div");
   if (frame !== null) {
     const strip = getComputedStyle(frame, '::before');

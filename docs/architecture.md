@@ -418,9 +418,9 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
 | **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `night` 色相读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
 | **轨迹步骤行**（按类型分色） | 两条格子规则 `html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration])`（工具名）与 `… [data-shimmer-decoration] + *`（参数/路径），读行上发布的两个自定义属性 `--dsh-moonset-step-name/-args`；四条类声明 `… [data-variant='bash' \| 'read' \| 'write' \| 'edit' \| 'search' \| 'think'] { … }`；失败规则 `… [data-state='error']`（两格 + `~ [data-tone]` 胶囊，写在最后） | 步骤行的**工具名**与**参数/路径**两个格子都只有按构建哈希的 CSS Module 类名，没有 `data-*`；但行根有 `[data-variant][data-state]`（工具行还有 `[data-tool]`）、名字与参数之间那颗 `·` 有 `[data-shimmer-decoration]`、退出码胶囊是 `Tag` 的 `[data-tone]`。两格只能**相对那颗点**定位；「每类一个色相」又要**两套方案都成立**，所以色相用 `color-mix(family, label token)` 交给方案自适应，再由行上的自定义属性把「类 → 两格」接起来 | 0.1.3 M2b |
-| **材质面**（0.1.4 M1 输入卡 / M2 侧栏 + 顶栏） | 三面**共用一份材质**（`background: color-mix(bg-base 62%)` + `backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)` + `inset` 高光），只换选择器：① `[data-composer-card]`（输入卡，稳定属性）；② `#root [data-slot='sidebar'] > div`（SidebarRoot 的 `.root`，槽锚点是 `display:contents`，所以锚点的**子元素**就是它，画 `--dsw-specific-sidebar-fill` 的那一层，`SidebarRoot.module.css:19`）；③ `html[data-windows-titlebar] … #root [data-slot='root'] > div::before`（Windows 标题栏条：壳在 win32 上盖 `data-windows-titlebar`，条本身就是 frame 的 `::before`，画 `sidebar-fill`，`AppFrame.module.css:40-47`）。①② 用 `position: relative` / `isolation: isolate` / `background: transparent` 清底并托管 `::before` 平面（`content` / `position: absolute` / `inset: 0` / `z-index: -1` / `border-radius: inherit` / `pointer-events: none`）；③ 是**叶子平面**（本就无内容），材质直接画在它身上，几何全留宿主（`inset`/`height`/拖动区一条不动）。**会话区 header 不在其中**：`.header`（`ConversationRoot.module.css:23-31`）只有 `border-bottom`、没有底色，地面本来就透过去（D1 由此关闭） | P6：材质必须画在**背靠内容**的平面上——容器本体若也画，`backdrop-filter` 只会糊到自己；但「画在平面上」的判据是**该平面有没有自己的内容**：①② 有内容，所以平面上移一层到 `::before`；③ 本身就是条，没有内容，直接画。**实测**（Chromium，M1）：少了 `z-index:-1` 时平面按定位层绘制、盖在 in-flow 正文之上，`backdrop-filter` 会把输入框自己的草稿糊成一团；`isolation:isolate` 是平面在「光晕关掉、座位重新画不透明遮罩带」时仍可见的前提。Windows 条**必须**挂在 `html[data-windows-titlebar]` 上：macOS 上没有这条，不门控就会给整帧画一条带 | 0.1.4 M1 / M2 |
+| **材质面**（0.1.4 M1 输入卡 / M2 侧栏 + 顶栏 / M3 会话 header） | 四面**共用一份材质**（`background: color-mix(bg-base 62%)` + `backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)` + `inset 0 1px 0` 近白高光），只换选择器：① `[data-composer-card]`（输入卡，稳定属性）；② `#root [data-slot='sidebar'] > div`（SidebarRoot 的 `.root`，槽锚点是 `display:contents`，锚点的**子元素**画 `--dsw-specific-sidebar-fill`，`SidebarRoot.module.css:19`）；③ `#root [data-slot='conversation.header'] > header`（会话 header：header 槽锚点同样是 `display:contents`，子元素是 `ConversationHeader` 的 `<header>`，`ConversationHeader.tsx:18` / `ConversationMainPanel.tsx:39`；用槽键锚点而不是 `[data-window-drag]`，因为侧栏有两行也带这个拖动标记）；④ `html[data-windows-titlebar] … #root [data-slot='root'] > div::before`（Windows 标题条：壳在 win32 上盖属性，条本身就是 frame 的 `::before`，`AppFrame.module.css:40-47`）。①②③ 用 `position: relative` / `isolation: isolate` / `background: transparent` 清底并托管 `::before` 平面（`content` / `position: absolute` / `inset: 0` / `z-index: -1` / `border-radius: inherit` / `pointer-events: none`）；④ 是**叶子平面**（本就无内容），材质直接画在它身上，几何全留宿主。**两处按真机反馈的定向偏差**：侧栏用 `--dsw-alias-bg-module-platform`（12% 强调色叠画布）@72% 自成一档底色（实测开/关 浅 Δ10.4 / 暗 Δ11.7；共享的 62% 画布底在同处只有 Δ5.4 / Δ7.6，暗色下用户「看不出区别」）；header 额外在**平面上**画一条 `inset 0 -1px 0 var(--dsw-alias-border-l3)` 底边（宿主那条 0.5px `border-bottom` 一条字都不写、原样保留；线画在平面下会被 62% 遮到看不见） | P6：材质必须画在**背靠内容**的平面上——容器本体若也画，`backdrop-filter` 只会糊到自己；但「画在平面上」的判据是**该平面有没有自己的内容**。还要分清**面背后是什么**：输入卡背后是正文（糊文字+气泡），侧栏/顶栏/header 背后只有地面。**header 背后没有正文**：宿主 header 不 sticky，正文在 `.body` 里的 `.scrollBody { overflow-y: auto }` 内滚动（`ConversationRoot.module.css:485-494`；`:451-453` `flex: none`），实测首条消息在 header 下沿再往下 18px —— 因此 header 玻璃透出的是光晕/地面（暗色下正好压在那颗月核上，实测开/关 浅 Δ9.6 / 暗 Δ13.4），**不可能糊出消息**，除非改宿主布局（越界）。**实测**（Chromium，M1）：少了 `z-index:-1` 时平面按定位层绘制、盖在 in-flow 正文之上 | 0.1.4 M1/M2/M3 |
 
-当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1/M2，全表十九条规则，114 行 / C 档 116 行）：
+当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1/M2/M3，全表二十一条规则，127 行 / C 档 129 行）：
 
 ```css
 /* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */
@@ -514,18 +514,30 @@ html[data-moonset-skin] #root [data-slot='main'] > div {
 html[data-moonset-skin] #root [data-composer-seat] {
   background-image: none;
 }
-/* 0.1.4 glass (M1 input card, M2 sidebar + top bar): ONE material on three
-   planes. P6: the face paints nothing and the material sits on its ::before,
-   so the blur samples what is BEHIND the face; z-index -1 plus isolation
-   keeps the plane behind the face content. The top bar is the Windows
-   caption strip, which is already the frame ::before. */
+/* 0.1.4 glass (M1 card, M2 sidebar + top bar, M3 header): ONE material on
+   four planes. P6: the face paints nothing and the material sits on its
+   ::before, so the blur samples what is BEHIND the face; z-index -1 plus
+   isolation keeps the plane behind the face content. The top bar is the
+   Windows caption strip, which is already the frame ::before. */
 html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before,
-html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div::before {
+html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div::before,
+html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header::before {
   content: ''; position: absolute; inset: 0; z-index: -1;
   border-radius: inherit; pointer-events: none;
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);
   backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);
+}
+/* M3: the sidebar base is tinted and denser — its host fill sits within a
+   few units of the shared material, so the shared one measured invisible
+   (Δ5.4 light / Δ7.6 dark); this reads Δ10.4 / Δ11.7. Same blur. */
+html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div::before {
+  background: color-mix(in srgb, var(--dsw-alias-bg-module-platform) 72%, transparent);
+}
+/* M3: the header keeps the host 0.5px border-bottom and adds the material
+   edge on the plane (a line under a 62% plane would be muted away). */
+html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header::before {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);
 }
 html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before {
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);
@@ -533,7 +545,8 @@ html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-s
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);
 }
 html[data-moonset-skin][data-moonset-glass] [data-composer-card],
-html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div {
+html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div,
+html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header {
   position: relative; isolation: isolate; background: transparent;
 }
 ```
@@ -820,13 +833,13 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 ### 11.5 新增一条白名单项的门槛
 
 1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
-2. 全表 ≤ 130 行（0.1.4 M2 起；M1 时 115、0.1.3 M2b 时 95、M2 首版 75、0.1.2 时 60、0.1.1 时 40；单条新增仍 ≤ 20 行）、无
+2. 全表 ≤ 130 行（0.1.4 M2 起；M3 实测 127、M2 时 114、M1 时 115、0.1.3 M2b 时 95、M2 首版 75、0.1.2 时 60、0.1.1 时 40；单条新增仍 ≤ 20 行）、无
    `!important`、无 `@media`、无 `@supports`；
 3. 颜色只从 token 混出（字体例外：字体不是颜色，允许读主题层的 `--ds-*`，见第六类）；
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（82 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（86 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载；
 0.1.3 M2 增 6 条：两格规则逐字、失败行逐字、不出步骤行、等宽只读 `--ds-font-family-code`、
@@ -836,6 +849,9 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 `--dsw-static-neutral-bluish-00` 10%，两套方案都 ≥ #C8 近白）、半径走行内属性所以任何
 半径的字节相同、脏半径归一到 0–30、关掉材质**只**掉材质那两条、挂载/改值/关闭/卸载
 四态的门控与行内属性、`off` 选择把材质随表一起摘掉；
+0.1.4 M3 增 4 条：header 进共享平面 + 只清底色且**一字不写 border**、header 底边画在
+平面上并复用共享高光与 `border-l3`、侧栏自成一档底色（只 1 条声明、不动 blur 与高光）、
+四面共用同一个模糊变量（两处发射、值集合只有 1）；
 0.1.4 M2 增 4 条：顶栏**必须**挂在 `html[data-windows-titlebar]`、且那条规则只写材质
 （`inset`/`position`/`content`/`height` 一条不许出现，否则条会盖满整帧）、三面材质
 **逐字相同**（从表里解析回来比较，不重写一份）、每面只借一个稳定钩子且 `>` 最多一跳、

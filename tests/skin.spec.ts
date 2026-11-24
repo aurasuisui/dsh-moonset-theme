@@ -112,11 +112,12 @@ const SHEET_BUDGET = 130
 /**
  * Rule blocks in the default sheet: nine through 0.1.2, sixteen since 0.1.3 M2b
  * (two cell rules, four class blocks and the failed-step rule on top of the
- * nine the 0.1.2 sheet shipped), nineteen since 0.1.4 M2: the material's plane
- * rule (card + sidebar), the caption strip's own material rule, and the faces'
- * clear — all three inside the one switchable segment.
+ * nine the 0.1.2 sheet shipped), twenty-one since 0.1.4 M3: the material's
+ * plane rule (card + sidebar + header), the sidebar's own base, the header's
+ * edge, the caption strip's material, and the faces' clear — all five inside
+ * the one switchable segment.
  */
-const SHEET_RULES = 19
+const SHEET_RULES = 21
 
 /**
  * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
@@ -228,26 +229,40 @@ const EXPECTED_GLOW_CSS = [
 ].join('\n')
 
 /**
- * The 0.1.4 material segment (three faces, ONE recipe), verbatim.
+ * The 0.1.4 material segment (FOUR faces, ONE recipe), verbatim.
  *
- * 0.1.4 M1 shipped the input card; M2 adds the sidebar column and the Windows
- * caption strip. The three `background` / `backdrop-filter` / `box-shadow`
- * declarations are the SAME TEXT on every face — the parity case below reads
- * them back out of the sheet and compares them, so a drifted face fails.
+ * M1 shipped the input card, M2 the sidebar column and the Windows caption
+ * strip, M3 the conversation header. `background` / `backdrop-filter` /
+ * `box-shadow` stay the SAME TEXT on the planes and the strip; two faces
+ * deviate on purpose and ONLY where the real-machine report demanded it (the
+ * sidebar's base, the header's bottom edge) — the parity case below reads both
+ * back out of the sheet, so a silent third deviation fails.
  */
 const EXPECTED_GLASS_CSS = [
-  '/* 0.1.4 glass (M1 input card, M2 sidebar + top bar): ONE material on three',
-  '   planes. P6: the face paints nothing and the material sits on its ::before,',
-  '   so the blur samples what is BEHIND the face; z-index -1 plus isolation',
-  '   keeps the plane behind the face content. The top bar is the Windows',
-  '   caption strip, which is already the frame ::before. */',
+  '/* 0.1.4 glass (M1 card, M2 sidebar + top bar, M3 header): ONE material on',
+  '   four planes. P6: the face paints nothing and the material sits on its',
+  '   ::before, so the blur samples what is BEHIND the face; z-index -1 plus',
+  '   isolation keeps the plane behind the face content. The top bar is the',
+  '   Windows caption strip, which is already the frame ::before. */',
   'html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before,',
-  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div::before {",
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div::before,",
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header::before {",
   "  content: ''; position: absolute; inset: 0; z-index: -1;",
   '  border-radius: inherit; pointer-events: none;',
   '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
   '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
   '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
+  '}',
+  '/* M3: the sidebar base is tinted and denser — its host fill sits within a',
+  '   few units of the shared material, so the shared one measured invisible',
+  '   (Δ5.4 light / Δ7.6 dark); this reads Δ10.4 / Δ11.7. Same blur. */',
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div::before {",
+  '  background: color-mix(in srgb, var(--dsw-alias-bg-module-platform) 72%, transparent);',
+  '}',
+  '/* M3: the header keeps the host 0.5px border-bottom and adds the material',
+  '   edge on the plane (a line under a 62% plane would be muted away). */',
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header::before {",
+  '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);',
   '}',
   "html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before {",
   '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
@@ -255,7 +270,8 @@ const EXPECTED_GLASS_CSS = [
   '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
   '}',
   'html[data-moonset-skin][data-moonset-glass] [data-composer-card],',
-  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div {",
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div,",
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header {",
   '  position: relative; isolation: isolate; background: transparent;',
   '}',
 ].join('\n')
@@ -508,7 +524,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 130 lines, nineteen rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 130 lines, twenty-one rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
@@ -565,9 +581,9 @@ describe('skinCss — the whitelisted rules', () => {
     expect(css.slice(clearStart, bandStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(bandStart, glassStart).split('\n').length).toBeLessThanOrEqual(12)
     // The material's two rules: 13 lines, the ceiling the 115 budget bought.
-    // Three faces, one recipe: 22 lines measured (the lead's estimate was 14-18
-    // for the two extra faces; the caption strip's rule is the extra block).
-    expect(css.slice(glassStart).split('\n').length).toBeLessThanOrEqual(26)
+    // Four faces: 35 lines measured (planes + the sidebar's own base + the
+    // header's edge + the strip + the faces).
+    expect(css.slice(glassStart).split('\n').length).toBeLessThanOrEqual(40)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     // ...with ONE documented exception (0.1.4 M1): the material's ::before needs
@@ -610,6 +626,10 @@ describe('skinCss — the whitelisted rules', () => {
       // (#FAFAFC light / #EEF0F7 dark), not the plan's rgba(255,255,255,.10)
       // literal: same pixel, and P5's "no literal colour" rule survives.
       'var(--dsw-static-neutral-bluish-00)',
+      // 0.1.4 M3: the sidebar's tinted glass base (12% accent over the canvas),
+      // and the header's material edge — the SAME token the host border uses.
+      'var(--dsw-alias-bg-module-platform)',
+      'var(--dsw-alias-border-l3)',
     ]))
     // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
     // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
@@ -619,7 +639,7 @@ describe('skinCss — the whitelisted rules', () => {
     // and the failed step is one state alias. 0.1.4 M1: the material adds the
     // canvas under its plane and the near-white on its top edge. The night
     // anchor refs are counted separately.
-    expect(tokens).toHaveLength(32)
+    expect(tokens).toHaveLength(35)
     // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
     // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
     expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
@@ -2242,18 +2262,19 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     // Two planes — the card's and the sidebar's — plus the caption strip (which
     // IS the host's own ::before), and no ::after of ours (the host owns the
     // trigger outline).
-    expect(rules.match(/::before/g)).toHaveLength(3)
+    expect(rules.match(/::before/g)).toHaveLength(6)
     expect(rules.match(/::after/g)).toHaveLength(1)
   })
 
   it('clears each face`s own fill and draws nothing else on it (P6)', () => {
     const css = skinCss()
-    // The FACES rule: the card and the sidebar root, both cleared. (The caption
+    // The FACES rule (card + sidebar root + header), all cleared. (The caption
     // strip needs no clear of this kind: it paints nothing but its own ::before,
     // which the material rule below repaints.)
-    const faces = /\[data-composer-card\],\nhtml\[data-moonset-skin\]\[data-moonset-glass\] #root \[data-slot='sidebar'\] > div \{([\s\S]*?)\}/.exec(css)
-    if (faces === null) throw new Error('missing the material host rule')
-    const declarations = faces[1].split(';').map((part) => part.trim()).filter(Boolean)
+    const facesAt = css.indexOf("[data-composer-card],\nhtml[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div,")
+    expect(facesAt).toBeGreaterThan(-1)
+    const facesBody = css.slice(css.indexOf('{', facesAt) + 1, css.indexOf('}', facesAt))
+    const declarations = facesBody.split(';').map((part) => part.trim()).filter(Boolean)
     // Exactly the three the recipe needs: a positioned host for the plane, a
     // stacking context that keeps it inside the face, and the host fill cleared
     // so the plane is the only paint. The hosts` shadows are NOT touched.
@@ -2436,11 +2457,80 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     expect(css).not.toMatch(/\[data-slot='sidebar'\] > div > /)
     // The caption strip: the root anchor's child is the frame, its ::before the strip.
     expect(css).toContain("#root [data-slot='root'] > div::before")
+    // The header (M3): the header slot anchor is display:contents too, so its
+    // child is ConversationHeader's `<header>` — one hop from the ANCHOR, and the
+    // anchor is a slot KEY (a contract name), not a hashed class. (`[data-window-drag]`
+    // would have been ambiguous: the sidebar puts the same marker on two rows.)
+    expect(css).toContain("#root [data-slot='conversation.header'] > header")
     // Still no hashed class name, no !important, no conditional at-rule.
     const selectorText = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{[^}]*\}/g, '')
     expect(selectorText).not.toMatch(/\[\s*class/)
     expect(css).not.toContain('!important')
     expect(css).not.toMatch(/@media|@supports/)
+  })
+
+  it('paints the conversation header like the card, and keeps the host border', () => {
+    const css = skinCss()
+    const header = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header"
+    // The header is a FULL face: its plane is in the shared rule (so its
+    // background / backdrop-filter / top highlight are byte-identical to the
+    // card's), and it is cleared exactly like the others.
+    const planes = css.slice(css.indexOf("${card}::before,".replace('${card}', '[data-composer-card]')))
+    expect(planes).toBeTruthy()
+    expect(css).toContain(header + '::before {')
+    expect(css).toContain(header + ' {')
+    const hosts = css.slice(css.indexOf(header + ' {'), css.indexOf('}', css.indexOf(header + ' {')) + 1)
+    expect(hosts).toContain('background: transparent')
+    // The host's 0.5px border-bottom is NOT touched: nothing here writes a
+    // border (and nothing writes width/height/margin/padding either).
+    expect(css).not.toMatch(/\bborder(?:-bottom)?\s*:/)
+    expect(css).not.toMatch(/\b(?:width|height|margin|padding|overflow)\s*:/)
+  })
+
+  it('draws the header\'s own bottom edge on the PLANE, not under it', () => {
+    const css = skinCss()
+    // The header's plane appears TWICE (the shared rule and this override), so the
+    // edge rule is found from the override's own comment.
+    const marker = css.indexOf('/* M3: the header keeps')
+    expect(marker).toBeGreaterThan(-1)
+    const edge = css.slice(css.indexOf('::before {', marker))
+    const rule = edge.slice(0, edge.indexOf('}') + 1)
+    // A 1px line under a 62%-opaque plane would be muted to nothing, so the
+    // edge belongs to the plane — and it must keep the shared top highlight.
+    expect(rule).toContain('inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent)')
+    expect(rule).toContain('inset 0 -1px 0 var(--dsw-alias-border-l3)')
+    // The token the host border uses, so the two lines cannot drift apart.
+    expect(rule).toContain('--dsw-alias-border-l3')
+  })
+
+  it('gives the sidebar its own denser, tinted base — and only that', () => {
+    const css = skinCss()
+    const sidebar = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div"
+    const overrideAt = css.indexOf(sidebar + '::before {', css.indexOf(sidebar + '::before,'))
+    expect(overrideAt).toBeGreaterThan(-1)
+    const override = css.slice(overrideAt, css.indexOf('}', overrideAt) + 1)
+    // One declaration with the tinted, denser base (measured Δ10.4 light /
+    // Δ11.7 dark against the host fill; the shared 62% material measured Δ5.4 /
+    // Δ7.6 there, i.e. invisible — the user's dark-scheme report).
+    expect(override).toContain('color-mix(in srgb, var(--dsw-alias-bg-module-platform) 72%, transparent)')
+    const declarations = override.slice(override.indexOf('{') + 1, -1).split(';').map((part) => part.trim()).filter(Boolean)
+    expect(declarations).toHaveLength(1)
+    // It overrides the BASE only: the blur and the top highlight stay the
+    // shared ones (they live in the planes rule above).
+    expect(override).not.toContain('backdrop-filter')
+    expect(override).not.toContain('box-shadow')
+  })
+
+  it('keeps every face on the same blur, whatever its base', () => {
+    const css = skinCss()
+    // The blur is the ONE thing no face may vary: it is the switch's knob, and
+    // a per-face radius would make the three surfaces read as different
+    // materials.
+    expect(css.match(/backdrop-filter: blur\(var\(--dsh-moonset-glass-blur\)\) saturate\(1\.15\)/g) ?? []).toHaveLength(2)
+    // Two EMISSION sites (the planes rule + the strip); the sidebar and the
+    // header inherit the planes rule's value.
+    const materials = [...css.matchAll(/backdrop-filter:\s*blur\((var\([^)]*\))\)/g)].map((m) => m[1])
+    expect(new Set(materials)).toEqual(new Set(['var(--dsh-moonset-glass-blur)']))
   })
 
   it('puts backdrop-filter on leaf planes only — never on a host container', () => {

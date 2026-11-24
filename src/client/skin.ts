@@ -700,11 +700,11 @@ function visibilityRules(scope: GlowScope): readonly string[] {
 }
 
 /**
- * The 0.1.4 material: THREE faces, ONE recipe (M1 input card, M2 sidebar + top
- * bar).
+ * The 0.1.4 material: FOUR faces, ONE recipe (M1 input card, M2 sidebar + top
+ * bar, M3 conversation header).
  *
  * Every face is addressed by a STABLE hook, never by a host class name (those
- * are hashed per build) and never by counting depth:
+ * are hashed per build) and never by counting more than one hop:
  *
  *   input card  `[data-composer-card]` — the node the installed InputBar renders
  *               with that attribute (InputBar.tsx:462), whose class paints
@@ -713,6 +713,14 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  *               is `display: contents`, so its child IS SidebarRoot's `.root`,
  *               the element painting `--dsw-specific-sidebar-fill`
  *               (SidebarRoot.module.css:19);
+ *   header      `#root [data-slot='conversation.header'] > header` — the header
+ *               slot anchor (ConversationMainPanel.tsx:39) is `display: contents`,
+ *               so its child is ConversationHeader's `<header>` — the element
+ *               carrying `data-window-drag` and the 0.5px `border-bottom`
+ *               (ConversationHeader.tsx:18 / ConversationRoot.module.css:23-31).
+ *               A slot-key anchor rather than `[data-window-drag]`: the sidebar
+ *               uses the same drag marker on two of its own rows, so the marker
+ *               alone is not unique to this face;
  *   top bar     `#root [data-slot='root'] > div::before` — the root slot anchor's
  *               child is AppFrame's `.frame`; on Windows the shell stamps
  *               `html[data-windows-titlebar]` and the frame paints its caption
@@ -720,9 +728,18 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  *               the window drag region). Gated on that attribute, so the rule is
  *               inert on macOS — where the strip does not exist and an
  *               unconditional `::before` would paint a band over the whole frame.
- *               The CONVERSATION header is NOT a face: `.header`
- *               (ConversationRoot.module.css:23-31) has no background at all, so
- *               the ground already shows through it (arch. §11.3).
+ *
+ * WHAT EACH FACE HAS BEHIND IT (this decides how visible the material can be):
+ *   input card — the transcript, so the blur has text and bubbles to melt;
+ *   sidebar     — the ground only;
+ *   header      — the ground only. The host header is NOT sticky and the
+ *                 transcript scrolls inside `.body`, BELOW it (`.scrollBody {
+ *                 overflow-y: auto }`, ConversationRoot.module.css:485-494;
+ *                 `.root[data-phase='active'] .header { flex: none }` at :451-453;
+ *                 measured: the first message starts 18px below the header). So
+ *                 the header glass shows the halo/ground behind it — it can not
+ *                 show blurred messages, because nothing renders behind it;
+ *   top bar     — the ground (the halo core sits near it in dark).
  *
  * The shape is fixed by P6: a face paints nothing (`background: transparent`
  * clears its host fill) and the material sits on the face's own `::before`, so
@@ -739,28 +756,40 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * (geometry stays the host's: `inset`, `height` and the drag region are not
  * touched here).
  *
- * ONE material, shared verbatim by all three faces (the material values live in
- * `material` below and are emitted twice: once for the two planes, once for the
- * strip). The colour is the canvas at 62% (`color-mix`), so it follows the
- * scheme; the edge highlight is the palette's own near-white
- * (`--dsw-static-neutral-bluish-00` = `#FAFAFC` light / `#EEF0F7` dark) at 10%
- * rather than the `rgba(255,255,255,0.10)` the plan sketched — same pixel, and
- * it keeps P5's "every colour from a token" rule (the sheet's only literals stay
- * the two night anchors). The radius is the inline property: moving the slider
- * re-points a value, it does not rebuild the sheet.
+ * ONE material, shared verbatim by the planes and the strip (`material` below is
+ * emitted twice): the canvas at 62% plus a 10% near-white top highlight
+ * (`--dsw-static-neutral-bluish-00`) — a token, not the plan's
+ * `rgba(255,255,255,0.10)`, so P5's "every colour from a token" rule holds (the
+ * sheet's only literals stay the two night anchors). Two faces deviate on
+ * purpose, and only in the way the user's dark-scheme report demanded:
+ *
+ *  - SIDEBAR: its own base. `--dsw-specific-sidebar-fill` is `#F4F4F7` light /
+ *    `#15171F` dark, i.e. within a few units of "62% canvas over the ground"
+ *    (measured on/off: Δ5.4 light, Δ7.6 dark), so the shared material was
+ *    invisible there — the user's 「深色下侧栏看不出区别」. The glass base is
+ *    `--dsw-alias-bg-module-platform` (12% accent over the canvas) at 72%, which
+ *    measures Δ10.4 light / Δ11.7 dark — a tinted panel in both schemes, still
+ *    a token mix, and the blur is unchanged;
+ *  - HEADER: keeps the host's 0.5px `border-bottom` (nothing here writes
+ *    `border`) and adds the material's own bottom edge on the plane, because a
+ *    1px line under a 62%-opaque plane would be muted to invisibility. The line
+ *    is `--dsw-alias-border-l3`, the same token the host border uses.
  *
  * What this block may NOT touch: layout — `position` (the `::before`'s
  * containing block) is the one exception the milestone budget bought, and
  * `isolation` is paint-only. No size, margin, padding or overflow is written;
  * every face keeps its box, its radius (`border-radius: inherit`) and its host
  * shadow.
- * @returns the rule lines (three rules: the two planes, the strip, the faces).
+ * @returns the rule lines (five rules: the planes, the sidebar base, the header
+ *   edge, the strip, the faces).
  */
 function glassRules(): readonly string[] {
   /** The input card (M1): the host's own stable attribute. */
   const card = 'html[data-moonset-skin][data-moonset-glass] [data-composer-card]'
   /** The sidebar column's inner root (M2): the slot anchor's only child. */
   const sidebar = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div"
+  /** The conversation header (M3): the header slot anchor's only child. */
+  const header = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header"
   /** The Windows caption strip (M2): the frame's existing ::before. */
   const strip = "html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before"
   /** The material itself — the SAME three declarations on every face. */
@@ -770,22 +799,35 @@ function glassRules(): readonly string[] {
     '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
   ]
   return [
-    '/* 0.1.4 glass (M1 input card, M2 sidebar + top bar): ONE material on three',
-    '   planes. P6: the face paints nothing and the material sits on its ::before,',
-    '   so the blur samples what is BEHIND the face; z-index -1 plus isolation',
-    '   keeps the plane behind the face content. The top bar is the Windows',
-    '   caption strip, which is already the frame ::before. */',
+    '/* 0.1.4 glass (M1 card, M2 sidebar + top bar, M3 header): ONE material on',
+    '   four planes. P6: the face paints nothing and the material sits on its',
+    '   ::before, so the blur samples what is BEHIND the face; z-index -1 plus',
+    '   isolation keeps the plane behind the face content. The top bar is the',
+    '   Windows caption strip, which is already the frame ::before. */',
     `${card}::before,`,
-    `${sidebar}::before {`,
+    `${sidebar}::before,`,
+    `${header}::before {`,
     "  content: ''; position: absolute; inset: 0; z-index: -1;",
     '  border-radius: inherit; pointer-events: none;',
     ...material,
+    '}',
+    '/* M3: the sidebar base is tinted and denser — its host fill sits within a',
+    '   few units of the shared material, so the shared one measured invisible',
+    '   (Δ5.4 light / Δ7.6 dark); this reads Δ10.4 / Δ11.7. Same blur. */',
+    `${sidebar}::before {`,
+    '  background: color-mix(in srgb, var(--dsw-alias-bg-module-platform) 72%, transparent);',
+    '}',
+    '/* M3: the header keeps the host 0.5px border-bottom and adds the material',
+    '   edge on the plane (a line under a 62% plane would be muted away). */',
+    `${header}::before {`,
+    '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);',
     '}',
     `${strip} {`,
     ...material,
     '}',
     `${card},`,
-    `${sidebar} {`,
+    `${sidebar},`,
+    `${header} {`,
     '  position: relative; isolation: isolate; background: transparent;',
     '}',
   ]
