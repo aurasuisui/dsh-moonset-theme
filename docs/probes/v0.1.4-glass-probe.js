@@ -72,6 +72,9 @@
       headerZIndex: headerEl === null ? null : getComputedStyle(headerEl).zIndex,
       note: 'margin 应当等于 -header-h，padding 应当等于 header-h + 12px',
     };
+    // 0.1.4 M5: the code block's sticky banner must pin BELOW the header.
+    const bannerWrap = document.querySelector('[data-conversation-scroll] :has(> [data-code-block-banner])');
+    out.glassFloat.codeBannerStickyTop = bannerWrap === null || bannerWrap === undefined ? null : getComputedStyle(bannerWrap).top;
   }
   const contentScroller = document.querySelector('[data-conversation-scroll]');
   if (headerEl !== null && contentScroller !== null) {

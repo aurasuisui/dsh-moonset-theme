@@ -166,7 +166,7 @@ const WINDOWS_GATE = 'html[data-windows-titlebar][data-moonset-skin][data-moonse
  */
 export const CARD_HOOK = '[data-composer-card]'
 export const SIDEBAR_HOOK = "#root [data-slot='sidebar'] > div"
-export const HEADER_HOOK = "#root [data-slot='conversation.header'] > header"
+export const HEADER_HOOK = "[data-slot='conversation.header'] > header"
 export const STRIP_HOOK = "#root [data-slot='root'] > div::before"
 
 /**
@@ -840,7 +840,7 @@ function glassRules(): readonly string[] {
   /** The sidebar column's inner root (M2): the slot anchor's only child. */
   const sidebar = `${SKIN_GATE} ${SIDEBAR_HOOK}`
   /** The conversation header (M3): the header slot anchor's only child. */
-  const header = `${SKIN_GATE} ${HEADER_HOOK}`
+  const header = `${SKIN_GATE} #root ${HEADER_HOOK}`
   /** The Windows caption strip (M2): the frame's existing ::before. */
   const strip = `${WINDOWS_GATE} ${STRIP_HOOK}`
   /** The material itself — the SAME three declarations on every face. */
@@ -894,8 +894,16 @@ function glassRules(): readonly string[] {
     '  z-index: 8;',
     '}',
     `${SKIN_GATE} [data-phase='active'] [data-conversation-scroll] {`,
+    '  position: relative; z-index: 0;',
     `  margin-top: calc(-1 * var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px));`,
     `  padding-top: calc(var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px) + 12px);`,
+    '}',
+    '/* M5: the code block\'s sticky banner pins at the SCROLLPORT top, which the',
+    '   float pushed above the header — so it has to stop BELOW the header instead',
+    '   (the host uses the same `:has(> [data-code-block-banner])` shape for its own',
+    '   compaction offset, so the hook is the host\'s, not a class-name guess). */',
+    `${SKIN_GATE} [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {`,
+    `  top: var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px);`,
     '}',
   ]
 }
@@ -1267,7 +1275,7 @@ function measureHeaderHeight(root: SkinRoot): number | undefined {
     }
     const query = (root as unknown as { querySelector?: (selector: string) => MeasurableElement | null }).querySelector
     if (typeof query !== 'function') return undefined
-    const header = query.call(root, HEADER_HOOK)
+    const header = query.call(root, `#root ${HEADER_HOOK}`)
     if (header === null || header === undefined) return undefined
     const height = header.getBoundingClientRect().height
     return Number.isFinite(height) && height > 0 ? height : undefined

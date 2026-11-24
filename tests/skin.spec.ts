@@ -112,7 +112,7 @@ const CANVAS = '--dsw-alias-bg-base'
  * material declarations (measured 104 → 114, i.e. +10 lines for the sidebar and
  * the Windows caption strip). The architecture doc §11.5 carries the same number.
  */
-const SHEET_BUDGET = 145
+const SHEET_BUDGET = 155
 
 /**
  * Rule blocks in the default sheet: nine through 0.1.2, sixteen since 0.1.3 M2b
@@ -122,7 +122,7 @@ const SHEET_BUDGET = 145
  * edge, the caption strip's material, and the faces' clear — all five inside
  * the one switchable segment.
  */
-const SHEET_RULES = 23
+const SHEET_RULES = 24
 
 /**
  * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
@@ -288,12 +288,20 @@ const EXPECTED_GLASS_CSS = [
   '   (bounded retries) into html.style; 76px is the host min-height fallback.',
   '   z-index 8 clears the in-scroller chrome (banner 6, compaction + rail 7)',
   '   and stays under the composer seat (9). */',
-  "html[data-moonset-skin][data-moonset-glass] [data-phase='active'] #root [data-slot='conversation.header'] > header {",
+  "html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-slot='conversation.header'] > header {",
   '  z-index: 8;',
   '}',
   "html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversation-scroll] {",
+  '  position: relative; z-index: 0;',
   '  margin-top: calc(-1 * var(--dsh-moonset-header-h, 76px));',
   '  padding-top: calc(var(--dsh-moonset-header-h, 76px) + 12px);',
+  '}',
+  "/* M5: the code block's sticky banner pins at the SCROLLPORT top, which the",
+  '   float pushed above the header — so it has to stop BELOW the header instead',
+  '   (the host uses the same `:has(> [data-code-block-banner])` shape for its own',
+  "   compaction offset, so the hook is the host's, not a class-name guess). */",
+  "html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {",
+  '  top: var(--dsh-moonset-header-h, 76px);',
   '}',
 ].join('\n')
 
@@ -502,7 +510,7 @@ class StubDocument implements SkinRoot {
     if (selector === BOOT_SHEET_SELECTOR) return null
     // The M4 float measures the conversation header through the same surface
     // the sheet addresses, so the stub answers it with a box of its own.
-    if (selector === HEADER_HOOK) {
+    if (selector === HEADER_HOOK || selector === '#root ' + HEADER_HOOK) {
       const height = this.headerRectHeight
       if (height === undefined) return null
       return { getBoundingClientRect: () => ({ height }) } as unknown as SkinSheetElement
@@ -558,7 +566,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 145 lines, twenty-three rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 155 lines, twenty-four rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
@@ -615,9 +623,10 @@ describe('skinCss — the whitelisted rules', () => {
     expect(css.slice(clearStart, bandStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(bandStart, glassStart).split('\n').length).toBeLessThanOrEqual(12)
     // The material's two rules: 13 lines, the ceiling the 115 budget bought.
-    // Four faces + the M4 float: 52 lines measured (planes + the dark-only
-    // sidebar base + the header edge + the strip + the faces + the float pair).
-    expect(css.slice(glassStart).split('\n').length).toBeLessThanOrEqual(60)
+    // Four faces + the float + the banner offset: 59 lines measured (planes + the
+    // dark-only sidebar base + the header edge + the strip + the faces + the float
+    // pair + the code-block banner rule).
+    expect(css.slice(glassStart).split('\n').length).toBeLessThanOrEqual(70)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
     // ...with ONE documented exception (0.1.4 M1): the material's ::before needs
@@ -632,8 +641,13 @@ describe('skinCss — the whitelisted rules', () => {
     // (`position: relative`), then the M4 float (`z-index: 8` on the header, the
     // shifted scroll body's `margin-top`/`padding-top`). Anything else — a
     // width, a display, an overflow — still fails the assertion above.
-    expect(material.match(/\b(?:position|inset|z-index|margin-top|padding-top)\s*:/g) ?? []).toEqual([
-      'position:', 'inset:', 'z-index:', 'position:', 'z-index:', 'margin-top:', 'padding-top:',
+    expect(material.match(/\b(?:position|inset|z-index|margin-top|padding-top|top)\s*:/g) ?? []).toEqual([
+      // the planes rule, then the faces rule, then the float pair, then the banner
+      'position:', 'inset:', 'z-index:',
+      'position:',
+      'z-index:',
+      'position:', 'z-index:', 'margin-top:', 'padding-top:',
+      'top:',
     ])
     // The float's two lengths are ONE formula: the padding cancels the margin and
     // leaves 12px of breathing, so a wrong measured height can only change how
@@ -2612,17 +2626,24 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     expect(at).toBeGreaterThan(-1)
     const rule = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
     const declarations = rule.split(';').map((part) => part.trim()).filter(Boolean)
-    // Exactly two declarations, and they are the recipe: pull the body up by the
-    // header's height, push the CONTENT back down by the same height plus air.
-    expect(declarations).toHaveLength(2)
-    expect(declarations[0]).toBe('margin-top: calc(-1 * var(--dsh-moonset-header-h, 76px))')
-    expect(declarations[1]).toBe('padding-top: calc(var(--dsh-moonset-header-h, 76px) + 12px)')
+    // Four declarations: an explicit low stacking slot for the shifted scroll body
+    // (so the header above it is unambiguous — M5's click fix), then the recipe —
+    // pull the body up by the header's height, push the CONTENT back down by the
+    // same height plus air.
+    expect(declarations).toHaveLength(4)
+    expect(declarations[0]).toBe('position: relative')
+    expect(declarations[1]).toBe('z-index: 0')
+    expect(declarations[2]).toBe('margin-top: calc(-1 * var(--dsh-moonset-header-h, 76px))')
+    expect(declarations[3]).toBe('padding-top: calc(var(--dsh-moonset-header-h, 76px) + 12px)')
     // The guard: the shift is gated on our two root attributes AND the active
     // phase, so hero/blank/settling screens keep the host's flow untouched.
     expect(css).toContain("html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversation-scroll] {")
     // The header is lifted out of the flow's paint order, not out of the layout:
     // one declaration, and it is `z-index` (no position/transform/size).
-    const headerAt = css.indexOf("[data-phase='active'] #root [data-slot='conversation.header'] > header {")
+    // NB: `[data-phase='active']` must come BEFORE the `#root`-rooted header hook —
+    // the M4 build had them inverted, so the rule never matched the real DOM and the
+    // header never floated (M5's five symptoms). The regression guard is below.
+    const headerAt = css.indexOf("html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-slot='conversation.header'] > header {")
     expect(headerAt).toBeGreaterThan(-1)
     const headerRule = css.slice(css.indexOf('{', headerAt) + 1, css.indexOf('}', headerAt))
     expect(headerRule.trim()).toBe('z-index: 8;')
@@ -2700,6 +2721,54 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('76px')
     unmountSkin(doc)
     expect(doc.inlineStyle.size).toBe(0)
+  })
+
+  it('never puts #root AFTER the phase gate (the M4 selector inversion)', () => {
+    const css = skinCss()
+    // M4 shipped `[data-phase='active'] #root [data-slot='conversation.header'] > header`.
+    // `#root` is the React container, i.e. an ANCESTOR of the phase element, so that
+    // selector matched nothing: the header never got its z-index, the transcript
+    // painted over it (clicks dead), and the plane was pushed behind the text (no
+    // veil, no blur). This guard makes the inversion impossible to reintroduce:
+    // inside any selector, the `#root` token must come BEFORE the phase gate.
+    const selectors = css
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('}')
+      .flatMap((chunk) => chunk.split('{')[0].split(','))
+      .map((selector) => selector.trim())
+      .filter((selector) => selector.length > 0)
+    for (const selector of selectors) {
+      const phase = selector.indexOf("[data-phase='active']")
+      if (phase === -1) continue
+      const root = selector.indexOf('#root')
+      if (root !== -1) expect(root, selector).toBeLessThan(phase)
+    }
+    // ...and the three phase-gated rules really are spelled the working way.
+    const gate = 'html[data-moonset-skin][data-moonset-glass]'
+    expect(css).toContain(`${gate} [data-phase='active'] [data-slot='conversation.header'] > header {`)
+    expect(css).toContain(`${gate} [data-phase='active'] [data-conversation-scroll] {`)
+    expect(css).toContain(`${gate} [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {`)
+    // The header face itself (no phase gate) keeps its #root-rooted hook.
+    expect(css).toContain(`${gate} #root [data-slot='conversation.header'] > header {`)
+  })
+
+  it('parks the code block banner BELOW the floating header', () => {
+    const css = skinCss()
+    // The banner is `position: sticky; top: 0` inside the scrollport; the float moved
+    // the scrollport's top above the header, so an un-offset banner pins behind the
+    // glass (invisible while stuck). The host reaches the same node with
+    // `:has(> [data-code-block-banner])` (MessageItem.module.css:81), so the attribute
+    // is the host's own contract, not a class-name guess: we reuse it and set the
+    // sticky offset to the header height, i.e. exactly the header's bottom edge.
+    const at = css.indexOf(':has(> [data-code-block-banner])')
+    expect(at).toBeGreaterThan(-1)
+    const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
+    expect(body.trim()).toBe('top: var(--dsh-moonset-header-h, 76px);')
+    // No `[class*=` and no wildcard sweep: outside comments the sheet has three
+    // asterisks — the two step-row sibling cells and the float's `calc(-1 * ...)`.
+    expect(css).not.toContain('[class')
+    const rulesOnly = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(rulesOnly.match(/\*/g) ?? []).toHaveLength(3)
   })
 
   it('puts backdrop-filter on leaf planes only — never on a host container', () => {
