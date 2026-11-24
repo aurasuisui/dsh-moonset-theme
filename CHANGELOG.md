@@ -4,6 +4,33 @@
 完整契约（里程碑、出口条件、已决、已知债）见
 [docs/plans/v0.1.0.md](docs/plans/v0.1.0.md)；文档索引见 [docs/README.md](docs/README.md)。
 
+## 0.1.4 — 2026-11-24
+
+玻璃材质（三面）：输入卡、会话 header、Windows 标题条。默认开、可关、模糊强度可调。
+
+### 新增
+
+- **三面玻璃**：材质画在 `::before` 平面上（`z-index:-1` + `isolation:isolate`），容器本体不绘制，
+  所以 `backdrop-filter` 采样到的是**面之后**的内容；材质底 = 62% 画布 + 38% 地面。
+- **header 悬浮**：`margin-top: -H` + `padding-top: H+12`（H 由 JS 实测 header 高度写入 `--dsh-moonset-header-h`），
+  正文从 header 背后滚过并被糊住 —— 实测 header 带最暗像素由 19 变 241（糊开）。
+- **设置**：`glass`（默认开）+ `glassBlur`（0–30px，默认 12），与既有控件同一张表单、同一套持久化。
+
+### 修复
+
+- **M4 选择器反写**：`[data-phase='active'] #root …` 把祖先写成了后代，一字未匹配，导致
+  「文字穿过但不糊 / 点不动 header / 模糊滑块无效」三个症状；改回 `[data-phase='active'] [data-slot='conversation.header'] > header`
+  并加结构守卫测试（`#root` 必须出现在相位门之前）。
+- **点击穿透**：滚动体加 `position: relative; z-index: 0`，header 保持 `z-index: 8`，`elementFromPoint` 命中 header。
+- **代码块 banner**：悬浮后它粘在滚动体顶部会被玻璃盖住，改为粘在 header 下沿
+  （`[data-conversation-scroll] :has(> [data-code-block-banner]) { top: var(--dsh-moonset-header-h) }`）。
+
+### 已知边界
+
+- **侧栏不做材质**（用户 2026-11-24 决定）：恢复宿主 `sidebar-fill`。
+- **导航轨 38px 位移**：悬浮使滚动体 clientHeight +H，宿主 observer 据此定位的回合导航轨上移 H/2；
+  只在切换玻璃开关时可见，常开无跳动；彻底修需宿主给稳定属性。
+- **代码块 banner 的修法只有部分实测**（`CodeBlock.module.css` 未随 asar 发布），需真机复测。
 ## 0.1.3 — 2026-11-23
 
 设置区可读性、轨迹步骤行的终端配色，以及一批失效文档的订正。
