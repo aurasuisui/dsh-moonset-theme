@@ -898,12 +898,20 @@ function glassRules(): readonly string[] {
  *    (`ChangedFiles.module.css:2`, same text in the shipped
  *    `dsh-client-ui-deliverables/lib/client.js`). In the DARK palette layer-1 is
  *    near-black while `card-fill` is a NEUTRAL grey, which the user read as
- *    黑灰. One card-scoped rule re-points the surface to `bg-layer-2` (the
- *    bluish-indigo family the code blocks are drawn from), the edge to
- *    `border-l2` (the single-file variant otherwise keeps `border-l1`), and the
- *    host's OWN `--changes-fill` knob so the header stops being the grey band.
- *    It is NOT a global `bg-layer` override (D3): the selector is the card's own
- *    attribute and the property is declared on that card, so nothing else moves.
+ *    黑灰 — but the first fix (`bg-layer-2`) made the card VANISH: in the light
+ *    table layer-2 IS the canvas token (`bluish-00` = `#FAFAFC` = page), and
+ *    re-pointing `--changes-fill` had removed the only other visible surface
+ *    (the host's grey 60px header). A faithful fixture measured the card at
+ *    card-vs-page **1.000** in light (and 1.192 in dark, where the header's
+ *    1.390 grey band had gone flat). R1 therefore paints ONE accent-tinted
+ *    platform surface — `bg-module-platform` = 12% accent over the canvas, which
+ *    flips with the scheme — for the body AND the header (`--changes-fill`), the
+ *    edge with `border-l2` plus a 1px `inset` ring of the same token so the frame
+ *    reads even where the tint is subtle: measured 1.214 (light) / 1.169 (dark)
+ *    against the page, title 14.65 / 13.52 and rows 5.04 / 5.84 on the card.
+ *    It is NOT a global surface/layer override (D3): the selector is the card's
+ *    own attribute and the property is declared on that card, so nothing else
+ *    moves.
  *  - **G3, the `上下文注入` row.** It is a `DisclosureRow` whose row root carries
  *    no `data-variant`, so the 0.1.3 step-row rules never reach it
  *    (`ContextInjectionRow.tsx:51`). Its collapsed content publishes the only
@@ -935,7 +943,8 @@ function colourRules(): readonly string[] {
     '/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the',
     '   context-injection row and the LIGHT failure red. No layout property. */',
     'html[data-moonset-skin] body [data-changed-files] {',
-    '  background-color: var(--dsw-alias-bg-layer-2); border-color: var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-layer-2);',
+    '  background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2);',
+    '  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform);',
     '}',
     "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
     '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
@@ -971,14 +980,17 @@ function colourRules(): readonly string[] {
  *                       centred - its centre sits 10px inside the frame's right
  *                       edge.
  *
- * What this entry does is PAINT ONLY: the tick is replaced by a round mark, and
- * the nav's own background gains ONE hairline track (2px wide, 100% tall) whose
- * gradient runs indigo -> amber. The current mark is a filled dot, every other
- * mark a thin ring; both are `background` layers sized/positioned inside the
- * mark's existing 28x10px box, so NOTHING about the ladder moves: no position,
- * inset, size, margin or padding is written (the geometry proof is a test: the
- * segment's declarations are limited to background / border / border-radius /
- * box-shadow / opacity / color).
+ * The user reverted the round-dot form on the real machine (「导航轨这样不好看，
+ * 改回原来的形式，加上颜色渐变就可以了」), so this entry keeps the host's OWN
+ * ladder — the 20x2px ticks and their per-state `scaleX` transform — and adds
+ * only COLOUR: the nav's background gains ONE hairline track (2px wide, 100%
+ * tall) whose gradient runs indigo -> amber, the ticks themselves take the
+ * accent, and the CURRENT turn's tick takes amber. (A true "colour follows the
+ * position along the track" needs one rule per `data-index` value — an unbounded
+ * set — or a canvas; two colours is the CSS-only fallback the plan allowed.)
+ * NOTHING about the ladder moves: every declaration is `background` or a custom
+ * property, and the geometry proof is a test (the segment's declarations are
+ * limited to background / border / border-radius / box-shadow / opacity / color).
  *
  * The accent is a scheme pair like the night anchor: `deepseek-500` on light and
  * `deepseek-400` on dark (the user's call: 暗色用 400 那一档), published once on
@@ -1002,9 +1014,9 @@ function railRules(): readonly string[] {
   /** One mark: the host's `button.mark`, hooked on its `data-index`. */
   const mark = `${gate} ${rail} [data-index]`
   return [
-    '/* 0.1.5 M2: the turn rail — docs-site timeline: ONE hairline track (indigo',
-    '   -> amber) with round marks, the current one filled. PAINT ONLY: the host',
-    '   ladder (28px frame / 10px pitch / absolute marks) is untouched. */',
+    '/* 0.1.5 M2: the turn rail keeps the HOST ladder (20x2px ticks, 10px pitch)',
+    '   and gains the COLOUR: one hairline track (indigo -> amber) behind the ticks,',
+    '   the ticks in the accent, the CURRENT turn in amber. PAINT ONLY. */',
     `${gate} ${rail} {`,
     '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-500);',
     '  background: linear-gradient(to bottom, color-mix(in srgb, var(--dsh-moonset-rail-accent) 65%, transparent), color-mix(in srgb, var(--dsw-static-amber-500) 65%, transparent)) no-repeat right 9px center / 2px 100%;',
@@ -1012,14 +1024,11 @@ function railRules(): readonly string[] {
     `${gate} body[data-ds-dark-theme] ${rail} {`,
     '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-400);',
     '}',
-    `${mark} {`,
-    '  background: radial-gradient(circle, transparent 0 2px, color-mix(in srgb, var(--dsh-moonset-rail-accent) 75%, transparent) 2.2px 3.4px, transparent 3.5px) no-repeat right 6.5px center / 7px 7px;',
-    '}',
-    `${mark}[aria-current='true'] {`,
-    '  background: radial-gradient(circle, var(--dsh-moonset-rail-accent) 0 3px, transparent 3.2px) no-repeat right 6.5px center / 7px 7px;',
-    '}',
     `${mark}::before {`,
-    '  background: transparent;',
+    '  background: var(--dsh-moonset-rail-accent);',
+    '}',
+    `${mark}[aria-current='true']::before {`,
+    '  background: var(--dsw-static-amber-500);',
     '}',
   ]
 }
