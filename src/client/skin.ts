@@ -700,48 +700,93 @@ function visibilityRules(scope: GlowScope): readonly string[] {
 }
 
 /**
- * The 0.1.4 M1 material: the input card's glass plane.
+ * The 0.1.4 material: THREE faces, ONE recipe (M1 input card, M2 sidebar + top
+ * bar).
  *
- * Two rules, both gated on the root attributes (P2), and the shape is fixed by
- * P6: the CARD paints nothing (`background: transparent` clears the host's
- * `--dsw-specific-input-major`) and the material lives on the card's own
- * `::before`, so the blur samples what is BEHIND the card instead of its own
- * fill. `z-index: -1` is what puts the plane behind the card's content — measured
- * on Chromium: without it the pseudo-element paints in the positioned layer,
- * above the in-flow text, and its `backdrop-filter` blurs the card's own draft
- * away (the text survives only as a smear). `isolation: isolate` then keeps
- * that negative plane inside the card's own stacking context, so it can never
- * fall behind an opaque ancestor (the seat still paints its bg-base mask band
- * when the ground is off).
+ * Every face is addressed by a STABLE hook, never by a host class name (those
+ * are hashed per build) and never by counting depth:
  *
- * The colour is the canvas at 62% (`color-mix`), so it follows the scheme; the
- * edge highlight is the palette's own near-white
+ *   input card  `[data-composer-card]` — the node the installed InputBar renders
+ *               with that attribute (InputBar.tsx:462), whose class paints
+ *               `--dsw-specific-input-major` (InputBar.module.css:71);
+ *   sidebar     `#root [data-slot='sidebar'] > div` — the renderer's slot anchor
+ *               is `display: contents`, so its child IS SidebarRoot's `.root`,
+ *               the element painting `--dsw-specific-sidebar-fill`
+ *               (SidebarRoot.module.css:19);
+ *   top bar     `#root [data-slot='root'] > div::before` — the root slot anchor's
+ *               child is AppFrame's `.frame`; on Windows the shell stamps
+ *               `html[data-windows-titlebar]` and the frame paints its caption
+ *               strip as `::before` (AppFrame.module.css:40-47, `sidebar-fill`,
+ *               the window drag region). Gated on that attribute, so the rule is
+ *               inert on macOS — where the strip does not exist and an
+ *               unconditional `::before` would paint a band over the whole frame.
+ *               The CONVERSATION header is NOT a face: `.header`
+ *               (ConversationRoot.module.css:23-31) has no background at all, so
+ *               the ground already shows through it (arch. §11.3).
+ *
+ * The shape is fixed by P6: a face paints nothing (`background: transparent`
+ * clears its host fill) and the material sits on the face's own `::before`, so
+ * the blur samples what is BEHIND the face instead of its own paint.
+ * `z-index: -1` is what puts the plane behind the face's content — measured on
+ * Chromium: without it the pseudo-element paints in the positioned layer, above
+ * the in-flow text, and its `backdrop-filter` blurs the face's own content away.
+ * `isolation: isolate` keeps that negative plane inside the face's stacking
+ * context, so it can never fall behind an opaque ancestor (the composer seat
+ * still paints its bg-base mask band when the ground is off).
+ *
+ * The caption strip is the one face that is ALREADY a `::before`: it is a leaf
+ * paint surface with no content of its own, so the material goes on it directly
+ * (geometry stays the host's: `inset`, `height` and the drag region are not
+ * touched here).
+ *
+ * ONE material, shared verbatim by all three faces (the material values live in
+ * `material` below and are emitted twice: once for the two planes, once for the
+ * strip). The colour is the canvas at 62% (`color-mix`), so it follows the
+ * scheme; the edge highlight is the palette's own near-white
  * (`--dsw-static-neutral-bluish-00` = `#FAFAFC` light / `#EEF0F7` dark) at 10%
  * rather than the `rgba(255,255,255,0.10)` the plan sketched — same pixel, and
- * it keeps P5's "every colour from a token" rule (the sheet's only literals
- * stay the two night anchors). The radius is the inline property: moving the
- * slider re-points a value, it does not rebuild the sheet.
+ * it keeps P5's "every colour from a token" rule (the sheet's only literals stay
+ * the two night anchors). The radius is the inline property: moving the slider
+ * re-points a value, it does not rebuild the sheet.
  *
  * What this block may NOT touch: layout — `position` (the `::before`'s
  * containing block) is the one exception the milestone budget bought, and
  * `isolation` is paint-only. No size, margin, padding or overflow is written;
- * the card keeps its box, its radius (`border-radius: inherit`) and its host
+ * every face keeps its box, its radius (`border-radius: inherit`) and its host
  * shadow.
- * @returns the rule lines (two rules).
+ * @returns the rule lines (three rules: the two planes, the strip, the faces).
  */
 function glassRules(): readonly string[] {
-  return [
-    '/* 0.1.4 M1 glass (input card): the material is a ::before plane (P6), so the',
-    '   card itself paints nothing; isolation keeps the -1 plane inside it. */',
-    'html[data-moonset-skin][data-moonset-glass] [data-composer-card] {',
-    '  position: relative; isolation: isolate; background: transparent;',
-    '}',
-    'html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before {',
-    "  content: ''; position: absolute; inset: 0; z-index: -1;",
-    '  border-radius: inherit; pointer-events: none;',
+  /** The input card (M1): the host's own stable attribute. */
+  const card = 'html[data-moonset-skin][data-moonset-glass] [data-composer-card]'
+  /** The sidebar column's inner root (M2): the slot anchor's only child. */
+  const sidebar = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div"
+  /** The Windows caption strip (M2): the frame's existing ::before. */
+  const strip = "html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before"
+  /** The material itself — the SAME three declarations on every face. */
+  const material = [
     '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
     '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
     '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
+  ]
+  return [
+    '/* 0.1.4 glass (M1 input card, M2 sidebar + top bar): ONE material on three',
+    '   planes. P6: the face paints nothing and the material sits on its ::before,',
+    '   so the blur samples what is BEHIND the face; z-index -1 plus isolation',
+    '   keeps the plane behind the face content. The top bar is the Windows',
+    '   caption strip, which is already the frame ::before. */',
+    `${card}::before,`,
+    `${sidebar}::before {`,
+    "  content: ''; position: absolute; inset: 0; z-index: -1;",
+    '  border-radius: inherit; pointer-events: none;',
+    ...material,
+    '}',
+    `${strip} {`,
+    ...material,
+    '}',
+    `${card},`,
+    `${sidebar} {`,
+    '  position: relative; isolation: isolate; background: transparent;',
     '}',
   ]
 }

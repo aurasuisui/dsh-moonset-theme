@@ -40,6 +40,34 @@
     planeRadius: plane.borderRadius,
     cardRadius: getComputedStyle(card).borderRadius,
   };
+  // 0.1.4 M2: the two extra faces, read the same way (它们的材质也画在 ::before 上，
+  // 只有 Windows 条本身是 ::before，所以直接读它自己的计算样式).
+  const readPlane = (el) => {
+    if (el === null) return null;
+    const cs = getComputedStyle(el, '::before');
+    return {
+      hostBackground: getComputedStyle(el).backgroundColor,
+      planeContent: cs.content,
+      planeBackground: cs.backgroundColor,
+      planeBackdrop: cs.backdropFilter || cs.webkitBackdropFilter || 'none',
+      planeZIndex: cs.zIndex,
+    };
+  };
+  out.state.sidebar = readPlane(document.querySelector("#root [data-slot='sidebar'] > div"));
+  const frame = document.querySelector("#root [data-slot='root'] > div");
+  if (frame !== null) {
+    const strip = getComputedStyle(frame, '::before');
+    out.state.topStrip = {
+      windowsTitlebar: html.hasAttribute('data-windows-titlebar'),
+      stripContent: strip.content,
+      stripHeight: strip.height,
+      stripBackground: strip.backgroundColor,
+      stripBackdrop: strip.backdropFilter || strip.webkitBackdropFilter || 'none',
+    };
+    if (!html.hasAttribute('data-windows-titlebar')) {
+      out.notes.push('没有 data-windows-titlebar：这一面在 macOS 上不存在，顶栏条不参与判定');
+    }
+  }
   if (out.state.glassAttr === null) {
     out.notes.push('data-moonset-glass 没挂：玻璃当前是关的，D3/D4 采样会退化成同一组数');
   }
