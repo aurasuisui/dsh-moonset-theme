@@ -100,7 +100,7 @@ import {
   type MoonsetSectionLabels,
   type MoonsetSectionView,
 } from './settings-section.tsx'
-import { GLOW_HUES, GLOW_SCOPES, mountSkin, syncSkin, unmountSkin, updateSkin } from './skin.ts'
+import { GLOW_HUES, GLOW_SCOPES, mountSkin, scheduleHeaderMeasure, syncSkin, unmountSkin, updateSkin } from './skin.ts'
 import type { GlowHue, GlowScope, SkinOptions } from './skin.ts'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
 import { tolerantRegistration } from './registration-tolerance.ts'
@@ -153,8 +153,10 @@ export type {
   MoonsetSectionView,
 } from './settings-section.tsx'
 export {
+  CARD_HOOK,
   DEFAULT_GLASS,
   DEFAULT_GLASS_BLUR,
+  DEFAULT_HEADER_HEIGHT,
   DEFAULT_GLOW_HUE_DARK,
   DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
@@ -171,9 +173,13 @@ export {
   GLOW_SCOPES,
   GLOW_STRENGTH_MAX,
   GLOW_STRENGTH_MIN,
+  HEADER_HEIGHT_TOKEN,
+  HEADER_HOOK,
+  SIDEBAR_HOOK,
   SKIN_ATTR,
   SKIN_SHEET_ATTR,
   SKIN_SHEET_SELECTOR,
+  STRIP_HOOK,
   darkGlowAlphas,
   glowAlphas,
   mountSkin,
@@ -182,7 +188,9 @@ export {
   resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
+  scheduleHeaderMeasure,
   skinCss,
+  syncHeaderHeight,
   syncSkin,
   unmountSkin,
   updateSkin,
@@ -305,7 +313,14 @@ export function apply(ctx: ClientContext): void {
   // never the boot (see skin.ts).
   ctx.effect(() => {
     mountSkin()
+    // M4: the header float needs the header's REAL height, and the plugin
+    // activates before React renders the conversation. This is a bounded one-
+    // shot ladder (four attempts, first success wins, teardown cancels it) —
+    // not a loop: nothing observes or polls, and the sheet's fallback carries
+    // the first paint in the meantime.
+    const cancelHeaderMeasure = scheduleHeaderMeasure()
     return () => {
+      cancelHeaderMeasure()
       unmountSkin()
     }
   }, 'moonset: skin sheet')

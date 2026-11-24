@@ -119,6 +119,57 @@ export const DEFAULT_GLASS_BLUR = 12
 export const DEFAULT_GLASS = true
 
 /**
+ * The inline custom property carrying the MEASURED conversation-header height.
+ *
+ * Written to `<html>`'s style by {@link syncHeaderHeight} — the second inline
+ * write this plugin makes (the first is {@link GLASS_BLUR_TOKEN}) — and read by
+ * the M4 float rule (`margin-top: calc(-1 * var(...))`). Why measured: the host
+ * header's height is NOT a constant — `.header` has `min-height: 76px` with the
+ * view tabs and shrinks to its content without them
+ * (`ConversationRoot.module.css:23-36`), and the tabs wrap on a narrow column.
+ * The CSS carries {@link DEFAULT_HEADER_HEIGHT} as the fallback, and a WRONG
+ * value is benign by construction: the float's `padding-top` cancels the
+ * `margin-top`, so the content always starts 12px below the header — only the
+ * amount of transcript visible through the glass changes.
+ */
+export const HEADER_HEIGHT_TOKEN = '--dsh-moonset-header-h'
+
+/**
+ * The header height the sheet falls back to before the measurement lands.
+ *
+ * The host's `.header { min-height: 76px }`
+ * (`ConversationRoot.module.css:28`) — the height the active phase usually has,
+ * because the session header renders the view tabs.
+ */
+export const DEFAULT_HEADER_HEIGHT = 76
+
+/**
+ * The gates the material's selectors are built from.
+ *
+ * `SKIN_GATE` is the two root attributes in the spelling the sheet uses
+ * everywhere; `WINDOWS_GATE` adds the marker the desktop shell stamps on win32
+ * only (`lib/preload-app.cjs`, `syncWindowsAppearance`).
+ */
+const SKIN_GATE = 'html[data-moonset-skin][data-moonset-glass]'
+const WINDOWS_GATE = 'html[data-windows-titlebar][data-moonset-skin][data-moonset-glass]'
+
+/**
+ * The four faces' stable hooks, WITHOUT the gates — one place, so the sheet and
+ * {@link syncHeaderHeight} can never disagree about which node the header is.
+ *
+ *  - `CARD_HOOK`: the input card's own attribute (`InputBar.tsx:462`);
+ *  - `SIDEBAR_HOOK`: the sidebar slot anchor's only child (the anchor is
+ *    `display: contents`), i.e. SidebarRoot's `.root`;
+ *  - `HEADER_HOOK`: the header slot anchor's only child, i.e. the real
+ *    `<header>` (`ConversationHeader.tsx:18` via `ConversationMainPanel.tsx:39`);
+ *  - `STRIP_HOOK`: the Windows caption strip, which IS the frame's `::before`.
+ */
+export const CARD_HOOK = '[data-composer-card]'
+export const SIDEBAR_HOOK = "#root [data-slot='sidebar'] > div"
+export const HEADER_HOOK = "#root [data-slot='conversation.header'] > header"
+export const STRIP_HOOK = "#root [data-slot='root'] > div::before"
+
+/**
  * How much of the shell the ground is allowed to show through (M2 地面范围).
  *
  * The three scopes are NESTED on purpose — the user compares A/B/C on a real
@@ -785,13 +836,13 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  */
 function glassRules(): readonly string[] {
   /** The input card (M1): the host's own stable attribute. */
-  const card = 'html[data-moonset-skin][data-moonset-glass] [data-composer-card]'
+  const card = `${SKIN_GATE} ${CARD_HOOK}`
   /** The sidebar column's inner root (M2): the slot anchor's only child. */
-  const sidebar = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='sidebar'] > div"
+  const sidebar = `${SKIN_GATE} ${SIDEBAR_HOOK}`
   /** The conversation header (M3): the header slot anchor's only child. */
-  const header = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header"
+  const header = `${SKIN_GATE} ${HEADER_HOOK}`
   /** The Windows caption strip (M2): the frame's existing ::before. */
-  const strip = "html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before"
+  const strip = `${WINDOWS_GATE} ${STRIP_HOOK}`
   /** The material itself — the SAME three declarations on every face. */
   const material = [
     '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
@@ -802,8 +853,8 @@ function glassRules(): readonly string[] {
     '/* 0.1.4 glass (M1 card, M2 sidebar + top bar, M3 header): ONE material on',
     '   four planes. P6: the face paints nothing and the material sits on its',
     '   ::before, so the blur samples what is BEHIND the face; z-index -1 plus',
-    '   isolation keeps the plane behind the face content. The top bar is the',
-    '   Windows caption strip, which is already the frame ::before. */',
+    '   isolation keeps it behind the face content. The top bar is the Windows',
+    '   caption strip, which is already the frame ::before. */',
     `${card}::before,`,
     `${sidebar}::before,`,
     `${header}::before {`,
@@ -811,10 +862,12 @@ function glassRules(): readonly string[] {
     '  border-radius: inherit; pointer-events: none;',
     ...material,
     '}',
-    '/* M3: the sidebar base is tinted and denser — its host fill sits within a',
-    '   few units of the shared material, so the shared one measured invisible',
-    '   (Δ5.4 light / Δ7.6 dark); this reads Δ10.4 / Δ11.7. Same blur. */',
-    `${sidebar}::before {`,
+    '/* M4: the sidebar base is SCHEME-SPLIT. LIGHT keeps the shared canvas',
+    '   material (the user found the tinted one too dark); DARK needs its own —',
+    '   its host fill sits within a few units of "62% canvas over the',
+    '   ground", so the shared one measured Δ7.6 = invisible. Dark: the same',
+    '   base at bg-module-platform @72% → Δ11.7. Same blur and highlight. */',
+    `${SKIN_GATE} body[data-ds-dark-theme] ${SIDEBAR_HOOK}::before {`,
     '  background: color-mix(in srgb, var(--dsw-alias-bg-module-platform) 72%, transparent);',
     '}',
     '/* M3: the header keeps the host 0.5px border-bottom and adds the material',
@@ -829,6 +882,20 @@ function glassRules(): readonly string[] {
     `${sidebar},`,
     `${header} {`,
     '  position: relative; isolation: isolate; background: transparent;',
+    '}',
+    '/* M4: the header FLOATS over the transcript (the Catppuccin recipe): the',
+    '   scroll body slides up behind the glass and its padding starts the content',
+    '   below it, so messages scroll UNDER the header and stay visibly blurred',
+    '   instead of hard-clipping. --dsh-moonset-header-h is MEASURED by JS',
+    '   (bounded retries) into html.style; 76px is the host min-height fallback.',
+    '   z-index 8 clears the in-scroller chrome (banner 6, compaction + rail 7)',
+    '   and stays under the composer seat (9). */',
+    `${SKIN_GATE} [data-phase='active'] ${HEADER_HOOK} {`,
+    '  z-index: 8;',
+    '}',
+    `${SKIN_GATE} [data-phase='active'] [data-conversation-scroll] {`,
+    `  margin-top: calc(-1 * var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px));`,
+    `  padding-top: calc(var(${HEADER_HEIGHT_TOKEN}, ${DEFAULT_HEADER_HEIGHT}px) + 12px);`,
     '}',
   ]
 }
@@ -1129,6 +1196,14 @@ export interface SkinRoot {
   querySelector(selector: string): SkinSheetElement | null
   /** Build the sheet element; `'style'` is the only tag this module creates. */
   createElement(tagName: 'style'): SkinSheetElement
+  /**
+   * OPTIONAL: the conversation header's rendered height, for the M4 float
+   * offset. A caller that can answer cheaper than a DOM query supplies it (the
+   * tests do); the real document leaves it out and is measured through
+   * {@link HEADER_HOOK}. `undefined` means "not measurable yet" and leaves the
+   * sheet's fallback in charge — never a zero or a guess.
+   */
+  headerHeight?: () => number | undefined
 }
 
 /**
@@ -1155,6 +1230,112 @@ function reportFailure(action: string, error: unknown): void {
   console.warn(`[dsh-moonset] could not ${action} the skin sheet — ${message}`)
 }
 
+/** The element shape the header measurement needs (`document.querySelector`). */
+interface MeasurableElement {
+  /** Box of the element, in CSS pixels. */
+  getBoundingClientRect(): { height: number }
+}
+
+/**
+ * How long after activation the header measurement keeps retrying (ms).
+ *
+ * The plugin activates BEFORE React renders the conversation, so the first
+ * attempt almost always finds no header. These are ONE-SHOT retries, not a
+ * clock: four attempts in 2.5 s, the first success ends the ladder, and the
+ * unmount cancels whatever is left. Nothing here observes or polls — the P1
+ * rule is about continuous visual work, and a bounded first-paint measurement
+ * is the only way to read a height the host does not publish as a token.
+ */
+const HEADER_MEASURE_ATTEMPTS_MS = [0, 250, 1000, 2500] as const
+
+/**
+ * Read the conversation header's rendered height, if the document has one.
+ *
+ * Two paths, one contract: a caller-provided {@link SkinRoot.headerHeight}
+ * wins (tests, and any host that can answer without a query); otherwise
+ * {@link HEADER_HOOK} is queried against the root — the real `document` in
+ * production. A document without the header yet answers `undefined`, which
+ * leaves {@link DEFAULT_HEADER_HEIGHT} in charge.
+ * @param root - document surface.
+ * @returns the height in CSS pixels, or `undefined` when it cannot be measured.
+ */
+function measureHeaderHeight(root: SkinRoot): number | undefined {
+  try {
+    if (typeof root.headerHeight === 'function') {
+      const reported = root.headerHeight()
+      return typeof reported === 'number' && Number.isFinite(reported) && reported > 0 ? reported : undefined
+    }
+    const query = (root as unknown as { querySelector?: (selector: string) => MeasurableElement | null }).querySelector
+    if (typeof query !== 'function') return undefined
+    const header = query.call(root, HEADER_HOOK)
+    if (header === null || header === undefined) return undefined
+    const height = header.getBoundingClientRect().height
+    return Number.isFinite(height) && height > 0 ? height : undefined
+  } catch {
+    // A document that refuses the query is a reason to keep the fallback, not
+    // to lose the skin (the same stance as every other DOM write here).
+    return undefined
+  }
+}
+
+/**
+ * Write the measured header height to `<html>` — or report that it is not
+ * measurable yet. Idempotent and cheap (one query + one property write).
+ * @param root - document surface; defaults to the page's own.
+ * @returns whether a height was measured and written (diagnostics only).
+ */
+export function syncHeaderHeight(root?: SkinRoot): boolean {
+  const target = resolveRoot(root)
+  if (target === undefined) return false
+  const height = measureHeaderHeight(target)
+  if (height === undefined) return false
+  try {
+    target.documentElement.style.setProperty(HEADER_HEIGHT_TOKEN, `${Math.round(height)}px`)
+    return true
+  } catch (error) {
+    reportFailure('measure the header', error)
+    return false
+  }
+}
+
+/**
+ * Measure the header a BOUNDED number of times after activation.
+ *
+ * The first attempt runs synchronously; if the header is not rendered yet the
+ * rest follow at {@link HEADER_MEASURE_ATTEMPTS_MS} and stop at the first
+ * success — or after the last one, leaving the sheet's fallback in charge.
+ * @param root - document surface; defaults to the page's own.
+ * @returns the cancel function (idempotent), for the plugin's teardown.
+ */
+export function scheduleHeaderMeasure(root?: SkinRoot): () => void {
+  const target = resolveRoot(root)
+  if (target === undefined) return () => {}
+  let attempt = 0
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let cancelled = false
+  /** Run one attempt, then queue the next delay if one is left. */
+  const run = (): void => {
+    timer = undefined
+    if (cancelled) return
+    if (syncHeaderHeight(target)) return
+    attempt += 1
+    if (attempt >= HEADER_MEASURE_ATTEMPTS_MS.length) return
+    const handle = setTimeout(run, HEADER_MEASURE_ATTEMPTS_MS[attempt]) as ReturnType<typeof setTimeout> & { unref?: () => void }
+    // A Node harness must not stay alive for a measurement (same guard as the
+    // durable writers).
+    if (typeof handle.unref === 'function') handle.unref()
+    timer = handle
+  }
+  run()
+  return () => {
+    cancelled = true
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+  }
+}
+
 /**
  * Align the material's TWO DOM facts with the options: the root attribute and
  * the blur radius.
@@ -1171,10 +1352,17 @@ function applyGlass(root: SkinRoot, options: SkinOptions): void {
   if (options.glass === false) {
     root.documentElement.removeAttribute(GLASS_ATTR)
     root.documentElement.style.removeProperty(GLASS_BLUR_TOKEN)
+    // The float offset rides the material: off means the scroll body goes back
+    // to the host's flow, and no residue stays on <html>.
+    root.documentElement.style.removeProperty(HEADER_HEIGHT_TOKEN)
     return
   }
   root.documentElement.setAttribute(GLASS_ATTR, '')
   root.documentElement.style.setProperty(GLASS_BLUR_TOKEN, `${resolveGlassBlur(options.glassBlur)}px`)
+  // M4: best effort here — a mount/render pass may already have a header to
+  // measure; when it does not, the sheet's fallback holds until the bounded
+  // retry ladder in {@link scheduleHeaderMeasure} lands the real value.
+  syncHeaderHeight(root)
 }
 
 /**
@@ -1263,9 +1451,11 @@ export function unmountSkin(root?: SkinRoot): boolean {
   let removed = false
   try {
     target.documentElement.removeAttribute(SKIN_ATTR)
-    // Zero residue: the material's gate and the inline radius go with the sheet.
+    // Zero residue: the material's gate, the inline radius and the measured
+    // header height go with the sheet.
     target.documentElement.removeAttribute(GLASS_ATTR)
     target.documentElement.style.removeProperty(GLASS_BLUR_TOKEN)
+    target.documentElement.style.removeProperty(HEADER_HEIGHT_TOKEN)
     let sheet = target.querySelector(SKIN_SHEET_SELECTOR)
     while (sheet !== null) {
       sheet.remove()

@@ -58,6 +58,21 @@
   // the material there can show — does any transcript content pass BEHIND it?
   const headerEl = document.querySelector("#root [data-slot='conversation.header'] > header");
   out.state.header = readPlane(headerEl);
+  // 0.1.4 M4: the float. `header-h` is the JS-measured offset; the scroll body
+  // must carry a NEGATIVE margin of exactly that height and a padding that
+  // cancels it plus 12px — and no transcript pixel should be clipped at the
+  // header's bottom edge any more, because it scrolls UNDER the header.
+  const floatScroller = document.querySelector('[data-conversation-scroll]');
+  if (floatScroller !== null) {
+    const cs = getComputedStyle(floatScroller);
+    out.glassFloat = {
+      headerHeightVar: getComputedStyle(html).getPropertyValue('--dsh-moonset-header-h').trim() || '(fallback 76px)',
+      scrollMarginTop: cs.marginTop,
+      scrollPaddingTop: cs.paddingTop,
+      headerZIndex: headerEl === null ? null : getComputedStyle(headerEl).zIndex,
+      note: 'margin 应当等于 -header-h，padding 应当等于 header-h + 12px',
+    };
+  }
   const contentScroller = document.querySelector('[data-conversation-scroll]');
   if (headerEl !== null && contentScroller !== null) {
     const hb = headerEl.getBoundingClientRect();
