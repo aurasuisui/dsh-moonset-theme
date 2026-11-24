@@ -100,7 +100,7 @@ import {
   type MoonsetSectionLabels,
   type MoonsetSectionView,
 } from './settings-section.tsx'
-import { GLOW_HUES, GLOW_SCOPES, mountSkin, syncSkin, unmountSkin, updateSkin } from './skin.ts'
+import { GLOW_HUES, GLOW_SCOPES, mountSkin, scheduleHeaderMeasure, syncSkin, unmountSkin, updateSkin } from './skin.ts'
 import type { GlowHue, GlowScope, SkinOptions } from './skin.ts'
 import { createFollowLayer, registerMoonsetThemes } from './themes.ts'
 import { tolerantRegistration } from './registration-tolerance.ts'
@@ -153,27 +153,43 @@ export type {
   MoonsetSectionView,
 } from './settings-section.tsx'
 export {
+  CARD_HOOK,
+  DEFAULT_GLASS,
+  DEFAULT_GLASS_BLUR,
+  DEFAULT_HEADER_HEIGHT,
   DEFAULT_GLOW_HUE_DARK,
   DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH_DARK,
   DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLASS_ATTR,
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
+  GLASS_BLUR_STEP,
+  GLASS_BLUR_TOKEN,
   GLOW_ALPHA_AT_FULL,
   GLOW_HUES,
   GLOW_HUE_AT_FULL,
   GLOW_SCOPES,
   GLOW_STRENGTH_MAX,
   GLOW_STRENGTH_MIN,
+  HEADER_HEIGHT_TOKEN,
+  HEADER_HOOK,
   SKIN_ATTR,
   SKIN_SHEET_ATTR,
   SKIN_SHEET_SELECTOR,
+  STRIP_HOOK,
   darkGlowAlphas,
   glowAlphas,
   mountSkin,
+  resolveGlass,
+  resolveGlassBlur,
   resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
+  scheduleHeaderMeasure,
   skinCss,
+  syncHeaderHeight,
   syncSkin,
   unmountSkin,
   updateSkin,
@@ -263,6 +279,12 @@ function sectionLabels(t: SectionTranslate): MoonsetSectionLabels {
     lightTitle: t('glow.light.title'),
     darkTitle: t('glow.dark.title'),
     hint: t('glow.hint'),
+    // 0.1.4 M1: the material block's copy.
+    glassTitle: t('glass.title'),
+    glassOn: t('glass.on'),
+    glassOff: t('glass.off'),
+    glassBlurTitle: t('glass.blur'),
+    glassHint: t('glass.hint'),
   }
 }
 
@@ -290,7 +312,14 @@ export function apply(ctx: ClientContext): void {
   // never the boot (see skin.ts).
   ctx.effect(() => {
     mountSkin()
+    // M4: the header float needs the header's REAL height, and the plugin
+    // activates before React renders the conversation. This is a bounded one-
+    // shot ladder (four attempts, first success wins, teardown cancels it) —
+    // not a loop: nothing observes or polls, and the sheet's fallback carries
+    // the first paint in the meantime.
+    const cancelHeaderMeasure = scheduleHeaderMeasure()
     return () => {
+      cancelHeaderMeasure()
       unmountSkin()
     }
   }, 'moonset: skin sheet')
@@ -332,6 +361,11 @@ function wireSettings(ctx: ClientContext): void {
       strengthLight: current.strengthLight,
       hueDark: current.hueDark,
       strengthDark: current.strengthDark,
+      // 0.1.4 M1: the material. Both fields ride this one options object, so
+      // the sheet, the root attribute and the inline radius always move
+      // together (they are three facts of ONE switch).
+      glass: current.glass,
+      glassBlur: current.glassBlur,
     }
   }
   /** The pending sheet rebuild (cleared by the teardown). */
@@ -395,6 +429,27 @@ function wireSettings(ctx: ClientContext): void {
 
   const setStrengthDark = (next: number): void => {
     glow.write({ strengthDark: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  /**
+   * 0.1.4 M1: the material's two controls.
+   *
+   * Same clock as every other surface control: the durable write lands at
+   * 300 ms, the sheet (and with it the root attribute and the inline blur
+   * radius) rebuilds at 150 ms. A blur drag therefore emits ONE rebuild, and
+   * because the radius is a custom property the rebuild re-points a value
+   * rather than re-parsing the rules.
+   */
+  const setGlassOn = (next: boolean): void => {
+    glow.write({ glass: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  const setGlassBlur = (next: number): void => {
+    glow.write({ glassBlur: next })
     scheduleSkinRebuild()
     notifyView()
   }
@@ -836,6 +891,9 @@ function wireSettings(ctx: ClientContext): void {
       glowStrengthLight: current.strengthLight,
       glowHueDark: current.hueDark,
       glowStrengthDark: current.strengthDark,
+      // 0.1.4 M1: the material's own two facts (same read, no second source).
+      glass: current.glass,
+      glassBlur: current.glassBlur,
     }
   }
 
@@ -850,6 +908,8 @@ function wireSettings(ctx: ClientContext): void {
     onStrengthLight: setStrengthLight,
     onHueDark: setHueDark,
     onStrengthDark: setStrengthDark,
+    onToggleGlass: setGlassOn,
+    onGlassBlur: setGlassBlur,
     labels: sectionLabels(t),
     subscribe,
     read,

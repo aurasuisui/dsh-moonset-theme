@@ -35,11 +35,21 @@
  * **Styling is inline only.** No stylesheet, no CSS Modules pipeline (M1 debt
  * #2), and no DOM style writes: every colour is one of the host's own
  * `--dsw-*` tokens, so the section follows whichever theme is active — Moonset,
- * official, or a peer's. The plugin writes no DOM style of its own: only the
- * elements it renders carry a `style` attribute, never the document root.
+ * official, or a peer's. This file writes no document style: only the elements
+ * it renders carry a `style` attribute. (The ONE exception in the plugin is
+ * `skin.ts`'s `--dsh-moonset-glass-blur` on `<html>` — a custom property, not
+ * a layout or a colour, 0.1.4 M1.)
  */
 import type { MoonsetChoice } from './choice.ts'
-import { GLOW_STRENGTH_MAX, GLOW_STRENGTH_MIN, type GlowHue, type GlowScope } from './skin.ts'
+import {
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
+  GLASS_BLUR_STEP,
+  GLOW_STRENGTH_MAX,
+  GLOW_STRENGTH_MIN,
+  type GlowHue,
+  type GlowScope,
+} from './skin.ts'
 
 /** One option the section renders: the value it applies and its localized label. */
 export interface MoonsetOptionLabel {
@@ -93,6 +103,16 @@ export interface MoonsetSectionLabels {
   readonly hueOptions: readonly MoonsetHueLabel[]
   /** M2: one line explaining what the scope changes. */
   readonly hint: string
+  /** 0.1.4 M1: the glass block's heading (the switch rides its button text). */
+  readonly glassTitle: string
+  /** 0.1.4 M1: the material switch's ON word. */
+  readonly glassOn: string
+  /** 0.1.4 M1: the material switch's OFF word. */
+  readonly glassOff: string
+  /** 0.1.4 M1: the blur row's label (the value is appended as px). */
+  readonly glassBlurTitle: string
+  /** 0.1.4 M1: one line explaining what the material does. */
+  readonly glassHint: string
 }
 
 /**
@@ -117,6 +137,10 @@ export interface MoonsetSectionView {
   readonly glowStrengthDark: number
   /** M6: the DARK ground's hue. */
   readonly glowHueDark: GlowHue
+  /** 0.1.4 M1: whether the glass material is on. */
+  readonly glass: boolean
+  /** 0.1.4 M1: the glass blur radius in px (0-30). */
+  readonly glassBlur: number
 }
 
 /** The props this component takes — nothing else is wired to it. */
@@ -135,6 +159,10 @@ export interface MoonsetSectionProps {
   readonly onHueDark: (hue: GlowHue) => void
   /** M6: the DARK ground's strength (0-200). */
   readonly onStrengthDark: (next: number) => void
+  /** 0.1.4 M1: flip the glass material. */
+  readonly onToggleGlass: (next: boolean) => void
+  /** 0.1.4 M1: the glass blur radius (0-30 px). */
+  readonly onGlassBlur: (next: number) => void
   /** Localized copy. */
   readonly labels: MoonsetSectionLabels
   /**
@@ -333,6 +361,16 @@ const HINT_STYLE: Readonly<Record<string, string>> = {
   lineHeight: '1.6',
   color: 'var(--dsw-alias-label-tertiary)',
 }
+// 0.1.4 M1: the material block. Same hairline as the glow block — it is a
+// different KIND of setting (a surface treatment, not the ground) and the
+// section is one column, so the two read as siblings rather than one long list.
+const MATERIAL_BLOCK_STYLE: Readonly<Record<string, string>> = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+  paddingTop: '10px',
+  borderTop: '1px solid var(--dsw-alias-border-l1)',
+}
 
 /**
  * Render the Moonset section: a heading, one button per choice, the status
@@ -355,6 +393,8 @@ export function MoonsetSection({
   onStrengthLight,
   onHueDark,
   onStrengthDark,
+  onToggleGlass,
+  onGlassBlur,
   labels,
   subscribe,
   read,
@@ -439,6 +479,24 @@ export function MoonsetSection({
   const setStrengthDark = (next: number): void => {
     setView({ ...read(), glowStrengthDark: next })
     onStrengthDark(next)
+  }
+
+  /**
+   * 0.1.4 M1: the material's two controls, optimistic like every other seat.
+   *
+   * The switch and the radius ride the SAME durable store as the ground (one
+   * form, one 300 ms write, one 150 ms sheet rebuild), so a click moves this
+   * render at once and the store catches up.
+   */
+  const toggleGlass = (): void => {
+    const next = !read().glass
+    setView({ ...read(), glass: next })
+    onToggleGlass(next)
+  }
+
+  const setGlassBlur = (next: number): void => {
+    setView({ ...read(), glassBlur: next })
+    onGlassBlur(next)
   }
 
   /**
@@ -567,6 +625,49 @@ export function MoonsetSection({
         onStrength: (next) => { setStrengthDark(next) },
       }),
       React.createElement('p', { style: HINT_STYLE }, labels.hint),
+    ),
+    // ── 0.1.4 M1: the glass material ─────────────────────────────────────────
+    // One switch + one radius. The radius row is the ground rows' shape on
+    // purpose (label, slider, live px value), so the panel has one slider
+    // idiom; 0px is a legal value and is the "no compositing" fallback — the
+    // translucent fill still paints.
+    React.createElement(
+      'div',
+      { style: MATERIAL_BLOCK_STYLE },
+      React.createElement(
+        'div',
+        { style: ROW_STYLE },
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            'aria-pressed': view.glass,
+            onClick: () => { toggleGlass() },
+            style: view.glass ? ACTIVE_BUTTON_STYLE : BUTTON_STYLE,
+          },
+          `${labels.glassTitle} ${view.glass ? labels.glassOn : labels.glassOff}`,
+        ),
+      ),
+      React.createElement(
+        'div',
+        { style: STRENGTH_ROW_STYLE },
+        React.createElement('span', { style: ROW_LABEL_STYLE }, labels.glassBlurTitle),
+        React.createElement('input', {
+          type: 'range',
+          min: GLASS_BLUR_MIN,
+          max: GLASS_BLUR_MAX,
+          step: GLASS_BLUR_STEP,
+          value: view.glassBlur,
+          'aria-label': labels.glassTitle + ' ' + labels.glassBlurTitle,
+          onChange: (event: unknown) => {
+            const next = readSlider(event)
+            if (next !== undefined) setGlassBlur(next)
+          },
+          style: SLIDER_STYLE,
+        }),
+        React.createElement('span', { style: VALUE_STYLE }, `${view.glassBlur}px`),
+      ),
+      React.createElement('p', { style: HINT_STYLE }, labels.glassHint),
     ),
   )
 }

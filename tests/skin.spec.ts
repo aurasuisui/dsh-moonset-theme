@@ -44,11 +44,21 @@ import { BOOT_SHEET_SELECTOR } from '../src/client/boot-cleanup'
 import { SKIN_REBUILD_MS, apply } from '../src/client/index'
 import { MOONSET_DARK, MOONSET_LIGHT, MOONSET_TOKEN_OVERRIDES } from '../src/client/palettes'
 import {
+  DEFAULT_GLASS,
+  DEFAULT_GLASS_BLUR,
   DEFAULT_GLOW_HUE_DARK,
   DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH_DARK,
   DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLASS_ATTR,
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
+  GLASS_BLUR_STEP,
+  GLASS_BLUR_TOKEN,
+  DEFAULT_HEADER_HEIGHT,
+  HEADER_HEIGHT_TOKEN,
+  HEADER_HOOK,
   GLOW_ALPHA_AT_FULL,
   GLOW_HUES,
   GLOW_HUE_AT_FULL,
@@ -62,10 +72,14 @@ import {
   darkGlowAlphas,
   glowAlphas,
   mountSkin,
+  resolveGlass,
+  resolveGlassBlur,
   resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
+  scheduleHeaderMeasure,
   skinCss,
+  syncHeaderHeight,
   syncSkin,
   unmountSkin,
   updateSkin,
@@ -89,21 +103,26 @@ const CANVAS = '--dsw-alias-bg-base'
 
 /**
  * The sheet's line budget: 60 through 0.1.2, 75 for the first 0.1.3 M2 pass,
- * 95 for the per-class pass (M2b).
+ * 95 for the per-class pass (M2b), **130 for the 0.1.4 material (three faces)**.
  *
  * The step-row entry is the first whitelist class that addresses TWO cells of a
  * host row, a per-kind hue for each of them, and their failed state: four class
- * declaration blocks plus seven rules (measured 55 → 93). The architecture doc
- * §11.5 carries the same number.
+ * declaration blocks plus seven rules (measured 55 → 93). 0.1.4 M1 bought the
+ * input card's material (13 lines); M2 grows it to three faces by SHARING the
+ * material declarations (measured 104 → 114, i.e. +10 lines for the sidebar and
+ * the Windows caption strip). The architecture doc §11.5 carries the same number.
  */
-const SHEET_BUDGET = 95
+const SHEET_BUDGET = 155
 
 /**
  * Rule blocks in the default sheet: nine through 0.1.2, sixteen since 0.1.3 M2b
  * (two cell rules, four class blocks and the failed-step rule on top of the
- * nine the 0.1.2 sheet shipped).
+ * nine the 0.1.2 sheet shipped), twenty-one since 0.1.4 M3: the material's
+ * plane rule (card + sidebar + header), the sidebar's own base, the header's
+ * edge, the caption strip's material, and the faces' clear — all five inside
+ * the one switchable segment.
  */
-const SHEET_RULES = 16
+const SHEET_RULES = 23
 
 /**
  * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
@@ -116,7 +135,8 @@ const SHEET_RULES = 16
  * pre-glow sheet still carries them.
  */
 const EXPECTED_BASE_CSS = [
-  "/* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */",
+  "/* dsh-moonset[0.1.4]: skin — P5 whitelist (selection, item text, ground, step",
+  "   rows, material) */",
   "html body ::selection {",
   "  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);",
   "  color: var(--dsw-static-deepseek-500);",
@@ -213,8 +233,70 @@ const EXPECTED_GLOW_CSS = [
   '}',
 ].join('\n')
 
-/** The complete 0.1.2 sheet: the 0.1.1 rules plus the ground. */
-const EXPECTED_CSS = EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS
+/**
+ * The 0.1.4 material segment (FOUR faces, ONE recipe), verbatim.
+ *
+ * M1 shipped the input card, M2 the sidebar column and the Windows caption
+ * strip, M3 the conversation header. `background` / `backdrop-filter` /
+ * `box-shadow` stay the SAME TEXT on the planes and the strip; two faces
+ * deviate on purpose and ONLY where the real-machine report demanded it (the
+ * sidebar's base, the header's bottom edge) — the parity case below reads both
+ * back out of the sheet, so a silent third deviation fails.
+ */
+const EXPECTED_GLASS_CSS = [
+  '/* 0.1.4 glass (M1 card, M2 top bar, M3 header; the sidebar left in M6): ONE',
+  '   material on three planes. P6: the face paints nothing and the material sits',
+  '   on its ::before, so the blur samples what is BEHIND the face; z-index -1',
+  '   plus isolation keeps it behind the face content. The top bar is the Windows',
+  '   caption strip, which is already the frame ::before. */',
+  'html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before,',
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header::before {",
+  "  content: ''; position: absolute; inset: 0; z-index: -1;",
+  '  border-radius: inherit; pointer-events: none;',
+  '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
+  '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
+  '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
+  '}',
+  '/* M3: the header keeps the host 0.5px border-bottom and adds the material',
+  '   edge on the plane (a line under a 62% plane would be muted away). */',
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header::before {",
+  '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);',
+  '}',
+  "html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before {",
+  '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
+  '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
+  '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
+  '}',
+  'html[data-moonset-skin][data-moonset-glass] [data-composer-card],',
+  "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header {",
+  '  position: relative; isolation: isolate; background: transparent;',
+  '}',
+  '/* M4: the header FLOATS over the transcript (the Catppuccin recipe): the',
+  '   scroll body slides up behind the glass and its padding starts the content',
+  '   below it, so messages scroll UNDER the header and stay visibly blurred',
+  '   instead of hard-clipping. --dsh-moonset-header-h is MEASURED by JS',
+  '   (bounded retries) into html.style; 76px is the host min-height fallback.',
+  '   z-index 8 clears the in-scroller chrome (banner 6, compaction + rail 7)',
+  '   and stays under the composer seat (9). */',
+  "html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-slot='conversation.header'] > header {",
+  '  z-index: 8;',
+  '}',
+  "html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversation-scroll] {",
+  '  position: relative; z-index: 0;',
+  '  margin-top: calc(-1 * var(--dsh-moonset-header-h, 76px));',
+  '  padding-top: calc(var(--dsh-moonset-header-h, 76px) + 12px);',
+  '}',
+  "/* M5: the code block's sticky banner pins at the SCROLLPORT top, which the",
+  '   float pushed above the header — so it has to stop BELOW the header instead',
+  '   (the host uses the same `:has(> [data-code-block-banner])` shape for its own',
+  "   compaction offset, so the hook is the host's, not a class-name guess). */",
+  "html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {",
+  '  top: var(--dsh-moonset-header-h, 76px);',
+  '}',
+].join('\n')
+
+/** The complete 0.1.4 sheet: the 0.1.1/0.1.3 rules, the ground, then the material. */
+const EXPECTED_CSS = EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS + '\n' + EXPECTED_GLASS_CSS
 
 /** The LIGHT ground rule of one sheet (the night anchor and the dark rule follow). */
 function lightGroundRule(sheet: string): string {
@@ -373,14 +455,33 @@ class StubSheet implements SkinSheetElement {
  */
 class StubDocument implements SkinRoot {
   readonly attributes = new Map<string, string>()
+  /**
+   * `<html>`'s inline CUSTOM PROPERTIES (0.1.4): the ONE element-level style
+   * write the plugin makes, the glass blur radius.
+   */
+  readonly inlineStyle = new Map<string, string>()
   /** Every element ever created or appended (attached and detached). */
   readonly sheets: StubSheet[] = []
+  /**
+   * What the conversation header reports for the M4 float offset. `undefined`
+   * models the real first paint: the plugin activates before React renders the
+   * conversation, so the measurement has nothing to read yet.
+   */
+  headerRectHeight: number | undefined = undefined
   readonly documentElement = {
     setAttribute: (name: string, value: string): void => {
       this.attributes.set(name, value)
     },
     removeAttribute: (name: string): void => {
       this.attributes.delete(name)
+    },
+    style: {
+      setProperty: (name: string, value: string): void => {
+        this.inlineStyle.set(name, value)
+      },
+      removeProperty: (name: string): void => {
+        this.inlineStyle.delete(name)
+      },
     },
   }
   readonly head = {
@@ -397,6 +498,13 @@ class StubDocument implements SkinRoot {
     // The boot sheet is a different channel (boot-cleanup.ts) that runs on the
     // same document; this stub never carries one.
     if (selector === BOOT_SHEET_SELECTOR) return null
+    // The M4 float measures the conversation header through the same surface
+    // the sheet addresses, so the stub answers it with a box of its own.
+    if (selector === HEADER_HOOK || selector === '#root ' + HEADER_HOOK) {
+      const height = this.headerRectHeight
+      if (height === undefined) return null
+      return { getBoundingClientRect: () => ({ height }) } as unknown as SkinSheetElement
+    }
     if (selector !== SKIN_SHEET_SELECTOR) throw new Error('unexpected selector: ' + selector)
     const match = this.sheets.find(
       (sheet) => sheet.attached && sheet.tagName === 'style' && sheet.attributes.has(SKIN_SHEET_ATTR),
@@ -448,7 +556,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 95 lines, sixteen rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 155 lines, twenty-three rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
@@ -476,6 +584,10 @@ describe('skinCss — the whitelisted rules', () => {
     const darkStart = css.indexOf('/* 0.1.2 ground (dark)')
     const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
     const bandStart = css.indexOf('/* 0.1.2 bottom band (M2)')
+    // 0.1.4 M1: the material is its own segment, appended LAST (it is the only
+    // entry that may write a position, so keeping it in one place is what makes
+    // the layout check below decidable).
+    const glassStart = css.indexOf('/* 0.1.4 glass')
     // 0.1.3 M2 sits between the selected-item rules and the ground: it is text
     // colouring, not a paint layer, so it rides the 0.1.1 half of the sheet.
     const stepStart = css.indexOf('/* 0.1.3 M2')
@@ -488,6 +600,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(darkStart).toBeGreaterThan(groundStart)
     expect(clearStart).toBeGreaterThan(darkStart)
     expect(bandStart).toBeGreaterThan(clearStart)
+    expect(glassStart).toBeGreaterThan(bandStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
     // The step-row entry: two cell rules, four class declaration blocks and the
@@ -498,10 +611,43 @@ describe('skinCss — the whitelisted rules', () => {
     expect(css.slice(groundStart, darkStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(darkStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(clearStart, bandStart).split('\n').length).toBeLessThanOrEqual(12)
-    expect(css.slice(bandStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(bandStart, glassStart).split('\n').length).toBeLessThanOrEqual(12)
+    // The material's two rules: 13 lines, the ceiling the 115 budget bought.
+    // Three faces + the float + the banner offset: 49 lines measured (planes + the
+    // header edge + the strip + the faces + the float pair + the banner rule; the
+    // sidebar face and its scheme-split base left with M6).
+    expect(css.slice(glassStart).split('\n').length).toBeLessThanOrEqual(60)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
-    expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
+    // ...with ONE documented exception (0.1.4 M1): the material's ::before needs
+    // a positioned host and a full-bleed inset. Everything before that segment
+    // is still layout-free, and inside it the exception is ENUMERATED, so it
+    // cannot quietly grow a width/margin/overflow.
+    expect(css.slice(0, glassStart)).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
+    const material = css.slice(glassStart)
+    expect(material.match(/\b(?:display|grid|flex|width|height|margin|padding|overflow)\s*:/g) ?? []).toEqual([])
+    // Order is the segment's own, declaration by declaration: the planes rule
+    // (`position: absolute; inset: 0; z-index: -1`), the faces rule
+    // (`position: relative`), then the M4 float (`z-index: 8` on the header, the
+    // shifted scroll body's `margin-top`/`padding-top`). Anything else — a
+    // width, a display, an overflow — still fails the assertion above.
+    expect(material.match(/\b(?:position|inset|z-index|margin-top|padding-top|top)\s*:/g) ?? []).toEqual([
+      // the planes rule, then the faces rule, then the float pair, then the banner
+      'position:', 'inset:', 'z-index:',
+      'position:',
+      'z-index:',
+      'position:', 'z-index:', 'margin-top:', 'padding-top:',
+      'top:',
+    ])
+    // The float's two lengths are ONE formula: the padding cancels the margin and
+    // leaves 12px of breathing, so a wrong measured height can only change how
+    // much transcript shows THROUGH the glass — never where the content starts.
+    const margin = /margin-top: calc\(-1 \* var\((--dsh-moonset-header-h), (\d+)px\)\)/.exec(material)
+    const padding = /padding-top: calc\(var\(--dsh-moonset-header-h, (\d+)px\) \+ 12px\)/.exec(material)
+    expect(margin).not.toBeNull()
+    expect(padding).not.toBeNull()
+    expect(margin![1]).toBe('--dsh-moonset-header-h')
+    expect(margin![2]).toBe(padding![1])
   })
 
   it('takes every colour from a token — except the ONE night anchor (M5)', () => {
@@ -528,15 +674,24 @@ describe('skinCss — the whitelisted rules', () => {
       'var(--dsw-static-green-500)',
       'var(--dsw-static-amber-600)',
       'var(--dsw-static-violet-400)',
+      // 0.1.4 M1: the material's edge highlight — the palette's own near-white
+      // (#FAFAFC light / #EEF0F7 dark), not the plan's rgba(255,255,255,.10)
+      // literal: same pixel, and P5's "no literal colour" rule survives.
+      'var(--dsw-static-neutral-bluish-00)',
+      // 0.1.4 M3: the header's material edge — the SAME token the host border
+      // uses. (M6 dropped the sidebar face, and with it the tinted base that was
+      // its only reader.)
+      'var(--dsw-alias-border-l3)',
     ]))
     // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
     // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
     // ground (night): one canvas. 0.1.3 M2b: the step-row name default is the
     // accent again, each class mixes its family twice (name + arguments) toward
     // label-primary / label-secondary, the arguments default is a label alias,
-    // and the failed step is one state alias. The night anchor refs are counted
-    // separately.
-    expect(tokens).toHaveLength(28)
+    // and the failed step is one state alias. 0.1.4 M1: the material adds the
+    // canvas under its plane and the near-white on its top edge. The night
+    // anchor refs are counted separately.
+    expect(tokens).toHaveLength(34)
     // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
     // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
     expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
@@ -766,6 +921,9 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
       GLOW_ALPHA_AT_FULL.light.warm,
       GLOW_ALPHA_AT_FULL.light.wash,
     ])
+    // The GROUND rule carries no calc() — its alphas are literal percentages
+    // resolved in JS. (The 0.1.4 float rule does use calc(); that is asserted
+    // on its own in the material block below.)
     expect(declarations).not.toContain('calc(')
   })
 
@@ -836,8 +994,10 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
     expect(dark).toContain('ellipse at 50% -6%, color-mix(in srgb, var(--dsw-static-deepseek-400) 20%, transparent) 0%, transparent 70%')
     expect(dark).toContain('ellipse at 50% 104%, color-mix(in srgb, var(--dsw-static-deepseek-400) 4%, transparent) 0%, transparent 55%')
     expect(dark).toContain('linear-gradient(160deg, color-mix(in srgb, var(--dsw-static-deepseek-400) 1%, transparent) 0%, transparent 75%)')
-    // Both schemes ride the same switch: off is the 0.1.1 sheet.
-    expect(skinCss({ glow: false })).not.toContain('data-ds-dark-theme')
+    // Both schemes ride the same switch: with the material off too, the sheet is
+    // the 0.1.1 one. (`data-ds-dark-theme` also gates the material's dark-only
+    // sidebar base, which is its OWN switch — hence `glass: false` here.)
+    expect(skinCss({ glow: false, glass: false })).not.toContain('data-ds-dark-theme')
     // ...and the same strength factor (the dark rows scale too).
     expect(skinCss({ hueDark: 'accent', strengthDark: 200 })).toContain('var(--dsw-static-deepseek-400) 40%, transparent')
   })
@@ -893,10 +1053,16 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   it('drops BOTH grounds — light and dark — when the switch is off', () => {
     // The switch is not a strength: `glow: false` must leave no dark rule, no
     // layer and no scope behind, at any strength (0.1.2 D4's pre-glow screen).
+    // 0.1.4: the MATERIAL is its own switch (GLASS_ATTR), so "pre-glow" is the
+    // base half plus the material segment — the pre-GLASS sheet needs BOTH off.
     for (const strength of [GLOW_STRENGTH_MIN, 100, GLOW_STRENGTH_MAX]) {
       const off = skinCss({ glow: false, strengthLight: strength, strengthDark: strength })
-      expect(off).toBe(EXPECTED_BASE_CSS)
-      expect(off).not.toContain('data-ds-dark-theme')
+      expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLASS_CSS)
+      expect(skinCss({ glow: false, glass: false, strengthLight: strength, strengthDark: strength }))
+        .toBe(EXPECTED_BASE_CSS)
+      // The dark marker survives in the MATERIAL segment (the dark-only sidebar
+      // base); what must be gone is the ground's dark rule.
+      expect(off).not.toContain('--dsh-moonset-night')
       expect(off).not.toContain('radial-gradient')
       expect(off).not.toContain('linear-gradient')
     }
@@ -958,9 +1124,12 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
 
   it('drops the WHOLE ground rule when the M2 switch is off (never alpha 0)', () => {
     // Off means the rule does not exist: alpha 0 would still composite
-    // (0.1.2 §一), and D4's bar is a pre-glow screenshot.
+    // (0.1.2 §一), and D4's bar is a pre-glow screenshot. 0.1.4: the material
+    // segment survives (its own switch), so the pre-GLOW sheet is base+material
+    // and only "both off" returns the 0.1.1/0.1.3 sheet byte-for-byte.
     const off = skinCss({ glow: false })
-    expect(off).toBe(EXPECTED_BASE_CSS)
+    expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLASS_CSS)
+    expect(skinCss({ glow: false, glass: false })).toBe(EXPECTED_BASE_CSS)
     expect(off).not.toContain('radial-gradient')
     expect(off).not.toContain('linear-gradient')
     expect(off).not.toMatch(/html\[data-moonset-skin\] body \{/)
@@ -1091,8 +1260,14 @@ describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel roo
     // ground it exists to reveal (0.1.1 parity, D4).
     const off = skinCss({ glow: false })
     expect(off).not.toContain('background-color: transparent')
-    expect(off).not.toContain('#root')
-    expect(off).toBe(EXPECTED_BASE_CSS)
+    // The ground's carrier selectors are gone. (`#root` itself still appears in
+    // the 0.1.4 material segment — its two extra faces hang off slot anchors —
+    // which is why this checks the visibility spelling, not the substring.)
+    expect(off).not.toContain("#root :has([data-slot='main']")
+    // 0.1.4: the material is a different switch; with it off as well this is
+    // the pre-glow sheet byte-for-byte.
+    expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLASS_CSS)
+    expect(skinCss({ glow: false, glass: false })).toBe(EXPECTED_BASE_CSS)
   })
 })
 
@@ -1176,7 +1351,12 @@ describe('skinCss — M2 地面范围 (A/B/C)', () => {
       const lines = skinCss({ scope }).split('\n')
       expect(lines.length).toBeLessThanOrEqual(SHEET_BUDGET)
       expect(lines.length).toBeGreaterThan(19)
-      expect(withoutComments(skinCss({ scope }))).not.toContain('calc(')
+      // No calc() in the GROUND/VISIBILITY half (the alpha arithmetic is JS); the
+      // material's float rule is the one legitimate calc(), and it is not part of
+      // the scope switch.
+      const sheetForScope = skinCss({ scope })
+      const head = sheetForScope.slice(0, sheetForScope.indexOf('/* 0.1.4 glass'))
+      expect(withoutComments(head)).not.toContain('calc(')
     }
     // The default sheet is B — the user's verdict after comparing A/B/C.
     expect(skinCss()).toBe(skinCss({ scope: 'main' }))
@@ -1295,7 +1475,9 @@ describe('skinCss — M6 深/浅两套光晕', () => {
     const sheet = skinCss({ hueLight: 'soft', strengthLight: 200, hueDark: 'soft', strengthDark: 200 })
     expect(lightGroundRule(sheet)).toContain('deepseek-500) 17.92%')
     expect(darkGroundRule(sheet)).toContain('deepseek-400) 22.4%')
-    expect(sheet.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('calc(')
+    // Same split as above: the hue matrix moves the GROUND only.
+    const groundHalf = sheet.slice(0, sheet.indexOf('/* 0.1.4 glass'))
+    expect(groundHalf.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('calc(')
   })
 
   it('no longer accepts the two removed hues, anywhere', () => {
@@ -1611,11 +1793,12 @@ describe('skinCss — 0.1.3 M2 工作步骤行（终端配色）', () => {
         expect(selector, selector).not.toContain(forbidden)
       }
     }
-    // The sheet's ONLY wildcards are that sibling-after-the-dot cell, twice
+    // The STEP ROW's only wildcards are that sibling-after-the-dot cell, twice
     // (the idle rule and the re-used failed-step selector).
-    const text = skinCss().replace(/\/\*[\s\S]*?\*\//g, '')
-    expect(text.split('*').length - 1).toBe(2)
-    expect(text).not.toContain('[class')
+    const whole = skinCss()
+    const beforeMaterial = whole.slice(0, whole.indexOf('/* 0.1.4 glass')).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(beforeMaterial.split('*').length - 1).toBe(2)
+    expect(whole.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('[class')
   })
 
   it('keeps every name/arguments pair AA-readable on the canvas (light + dark)', () => {
@@ -2113,3 +2296,476 @@ describe('apply — the skin follows the stored choice', () => {
   })
 })
 
+
+
+/* ------------------------------------------------------------------ *
+ * 0.1.4 玻璃材质（三面：输入卡 / 侧栏 / 顶栏）                        *
+ * ------------------------------------------------------------------ */
+
+describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
+  /** The material segment of one sheet (everything from its comment on). */
+  function materialSegment(css: string): string {
+    const start = css.indexOf('/* 0.1.4 glass')
+    if (start === -1) throw new Error('the sheet carries no material segment:\n' + css)
+    return css.slice(start)
+  }
+
+  it('paints the material on the card`s OWN ::before, on the host`s stable attribute', () => {
+    const css = skinCss()
+    // Verbatim: this segment IS the whitelist entry, so a reworded selector, a
+    // moved declaration or a third rule has to fail here.
+    expect(materialSegment(css)).toBe(EXPECTED_GLASS_CSS)
+    // The card is addressed by the attribute the installed UI renders —
+    // `data-composer-card` (ui-conversation `InputBar.tsx:462`), on the very
+    // node whose hashed class carries
+    // `background: var(--dsw-specific-input-major)` (`InputBar.module.css:71`).
+    // So the D2 fallback (`the seat`s first wrapper div, depth <= 2`) is NOT
+    // needed: one stable attribute, no depth counting.
+    expect(css).toContain('[data-composer-card]')
+    expect(css).not.toContain('composerSeat >')
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    const selectorText = rules.replace(/\{[^}]*\}/g, '')
+    expect(selectorText).not.toMatch(/\[class|\*=/)
+    // Two planes — the card's and the sidebar's — plus the caption strip (which
+    // IS the host's own ::before), and no ::after of ours (the host owns the
+    // trigger outline).
+    expect(rules.match(/::before/g)).toHaveLength(4)
+    expect(rules.match(/::after/g)).toHaveLength(1)
+  })
+
+  it('clears each face`s own fill and draws nothing else on it (P6)', () => {
+    const css = skinCss()
+    // The FACES rule (card + sidebar root + header), all cleared. (The caption
+    // strip needs no clear of this kind: it paints nothing but its own ::before,
+    // which the material rule below repaints.)
+    const facesAt = css.indexOf("[data-composer-card],\nhtml[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header {")
+    expect(facesAt).toBeGreaterThan(-1)
+    const facesBody = css.slice(css.indexOf('{', facesAt) + 1, css.indexOf('}', facesAt))
+    const declarations = facesBody.split(';').map((part) => part.trim()).filter(Boolean)
+    // Exactly the three the recipe needs: a positioned host for the plane, a
+    // stacking context that keeps it inside the face, and the host fill cleared
+    // so the plane is the only paint. The hosts` shadows are NOT touched.
+    expect(declarations).toEqual([
+      'position: relative',
+      'isolation: isolate',
+      'background: transparent',
+    ])
+    // The PLANES rule covers the card AND the sidebar, and carries the geometry
+    // plus the material. Slice from its first selector to its closing brace.
+    const planeStart = css.indexOf('html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before,')
+    expect(planeStart).toBeGreaterThan(-1)
+    const plane = css.slice(planeStart, css.indexOf('}', planeStart) + 1)
+    const planeDeclarations = plane.slice(plane.indexOf('{') + 1, -1).split(';').map((part) => part.trim()).filter(Boolean)
+    // Full-bleed, radius inherited, no hit testing, and BEHIND the card`s
+    // content. The z-index is not decoration: measured on Chromium, a plane
+    // without it paints in the positioned layer and its backdrop-filter blurs
+    // the card`s own draft text away.
+    expect(planeDeclarations).toContain("content: ''")
+    expect(planeDeclarations).toContain('position: absolute')
+    expect(planeDeclarations).toContain('inset: 0')
+    expect(planeDeclarations).toContain('z-index: -1')
+    expect(planeDeclarations).toContain('border-radius: inherit')
+    expect(planeDeclarations).toContain('pointer-events: none')
+    // No layout beyond the positioning declarations: the card keeps its box,
+    // radius and host shadow.
+    expect(planeDeclarations.some((entry) => /^(?:width|height|margin|padding|overflow|display)/.test(entry))).toBe(false)
+    expect(css).not.toMatch(/box-shadow:\s*none/)
+  })
+
+  it('mixes the material base and its edge from tokens, never from a literal', () => {
+    const material = materialSegment(skinCss())
+    // The material base is the canvas at 62% (方案自适应), and the top edge is
+    // the palette`s own near-white at 10% — the plan sketched
+    // `rgba(255,255,255,0.10)`, and this is the same pixel by token.
+    expect(material).toContain('color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent)')
+    expect(material).toContain('color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent)')
+    expect(material).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(material).not.toMatch(/\b(?:rgba?|hsla?)\(/)
+    // ...and "near-white" really holds in BOTH schemes, so the highlight cannot
+    // turn into a dark line in the dark palette.
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const edge = rgbOf(resolveToken(table, '--dsw-static-neutral-bluish-00'))
+      expect(Math.min(edge.r, edge.g, edge.b), scheme + ' edge highlight must be near-white').toBeGreaterThan(200)
+    }
+  })
+
+  it('takes the radius from the inline property, so the sheet never carries it', () => {
+    const reference = skinCss()
+    expect(reference).toContain('backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)')
+    // Every radius produces the SAME bytes: the knob re-points a value instead
+    // of re-parsing the rules (that is also why the verbatim assertion above is
+    // radius-independent).
+    for (const radius of [GLASS_BLUR_MIN, 4, DEFAULT_GLASS_BLUR, GLASS_BLUR_MAX]) {
+      expect(skinCss({ glassBlur: radius })).toBe(reference)
+    }
+    expect(reference).not.toMatch(/blur\(\d/)
+    // ...and the value lands on <html> as a px length.
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe(DEFAULT_GLASS_BLUR + 'px')
+  })
+
+  it('resolves a dirty radius into 0-30, and falls back to the shipped default', () => {
+    expect(resolveGlassBlur(undefined)).toBe(DEFAULT_GLASS_BLUR)
+    expect(resolveGlassBlur('8')).toBe(8)
+    expect(resolveGlassBlur(-4)).toBe(GLASS_BLUR_MIN)
+    expect(resolveGlassBlur(999)).toBe(GLASS_BLUR_MAX)
+    expect(resolveGlassBlur(7.6)).toBe(8)
+    expect(resolveGlassBlur(Number.NaN)).toBe(DEFAULT_GLASS_BLUR)
+    // The switch: a missing or non-boolean value is the default, which is ON.
+    expect(resolveGlass(undefined)).toBe(true)
+    expect(resolveGlass(false)).toBe(false)
+    expect(DEFAULT_GLASS).toBe(true)
+    expect([GLASS_BLUR_MIN, GLASS_BLUR_MAX, GLASS_BLUR_STEP]).toEqual([0, 30, 2])
+  })
+
+  it('drops both rules when the material switch is off — and rides its OWN switch', () => {
+    const off = skinCss({ glass: false })
+    expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS)
+    expect(off).not.toContain('data-moonset-glass')
+    expect(off).not.toContain('backdrop-filter')
+    expect(off).not.toContain('::before')
+    // Independent of the ground in both directions: "glow off" keeps the
+    // material, "glass off" keeps the ground (契约 §一 P7 + §八 已决 2).
+    expect(skinCss({ glow: false })).toContain('[data-composer-card]::before')
+    expect(skinCss({ glass: false })).toContain('radial-gradient')
+  })
+
+  it('mounts the gate and the radius together, moves both, and removes both', () => {
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('12px')
+
+    // A slider move re-points the property; the gate stays.
+    updateSkin({ glassBlur: 4 }, doc)
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('4px')
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+
+    // The switch removes BOTH facts but leaves the sheet alive: the selection,
+    // the ground and the step rows are not the material`s business.
+    updateSkin({ glass: false }, doc)
+    expect(doc.attributes.has(GLASS_ATTR)).toBe(false)
+    expect(doc.inlineStyle.has(GLASS_BLUR_TOKEN)).toBe(false)
+    expect(doc.attached()).toHaveLength(1)
+
+    updateSkin({ glass: true, glassBlur: 8 }, doc)
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('8px')
+
+    // Zero residue: the unload takes the attribute and the inline property.
+    unmountSkin(doc)
+    expect(doc.attributes.size).toBe(0)
+    expect(doc.inlineStyle.size).toBe(0)
+    expect(doc.attached()).toHaveLength(0)
+  })
+
+  it('takes the material off with the sheet when the choice is off', () => {
+    const doc = new StubDocument()
+    syncSkin('light', doc)
+    expect(doc.attributes.get(SKIN_ATTR)).toBe('')
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('12px')
+    // The official theme brings no Moonset material either: one `off` clears
+    // the sheet, the gate and the radius together.
+    syncSkin('off', doc)
+    expect(doc.attributes.size).toBe(0)
+    expect(doc.inlineStyle.size).toBe(0)
+    expect(doc.attached()).toHaveLength(0)
+  })
+
+  /* ── 0.1.4 M2: the two extra faces ─────────────────────────────────────── */
+
+  it('gates the top bar on the Windows caption attribute', () => {
+    const css = skinCss()
+    // `data-windows-titlebar` is stamped by the desktop shell only on win32
+    // (`lib/preload-app.cjs` syncWindowsAppearance), and there the caption strip
+    // IS the frame's ::before (AppFrame.module.css:40-47). The gate is what keeps
+    // macOS honest: no strip exists there, so an ungated ::before would paint a
+    // band across the whole frame instead of decorating one.
+    expect(css.match(/\[data-windows-titlebar\]/g) ?? []).toHaveLength(1)
+    expect(css).toContain("html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before")
+    // The strip rule carries the MATERIAL ONLY: geometry (`inset`, `height`, the
+    // drag region) stays the host's, or the strip would cover the whole frame.
+    const at = css.indexOf('[data-windows-titlebar]')
+    const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
+    expect(body).not.toContain('inset:')
+    expect(body).not.toContain('position:')
+    expect(body).not.toContain('content:')
+    expect(body).not.toContain('height:')
+  })
+
+  it('carries the SAME material on every face (one recipe, three selectors)', () => {
+    const css = skinCss()
+    // Parsed out of the SHIPPED sheet rather than restated, so a face that drifts
+    // (a different alpha, a different token, a dropped highlight) fails here.
+    const materialOf = (selector: string): string[] => {
+      const at = css.indexOf(selector)
+      if (at < 0) throw new Error('missing rule: ' + selector)
+      const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
+      return body.split(';').map((part) => part.trim()).filter(Boolean)
+        .filter((entry) => /^(?:background|backdrop-filter|box-shadow):/.test(entry))
+    }
+    const planes = materialOf('html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before,')
+    const strip = materialOf("html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before")
+    expect(planes).toHaveLength(3)
+    // Verbatim equality between the card/sidebar plane and the caption strip.
+    expect(strip).toEqual(planes)
+  })
+
+  it('addresses each face by a stable hook, one `>` hop at most', () => {
+    const css = skinCss()
+    // The card: its own attribute, no ancestor to walk.
+    expect(css).toContain('[data-composer-card]')
+    // The sidebar is NOT a face any more (M6, user decision 「侧栏先不做玻璃材质」):
+    // the material segment never names its node, so the host keeps painting
+    // --dsw-specific-sidebar-fill exactly as shipped.
+    expect(css.slice(css.indexOf('/* 0.1.4 glass'))).not.toContain("data-slot='sidebar'")
+    // The caption strip: the root anchor's child is the frame, its ::before the strip.
+    expect(css).toContain("#root [data-slot='root'] > div::before")
+    // The header (M3): the header slot anchor is display:contents too, so its
+    // child is ConversationHeader's `<header>` — one hop from the ANCHOR, and the
+    // anchor is a slot KEY (a contract name), not a hashed class. (`[data-window-drag]`
+    // would have been ambiguous: the sidebar puts the same marker on two rows.)
+    expect(css).toContain("#root [data-slot='conversation.header'] > header")
+    // Still no hashed class name, no !important, no conditional at-rule.
+    const selectorText = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{[^}]*\}/g, '')
+    expect(selectorText).not.toMatch(/\[\s*class/)
+    expect(css).not.toContain('!important')
+    expect(css).not.toMatch(/@media|@supports/)
+  })
+
+  it('paints the conversation header like the card, and keeps the host border', () => {
+    const css = skinCss()
+    const header = "html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.header'] > header"
+    // The header is a FULL face: its plane is in the shared rule (so its
+    // background / backdrop-filter / top highlight are byte-identical to the
+    // card's), and it is cleared exactly like the others.
+    const planes = css.slice(css.indexOf("${card}::before,".replace('${card}', '[data-composer-card]')))
+    expect(planes).toBeTruthy()
+    expect(css).toContain(header + '::before {')
+    expect(css).toContain(header + ' {')
+    const hosts = css.slice(css.indexOf(header + ' {'), css.indexOf('}', css.indexOf(header + ' {')) + 1)
+    expect(hosts).toContain('background: transparent')
+    // The host's 0.5px border-bottom is NOT touched: nothing here writes a
+    // border (and nothing writes width/height/margin/padding either).
+    expect(css).not.toMatch(/\bborder(?:-bottom)?\s*:/)
+    expect(css).not.toMatch(/\b(?:width|height|margin|padding|overflow)\s*:/)
+  })
+
+  it('draws the header\'s own bottom edge on the PLANE, not under it', () => {
+    const css = skinCss()
+    // The header's plane appears TWICE (the shared rule and this override), so the
+    // edge rule is found from the override's own comment.
+    const marker = css.indexOf('/* M3: the header keeps')
+    expect(marker).toBeGreaterThan(-1)
+    const edge = css.slice(css.indexOf('::before {', marker))
+    const rule = edge.slice(0, edge.indexOf('}') + 1)
+    // A 1px line under a 62%-opaque plane would be muted to nothing, so the
+    // edge belongs to the plane — and it must keep the shared top highlight.
+    expect(rule).toContain('inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent)')
+    expect(rule).toContain('inset 0 -1px 0 var(--dsw-alias-border-l3)')
+    // The token the host border uses, so the two lines cannot drift apart.
+    expect(rule).toContain('--dsw-alias-border-l3')
+  })
+
+  it('leaves the sidebar out of the material entirely (M6)', () => {
+    const css = skinCss()
+    const segment = css.slice(css.indexOf('/* 0.1.4 glass'))
+    // No plane on the sidebar, no host clear, no scheme-split base, no tint.
+    expect(segment).not.toContain("data-slot='sidebar'")
+    expect(segment).not.toContain('bg-module-platform')
+    expect(css).not.toContain('body[data-ds-dark-theme] #root [data-slot=\'sidebar\']')
+    expect(css).not.toContain('body[data-ds-light-theme]')
+    // The ONE sidebar mention left in the whole sheet is the C-scope GROUND clear
+    // (an opt-in comparison mode from 0.1.2/M2, not the material): it must sit in
+    // the visibility block, before the material segment.
+    const mentions = [...css.matchAll(/data-slot='sidebar'/g)].map((match) => match.index ?? -1)
+    expect(mentions).toHaveLength(1)
+    expect(mentions[0]).toBeLessThan(css.indexOf('/* 0.1.4 glass'))
+    // ...and that clear is gated on the `all` scope, so the default sheet never
+    // touches the sidebar's fill.
+    expect(skinCss({ scope: 'main' })).not.toContain("#root [data-slot='sidebar'] > div")
+    expect(skinCss({ scope: 'all' })).toContain("#root [data-slot='sidebar'] > div")
+  })
+
+  it('keeps every face on the same blur, whatever its base', () => {
+    const css = skinCss()
+    // The blur is the ONE thing no face may vary: it is the switch's knob, and
+    // a per-face radius would make the three surfaces read as different
+    // materials.
+    expect(css.match(/backdrop-filter: blur\(var\(--dsh-moonset-glass-blur\)\) saturate\(1\.15\)/g) ?? []).toHaveLength(2)
+    // Two EMISSION sites (the planes rule + the strip); the sidebar and the
+    // header inherit the planes rule's value.
+    const materials = [...css.matchAll(/backdrop-filter:\s*blur\((var\([^)]*\))\)/g)].map((m) => m[1])
+    expect(new Set(materials)).toEqual(new Set(['var(--dsh-moonset-glass-blur)']))
+  })
+
+  /* ── 0.1.4 M4: the header floats, and the float is MEASURED ─────────────── */
+
+  it('floats the transcript behind the header, and cancels the shift with padding', () => {
+    const css = skinCss()
+    const at = css.indexOf("[data-phase='active'] [data-conversation-scroll] {")
+    expect(at).toBeGreaterThan(-1)
+    const rule = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
+    const declarations = rule.split(';').map((part) => part.trim()).filter(Boolean)
+    // Four declarations: an explicit low stacking slot for the shifted scroll body
+    // (so the header above it is unambiguous — M5's click fix), then the recipe —
+    // pull the body up by the header's height, push the CONTENT back down by the
+    // same height plus air.
+    expect(declarations).toHaveLength(4)
+    expect(declarations[0]).toBe('position: relative')
+    expect(declarations[1]).toBe('z-index: 0')
+    expect(declarations[2]).toBe('margin-top: calc(-1 * var(--dsh-moonset-header-h, 76px))')
+    expect(declarations[3]).toBe('padding-top: calc(var(--dsh-moonset-header-h, 76px) + 12px)')
+    // The guard: the shift is gated on our two root attributes AND the active
+    // phase, so hero/blank/settling screens keep the host's flow untouched.
+    expect(css).toContain("html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversation-scroll] {")
+    // The header is lifted out of the flow's paint order, not out of the layout:
+    // one declaration, and it is `z-index` (no position/transform/size).
+    // NB: `[data-phase='active']` must come BEFORE the `#root`-rooted header hook —
+    // the M4 build had them inverted, so the rule never matched the real DOM and the
+    // header never floated (M5's five symptoms). The regression guard is below.
+    const headerAt = css.indexOf("html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-slot='conversation.header'] > header {")
+    expect(headerAt).toBeGreaterThan(-1)
+    const headerRule = css.slice(css.indexOf('{', headerAt) + 1, css.indexOf('}', headerAt))
+    expect(headerRule.trim()).toBe('z-index: 8;')
+  })
+
+  it('measures the header height and republishes it as the float offset', () => {
+    const doc = new StubDocument()
+    // Nothing rendered yet: no property, nothing invented.
+    expect(syncHeaderHeight(doc)).toBe(false)
+    expect(doc.inlineStyle.has(HEADER_HEIGHT_TOKEN)).toBe(false)
+    // The host lands a 76px header; the next measurement publishes it.
+    doc.headerRectHeight = 76
+    expect(syncHeaderHeight(doc)).toBe(true)
+    expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('76px')
+    // A header that grows (tabs wrap on a narrow column) republished, rounded.
+    doc.headerRectHeight = 96.4
+    expect(syncHeaderHeight(doc)).toBe(true)
+    expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('96px')
+    // A zero-height or absent header is NOT a measurement.
+    doc.headerRectHeight = 0
+    expect(syncHeaderHeight(doc)).toBe(false)
+    expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('96px')
+    // The fallback the sheet carries meanwhile is the host's own min-height.
+    expect(DEFAULT_HEADER_HEIGHT).toBe(76)
+    expect(skinCss()).toContain(`var(--dsh-moonset-header-h, ${DEFAULT_HEADER_HEIGHT}px)`)
+  })
+
+  it('retries the measurement a bounded number of times, and stops on teardown', async () => {
+    vi.useFakeTimers()
+    try {
+      const doc = new StubDocument()
+      // The plugin activates before the conversation exists: the ladder runs.
+      const cancel = scheduleHeaderMeasure(doc)
+      expect(doc.inlineStyle.has(HEADER_HEIGHT_TOKEN)).toBe(false)
+      // The host renders between attempts; the next tick measures and STOPS.
+      doc.headerRectHeight = 84
+      await vi.advanceTimersByTimeAsync(250)
+      expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('84px')
+      // ...and nothing keeps firing afterwards (no clock, no observer).
+      doc.headerRectHeight = 120
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('84px')
+      cancel()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a teardown before the header exists leaves no timer and no property', async () => {
+    vi.useFakeTimers()
+    try {
+      const doc = new StubDocument()
+      const cancel = scheduleHeaderMeasure(doc)
+      cancel()
+      doc.headerRectHeight = 90
+      await vi.advanceTimersByTimeAsync(10_000)
+      // The cancelled ladder never runs: the sheet keeps its fallback.
+      expect(doc.inlineStyle.has(HEADER_HEIGHT_TOKEN)).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('takes the measured offset away with the material', () => {
+    const doc = new StubDocument()
+    doc.headerRectHeight = 76
+    mountSkin(doc)
+    expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('76px')
+    // Glass off: the scroll body returns to the host's flow — no residue.
+    updateSkin({ glass: false }, doc)
+    expect(doc.inlineStyle.has(HEADER_HEIGHT_TOKEN)).toBe(false)
+    // ...and the same on the way out.
+    updateSkin({ glass: true }, doc)
+    expect(doc.inlineStyle.get(HEADER_HEIGHT_TOKEN)).toBe('76px')
+    unmountSkin(doc)
+    expect(doc.inlineStyle.size).toBe(0)
+  })
+
+  it('never puts #root AFTER the phase gate (the M4 selector inversion)', () => {
+    const css = skinCss()
+    // M4 shipped `[data-phase='active'] #root [data-slot='conversation.header'] > header`.
+    // `#root` is the React container, i.e. an ANCESTOR of the phase element, so that
+    // selector matched nothing: the header never got its z-index, the transcript
+    // painted over it (clicks dead), and the plane was pushed behind the text (no
+    // veil, no blur). This guard makes the inversion impossible to reintroduce:
+    // inside any selector, the `#root` token must come BEFORE the phase gate.
+    const selectors = css
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('}')
+      .flatMap((chunk) => chunk.split('{')[0].split(','))
+      .map((selector) => selector.trim())
+      .filter((selector) => selector.length > 0)
+    for (const selector of selectors) {
+      const phase = selector.indexOf("[data-phase='active']")
+      if (phase === -1) continue
+      const root = selector.indexOf('#root')
+      if (root !== -1) expect(root, selector).toBeLessThan(phase)
+    }
+    // ...and the three phase-gated rules really are spelled the working way.
+    const gate = 'html[data-moonset-skin][data-moonset-glass]'
+    expect(css).toContain(`${gate} [data-phase='active'] [data-slot='conversation.header'] > header {`)
+    expect(css).toContain(`${gate} [data-phase='active'] [data-conversation-scroll] {`)
+    expect(css).toContain(`${gate} [data-phase='active'] [data-conversation-scroll] :has(> [data-code-block-banner]) {`)
+    // The header face itself (no phase gate) keeps its #root-rooted hook.
+    expect(css).toContain(`${gate} #root [data-slot='conversation.header'] > header {`)
+  })
+
+  it('parks the code block banner BELOW the floating header', () => {
+    const css = skinCss()
+    // The banner is `position: sticky; top: 0` inside the scrollport; the float moved
+    // the scrollport's top above the header, so an un-offset banner pins behind the
+    // glass (invisible while stuck). The host reaches the same node with
+    // `:has(> [data-code-block-banner])` (MessageItem.module.css:81), so the attribute
+    // is the host's own contract, not a class-name guess: we reuse it and set the
+    // sticky offset to the header height, i.e. exactly the header's bottom edge.
+    const at = css.indexOf(':has(> [data-code-block-banner])')
+    expect(at).toBeGreaterThan(-1)
+    const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
+    expect(body.trim()).toBe('top: var(--dsh-moonset-header-h, 76px);')
+    // No `[class*=` and no wildcard sweep: outside comments the sheet has three
+    // asterisks — the two step-row sibling cells and the float's `calc(-1 * ...)`.
+    expect(css).not.toContain('[class')
+    const rulesOnly = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(rulesOnly.match(/\*/g) ?? []).toHaveLength(3)
+  })
+
+  it('puts backdrop-filter on leaf planes only — never on a host container', () => {
+    // P6's whole point: the filter belongs to a plane with no content of its own.
+    // Landing it on a container (or on the ground rule) would make that container
+    // a backdrop root for everything inside it, and blur the content it owns.
+    const css = skinCss().replace(/\/\*[\s\S]*?\*\//g, '')
+    const filtered = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector.trim(), body }))
+      .filter(({ body }) => body.includes('backdrop-filter'))
+    expect(filtered).toHaveLength(2)
+    for (const { selector } of filtered) {
+      expect(selector.endsWith('::before')).toBe(true)
+      expect(selector).toContain('[data-moonset-glass]')
+    }
+  })
+})

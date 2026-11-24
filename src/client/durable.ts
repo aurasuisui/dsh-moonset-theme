@@ -53,11 +53,15 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveChoice, type MoonsetChoice } from './choice.ts'
 import {
+  DEFAULT_GLASS,
+  DEFAULT_GLASS_BLUR,
   DEFAULT_GLOW_HUE_DARK,
   DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH_DARK,
   DEFAULT_GLOW_STRENGTH_LIGHT,
+  resolveGlass,
+  resolveGlassBlur,
   resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
@@ -116,6 +120,10 @@ export interface MoonsetSettingsSection {
   glowHueDark?: unknown
   /** M6: the DARK ground's strength (0-200). */
   glowStrengthDark?: unknown
+  /** 0.1.4 M1: the glass material switch (boolean when the document carries it). */
+  glass?: unknown
+  /** 0.1.4 M1: the glass blur radius in px (0-30). */
+  glassBlur?: unknown
 }
 
 /** The small durable surface the settings section and the boot path consume. */
@@ -493,6 +501,12 @@ export function createDurableChoice(ctx: ClientContext): DurableChoice {
 // debounce, but none of the theme-echo machinery: a ground setting cannot fight
 // the theme runtime, so the only race here is "a slider drag lands before the
 // previous echo", and the answer is last-value-wins per field.
+//
+// 0.1.4 M1 adds the MATERIAL's two fields (glass / glassBlur) to this same
+// store — the plan's "同一张表单、同一套 durable、同一个重建时钟". They are a
+// separate switch from the ground (glass may stay on with glow off), which is
+// why they are their own fields rather than a mode of `glow`; what they share
+// with it is the plumbing, which is the point.
 
 /** The resolved glow configuration — exactly what `skinCss()` consumes. */
 export interface MoonsetGlow {
@@ -508,6 +522,17 @@ export interface MoonsetGlow {
   readonly strengthDark: number
   /** The DARK ground's hue. */
   readonly hueDark: GlowHue
+  /**
+   * 0.1.4 M1: the glass material (default on).
+   *
+   * The material lives in THIS store on purpose — the plan's "同一张表单、同一套
+   * durable、同一个重建时钟": one form, one 300 ms write window, one 150 ms sheet
+   * rebuild. It is a separate SWITCH from {@link glow} (the ground and the
+   * material are independent), it just travels with it.
+   */
+  readonly glass: boolean
+  /** 0.1.4 M1: the glass blur radius in px (0-30, default 12). */
+  readonly glassBlur: number
 }
 
 /** The small durable surface the skin rebuild and the settings section consume. */
@@ -534,6 +559,9 @@ const DEFAULT_GLOW: MoonsetGlow = {
   hueLight: DEFAULT_GLOW_HUE_LIGHT,
   strengthDark: DEFAULT_GLOW_STRENGTH_DARK,
   hueDark: DEFAULT_GLOW_HUE_DARK,
+  // 0.1.4 M1: 玻璃默认开、模糊 12px（契约 §八 已决 1）。
+  glass: DEFAULT_GLASS,
+  glassBlur: DEFAULT_GLASS_BLUR,
 }
 
 /**
@@ -555,6 +583,9 @@ function resolveGlow(section: MoonsetSettingsSection | undefined): MoonsetGlow {
     hueLight: resolveGlowHue(section?.glowHueLight, DEFAULT_GLOW_HUE_LIGHT),
     strengthDark: resolveGlowStrength(section?.glowStrengthDark, DEFAULT_GLOW_STRENGTH_DARK),
     hueDark: resolveGlowHue(section?.glowHueDark, DEFAULT_GLOW_HUE_DARK),
+    // 0.1.4 M1: the material's two fields, same forgiving narrowing as the rest.
+    glass: resolveGlass(section?.glass),
+    glassBlur: resolveGlassBlur(section?.glassBlur),
   }
 }
 
@@ -571,6 +602,8 @@ function sameGlow(a: MoonsetGlow, b: MoonsetGlow): boolean {
     && a.hueLight === b.hueLight
     && a.strengthDark === b.strengthDark
     && a.hueDark === b.hueDark
+    && a.glass === b.glass
+    && a.glassBlur === b.glassBlur
 }
 
 /**
@@ -671,6 +704,10 @@ export function createDurableGlow(ctx: ClientContext): DurableGlow {
     if (patch.strengthLight !== undefined) fields.push(['glowStrengthLight', patch.strengthLight])
     if (patch.hueDark !== undefined) fields.push(['glowHueDark', patch.hueDark])
     if (patch.strengthDark !== undefined) fields.push(['glowStrengthDark', patch.strengthDark])
+    // 0.1.4 M1: the material rides the same flush, after the ground pair (the
+    // order the panel renders them in).
+    if (patch.glass !== undefined) fields.push(['glass', patch.glass])
+    if (patch.glassBlur !== undefined) fields.push(['glassBlur', patch.glassBlur])
     for (const [field, value] of fields) {
       writes += 1
       try {
@@ -740,6 +777,8 @@ export function createDurableGlow(ctx: ClientContext): DurableGlow {
         hueLight?: GlowHue
         strengthDark?: number
         hueDark?: GlowHue
+        glass?: boolean
+        glassBlur?: number
       } = {}
       if (patch.glow !== undefined) next.glow = patch.glow
       if (patch.scope !== undefined) next.scope = resolveGlowScope(patch.scope)
@@ -747,6 +786,8 @@ export function createDurableGlow(ctx: ClientContext): DurableGlow {
       if (patch.hueLight !== undefined) next.hueLight = resolveGlowHue(patch.hueLight, DEFAULT_GLOW_HUE_LIGHT)
       if (patch.strengthDark !== undefined) next.strengthDark = resolveGlowStrength(patch.strengthDark, DEFAULT_GLOW_STRENGTH_DARK)
       if (patch.hueDark !== undefined) next.hueDark = resolveGlowHue(patch.hueDark, DEFAULT_GLOW_HUE_DARK)
+      if (patch.glass !== undefined) next.glass = resolveGlass(patch.glass)
+      if (patch.glassBlur !== undefined) next.glassBlur = resolveGlassBlur(patch.glassBlur)
       if (Object.keys(next).length === 0) return
       pending = { ...pending, ...next }
       if (timer !== undefined) clearTimeout(timer)

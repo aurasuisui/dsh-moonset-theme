@@ -15,11 +15,15 @@ import {
   type MoonsetSettingsSection,
 } from '../src/client/durable'
 import {
+  DEFAULT_GLASS,
+  DEFAULT_GLASS_BLUR,
   DEFAULT_GLOW_HUE_DARK,
   DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH_DARK,
   DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
   GLOW_HUES,
   GLOW_SCOPES,
 } from '../src/client/skin'
@@ -679,6 +683,19 @@ describe('host settings contract — the Config the form is projected from', () 
       default: DEFAULT_GLOW_STRENGTH_DARK,
       volatile: true,
     })
+    // 0.1.4 M1: the material's two fields are volatile too (same form, same
+    // projection), and their defaults are the shipped ones: 玻璃默认开、12px.
+    expect(dict.glass.meta).toMatchObject({ default: DEFAULT_GLASS, volatile: true })
+    // ...and the slider's own bounds are the resolver's: the host restates the
+    // numbers (it cannot import the client half), so this is the cross-check
+    // that a moved ceiling cannot ship as a form that accepts what the skin
+    // clamps.
+    expect(dict.glassBlur.meta).toMatchObject({
+      min: GLASS_BLUR_MIN,
+      max: GLASS_BLUR_MAX,
+      default: DEFAULT_GLASS_BLUR,
+      volatile: true,
+    })
 
     // The unions are the client's lists, in the same order: a document value
     // the client cannot read is exactly what this check prevents.
@@ -696,7 +713,13 @@ describe('host settings contract — the Config the form is projected from', () 
 // ── M2/M6: the glow settings store ──────────────────────────────────────────
 
 describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅两套色相+强度)', () => {
-  /** The defaults, spelled once so every assertion derives from them. */
+  /**
+   * The defaults, spelled once so every assertion derives from them.
+   *
+   * 0.1.4 M1: the store also answers the material's two fields — same durable,
+   * same flush; they are a separate switch from the ground, which is why the
+   * flush below still writes only the fields a patch names.
+   */
   const DEFAULTS = {
     glow: true,
     scope: DEFAULT_GLOW_SCOPE,
@@ -704,6 +727,8 @@ describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅�
     strengthLight: DEFAULT_GLOW_STRENGTH_LIGHT,
     hueDark: DEFAULT_GLOW_HUE_DARK,
     strengthDark: DEFAULT_GLOW_STRENGTH_DARK,
+    glass: DEFAULT_GLASS,
+    glassBlur: DEFAULT_GLASS_BLUR,
   }
 
   it('answers the shipped defaults before any form has spoken', () => {
@@ -727,7 +752,7 @@ describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅�
     }
   })
 
-  it('reads a document that already carries the four M6 fields', () => {
+  it('reads a document that already carries the M6 fields and the M1 material', () => {
     const form = new FakeForm({
       glow: false,
       glowScope: 'main',
@@ -735,6 +760,9 @@ describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅�
       glowStrengthLight: 40,
       glowHueDark: 'accent',
       glowStrengthDark: 150,
+      // 0.1.4 M1: the material's own pair, read from the same document.
+      glass: false,
+      glassBlur: 4,
     })
     const harness = makeContext({ forms: form })
     const glow = createDurableGlow(harness.ctx)
@@ -746,6 +774,8 @@ describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅�
         strengthLight: 40,
         hueDark: 'accent',
         strengthDark: 150,
+        glass: false,
+        glassBlur: 4,
       })
     } finally {
       glow.dispose()
@@ -801,6 +831,8 @@ describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅�
         strengthLight: 70,
         hueDark: 'accent',
         strengthDark: 200,
+        glass: DEFAULT_GLASS,
+        glassBlur: DEFAULT_GLASS_BLUR,
       })
     } finally {
       vi.useRealTimers()
@@ -877,6 +909,54 @@ describe('createDurableGlow — the glow store (地面范围 / 开关 / 深浅�
       expect(seen).toEqual(['conversation'])
     } finally {
       glow.dispose()
+    }
+  })
+
+  it("lands the material's two fields in one flush, once per burst", async () => {
+    vi.useFakeTimers()
+    try {
+      const form = new FakeForm({})
+      const harness = makeContext({ forms: form })
+      const glow = createDurableGlow(harness.ctx)
+      glow.write({ glass: false })
+      glow.write({ glassBlur: 6 })
+      glow.write({ glassBlur: 26 })
+      // Optimistic: the read answers the last value before anything lands.
+      expect(glow.read().glass).toBe(false)
+      expect(glow.read().glassBlur).toBe(26)
+      expect(form.sets).toEqual([])
+      await vi.advanceTimersByTimeAsync(WRITE_DEBOUNCE_MS)
+      // One write per FIELD, in panel order, and no ground field is touched:
+      // the material is its own switch on the same form.
+      expect(form.sets).toEqual([
+        { field: 'glass', value: false },
+        { field: 'glassBlur', value: 26 },
+      ])
+      expect(glow.writes).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("narrows a dirty radius into the slider's range and keeps an absent one at 12", () => {
+    // A hand-edited or older document cannot push the blur outside the range
+    // the control writes, and an absent field is the shipped default — never
+    // 0, which would silently turn the material into a flat wash.
+    const carried = createDurableGlow(makeContext({ forms: new FakeForm({ glassBlur: 999 }) }).ctx)
+    try {
+      expect(carried.read().glassBlur).toBe(GLASS_BLUR_MAX)
+      // The switch itself: absent means ON (玻璃默认开).
+      expect(carried.read().glass).toBe(DEFAULT_GLASS)
+    } finally {
+      carried.dispose()
+    }
+    const empty = createDurableGlow(makeContext({ forms: new FakeForm({}) }).ctx)
+    try {
+      expect(empty.read().glass).toBe(true)
+      expect(empty.read().glassBlur).toBe(12)
+      expect(DEFAULT_GLASS_BLUR).toBe(12)
+    } finally {
+      empty.dispose()
     }
   })
 })
