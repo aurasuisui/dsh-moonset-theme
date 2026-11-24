@@ -947,6 +947,84 @@ function colourRules(): readonly string[] {
 }
 
 /**
+ * The 0.1.5 M2 turn-rail entry — the docs-site timeline, painted on the host's
+ * existing rail (the user's ask: 「导航轨可以改成网页的这种形式和配色」).
+ *
+ * THE HOST, read out of the installed `dsh-client-ui-chat` sources
+ * (`src/client/chat/TurnNavigator.module.css:1-152` / `TurnNavigator.tsx:233-283`):
+ *
+ *   div.slot            absolute (sticky inside a scrollport), height 0, z-index 7
+ *   └ nav.frame         aria-label = 'chat.turnNavigation.label', right: 12px,
+ *                       width 28px, translateY(-50%), max-height <= 420px,
+ *                       `contain: layout`, and the DOMINANT hook: a semantic <nav>
+ *                       that always carries an aria-label;
+ *     └ div.scroller    overflow-y: auto, mask fades at both scrollable ends
+ *       └ div.marks     position: relative (height = virtualizer total)
+ *         └ button.mark 10px tall, 28px wide, ABSOLUTE at top: 0 and positioned
+ *                       by the virtualizer's inline `transform: translateY(...)`;
+ *                       carries data-index (TurnNavigator.tsx:63), and its state
+ *                       attributes are the ONLY stable per-mark hooks:
+ *                         aria-current='true'   the current turn  (:70)
+ *                         aria-busy='true'      a jump still paging (:71)
+ *                         aria-describedby      the previewed turn (:72)
+ *                       `.mark::before` is the host's 20x2px tick, right-aligned,
+ *                       centred - its centre sits 10px inside the frame's right
+ *                       edge.
+ *
+ * What this entry does is PAINT ONLY: the tick is replaced by a round mark, and
+ * the nav's own background gains ONE hairline track (2px wide, 100% tall) whose
+ * gradient runs indigo -> amber. The current mark is a filled dot, every other
+ * mark a thin ring; both are `background` layers sized/positioned inside the
+ * mark's existing 28x10px box, so NOTHING about the ladder moves: no position,
+ * inset, size, margin or padding is written (the geometry proof is a test: the
+ * segment's declarations are limited to background / border / border-radius /
+ * box-shadow / opacity / color).
+ *
+ * The accent is a scheme pair like the night anchor: `deepseek-500` on light and
+ * `deepseek-400` on dark (the user's call: 暗色用 400 那一档), published once on
+ * the rail as `--dsh-moonset-rail-accent` and read by every layer.
+ *
+ * Known gap: `.markUnloaded` (a turn whose transcript is not paged in yet) has
+ * NO attribute — it is a hashed class only — so an unloaded mark paints like a
+ * resting one. The host's own `scaleX(0.4) + opacity .6` tick shrink is gone with
+ * the tick; the difference is only visible on rails whose history is partially
+ * loaded.
+ * @returns the rule lines (five rules).
+ */
+function railRules(): readonly string[] {
+  /**
+   * The gate is the root attribute ONLY: the rail is chrome, so it must survive
+   * "glass off" (the material's switch) exactly like the step rows do.
+   */
+  const gate = 'html[data-moonset-skin]'
+  /** The rail inside the scrollport: the only `nav[aria-label]` there is. */
+  const rail = `[data-conversation-scroll] nav[aria-label]`
+  /** One mark: the host's `button.mark`, hooked on its `data-index`. */
+  const mark = `${gate} ${rail} [data-index]`
+  return [
+    '/* 0.1.5 M2: the turn rail — docs-site timeline: ONE hairline track (indigo',
+    '   -> amber) with round marks, the current one filled. PAINT ONLY: the host',
+    '   ladder (28px frame / 10px pitch / absolute marks) is untouched. */',
+    `${gate} ${rail} {`,
+    '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-500);',
+    '  background: linear-gradient(to bottom, color-mix(in srgb, var(--dsh-moonset-rail-accent) 65%, transparent), color-mix(in srgb, var(--dsw-static-amber-500) 65%, transparent)) no-repeat right 9px center / 2px 100%;',
+    '}',
+    `${gate} body[data-ds-dark-theme] ${rail} {`,
+    '  --dsh-moonset-rail-accent: var(--dsw-static-deepseek-400);',
+    '}',
+    `${mark} {`,
+    '  background: radial-gradient(circle, transparent 0 2px, color-mix(in srgb, var(--dsh-moonset-rail-accent) 75%, transparent) 2.2px 3.4px, transparent 3.5px) no-repeat right 6.5px center / 7px 7px;',
+    '}',
+    `${mark}[aria-current='true'] {`,
+    '  background: radial-gradient(circle, var(--dsh-moonset-rail-accent) 0 3px, transparent 3.2px) no-repeat right 6.5px center / 7px 7px;',
+    '}',
+    `${mark}::before {`,
+    '  background: transparent;',
+    '}',
+  ]
+}
+
+/**
  * The skin's rules, as text — a PURE function of its options only.
  *
  * Pure on purpose: the sheet's exact bytes are the contract the tests pin
@@ -1195,6 +1273,9 @@ export function skinCss(options: SkinOptions = {}): string {
   // 0.1.5: three colour-only entries. Always emitted — they belong to no switch
   // (the failure-red property rides the same base half as the rule that reads it).
   rules.push(...colourRules())
+  // 0.1.5 M2: the turn rail, painted on the host's ladder (its own segment, also
+  // switch-free — the rail is chrome, not ground or material).
+  rules.push(...railRules())
   return rules.join('\n')
 }
 
