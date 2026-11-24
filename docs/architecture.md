@@ -393,6 +393,8 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | 件 | 值 | 说明 |
 |---|---|---|
 | 根属性 | `html[data-moonset-skin]` | 布尔式（值为空串）；既是开关信号，也是将来按属性门控的选择器前缀 |
+| 材质根属性（0.1.4） | `html[data-moonset-glass]` | 第二个布尔属性，**独立门控材质**：关玻璃时它不挂，材质那两条规则就成了死文本（不是第二张表，P2）；皮肤本体照旧 |
+| 行内自定义属性（0.1.4） | `html` 的 `--dsh-moonset-glass-blur` | 全插件**唯一**一处行内 style 写入：材质模糊半径（0–30px，默认 12）。表里只写 `var()`，所以滑块走的是「改一个值」，不是「重解析一张表」 |
 | 样式表 | `<style data-dsh-moonset-skin>` | **单表单例**；标识写在属性上，DevTools 里一眼可辨（M1 的「带标识」） |
 | 写入口 | `src/client/skin.ts` | `mountSkin()` / `unmountSkin()`，此外没有第三处写 DOM |
 | 表内容 | `skinCss()` | **纯函数**，不读 document / 时间 / 调色板，所以能逐字断言 |
@@ -416,9 +418,9 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
 | **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `night` 色相读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
 | **轨迹步骤行**（按类型分色） | 两条格子规则 `html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration])`（工具名）与 `… [data-shimmer-decoration] + *`（参数/路径），读行上发布的两个自定义属性 `--dsh-moonset-step-name/-args`；四条类声明 `… [data-variant='bash' \| 'read' \| 'write' \| 'edit' \| 'search' \| 'think'] { … }`；失败规则 `… [data-state='error']`（两格 + `~ [data-tone]` 胶囊，写在最后） | 步骤行的**工具名**与**参数/路径**两个格子都只有按构建哈希的 CSS Module 类名，没有 `data-*`；但行根有 `[data-variant][data-state]`（工具行还有 `[data-tool]`）、名字与参数之间那颗 `·` 有 `[data-shimmer-decoration]`、退出码胶囊是 `Tag` 的 `[data-tone]`。两格只能**相对那颗点**定位；「每类一个色相」又要**两套方案都成立**，所以色相用 `color-mix(family, label token)` 交给方案自适应，再由行上的自定义属性把「类 → 两格」接起来 | 0.1.3 M2b |
-| **材质面** | 自有 `::before` 上的 `backdrop-filter` | P4：画在伪元素平面，容器本体零绘制 | 0.1.3 |
+| **材质面**（0.1.4 M1：输入卡） | `html[data-moonset-skin][data-moonset-glass] [data-composer-card]` 上的 `position: relative` / `isolation: isolate` / `background: transparent`，加其 `::before` 平面：`content` / `position: absolute` / `inset: 0` / `z-index: -1` / `border-radius: inherit` / `pointer-events: none` / `background: color-mix(bg-base 62%)` / `backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)` / `inset` 高光 | P6：材质必须画在**背靠内容**的平面上——容器本体若也画，`backdrop-filter` 只会糊到自己。输入卡本体只清底色（宿主 `--dsw-specific-input-major`），平面放到 `::before`；`z-index:-1` 让它落在**正文之后**，`isolation:isolate` 把它关在卡片自己的层叠上下文里。**实测**（Chromium）：少了 `z-index:-1` 时平面按定位层绘制、盖在 in-flow 正文之上，`backdrop-filter` 会把输入框自己的草稿糊成一团 | 0.1.4 M1 |
 
-当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b，全表十六条规则，91 行 / C 档 93 行）：
+当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1，全表十八条规则，104 行 / C 档 106 行）：
 
 ```css
 /* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */
@@ -511,6 +513,18 @@ html[data-moonset-skin] #root [data-slot='main'] > div {
 /* 0.1.2 bottom band (M2): the composer seat's bg-base mask is an image. */
 html[data-moonset-skin] #root [data-composer-seat] {
   background-image: none;
+}
+/* 0.1.4 M1 glass (input card): the material is a ::before plane (P6), so the
+   card itself paints nothing; isolation keeps the -1 plane inside it. */
+html[data-moonset-skin][data-moonset-glass] [data-composer-card] {
+  position: relative; isolation: isolate; background: transparent;
+}
+html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  border-radius: inherit; pointer-events: none;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);
+  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);
 }
 ```
 
@@ -765,10 +779,15 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 ### 11.4 禁止什么（写进来就是回退）
 
 - **改布局**：`display` / `position` / `grid` / `flex` / 尺寸 / `margin` /
-  `padding` / `overflow` 一律不许；
-- **碰宿主 DOM 结构**：不增删宿主节点、不注入 `html.style` / `body.style`、不用
-  结构性选择器「修」宿主组件；允许的 DOM 写只有两笔——根上摘挂一个属性、head 里
-  增删一张表（`unmount` 之后零残留）。**只有两处例外**：
+  `padding` / `overflow` 一律不许。**唯一例外**是 §11.3 第七类「材质面」的两条：
+  `position: relative`（`::before` 的定位宿主，宿主自己本来也是 `position: relative`，
+  写它只是不让配方依赖宿主）与 `inset: 0`（平面满铺）。两者都在材质那一段里被逐条列举，
+  `tests/skin.spec.ts` 的预算断言要求材质段之外仍然零布局属性，材质段内也只允许这两条；
+- **碰宿主 DOM 结构**：不增删宿主节点、不写宿主的布局/颜色行内样式、不用
+  结构性选择器「修」宿主组件；允许的 DOM 写只有三笔——根上摘挂**两个**布尔属性
+  （`data-moonset-skin` / `data-moonset-glass`）、`<html>` 上写**一个**自定义属性
+  （`--dsh-moonset-glass-blur`，0.1.4）、head 里增删一张表（`unmount` 之后零残留）。
+  **只有两处例外**：
   ① §11.3 第四类「地面可见性」：结构性选择器只允许出现在那一条里，只允许用 `#root` 与
   `[data-slot]` / `[data-composer-seat]` 定位（可直接取槽锚点的父/子一层，但不再往下数层级），
   只允许写 `background-color: transparent`（唯二例外是 M2 的底部遮罩带：允许一条
@@ -791,17 +810,22 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 ### 11.5 新增一条白名单项的门槛
 
 1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
-2. 全表 ≤ 95 行（0.1.3 M2b 起；M2 首版 75、0.1.2 时 60、0.1.1 时 40；单条新增仍 ≤ 20 行）、无
+2. 全表 ≤ 115 行（0.1.4 M1 起；0.1.3 M2b 时 95、M2 首版 75、0.1.2 时 60、0.1.1 时 40；单条新增仍 ≤ 20 行）、无
    `!important`、无 `@media`、无 `@supports`；
 3. 颜色只从 token 混出（字体例外：字体不是颜色，允许读主题层的 `--ds-*`，见第六类）；
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
 5. `tests/skin.spec.ts` 同步：逐字断言 + 预算断言（行数 / 无布局属性 / 无字面色 / token 清单）。
 
-**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（59 条：挂载、单例、逐字 CSS、
+**证据**：`src/client/skin.ts`、`tests/skin.spec.ts`（78 条：挂载、单例、逐字 CSS、
 预算、装饰/地面色取自 token、地面双光斑与强度内联、可见性三条选择器与包含式祖先、
 开关整条消失、卸载零残留、重复挂载、无 document 静默、`apply()` 挂载与 fiber teardown 卸载；
 0.1.3 M2 增 6 条：两格规则逐字、失败行逐字、不出步骤行、等宽只读 `--ds-font-family-code`、
-三个角色在两套方案下均过 AA、成功侧无落点（把这条缺口也钉成断言））；
+三个角色在两套方案下均过 AA、成功侧无落点（把这条缺口也钉成断言）；
+0.1.4 M1 增 8 条：材质段逐字 + 稳定属性 `[data-composer-card]` 而非数层级、
+卡片只清底色且平面在 `z-index:-1` 之后、底与高光全部来自 token（高光是
+`--dsw-static-neutral-bluish-00` 10%，两套方案都 ≥ #C8 近白）、半径走行内属性所以任何
+半径的字节相同、脏半径归一到 0–30、关掉材质**只**掉材质那两条、挂载/改值/关闭/卸载
+四态的门控与行内属性、`off` 选择把材质随表一起摘掉）；
 `src/client/index.ts` 的
 `moonset: skin sheet` effect；
 生成器的 `TOKEN_OVERRIDES`（选中行 token 侧）；安装态 0.2.2-rc.5 的 9 张主题样式表

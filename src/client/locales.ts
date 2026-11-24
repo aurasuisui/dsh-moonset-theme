@@ -50,6 +50,12 @@ export const zh = {
   'glow.hue.soft': '柔和',
   'glow.hue.night': '夜空蓝',
   'glow.hint': '会话区：只透会话列；主区：再透外壳与三列（侧栏仍有自己的面）；全透：连侧栏与底部一起透。浅色与深色各自一套色相与强度；强度 0 等于只剩底色；琥珀只出现在浅色，不随色相变。',
+  // ── 0.1.4 M1: 玻璃材质 ────────────────────────────────────────────────────
+  'glass.title': '玻璃材质',
+  'glass.on': '开',
+  'glass.off': '关',
+  'glass.blur': '模糊',
+  'glass.hint': '半透明 + 背景模糊画在输入卡上，所以会话里的光晕与滚动中的正文会从卡片身后透出来；模糊 0 只剩半透明底色（老旧显卡/compositing 不可用时的保底）。只做输入卡这一面，侧栏与顶栏在后续版本。',
 } as const
 
 /** English dictionary — every `zh` key, no extras (checked at registration). */
@@ -81,6 +87,12 @@ export const en = {
   'glow.hue.soft': 'Soft',
   'glow.hue.night': 'Night blue',
   'glow.hint': 'Conversation keeps the glow to the conversation column; Main lets the shell and the three columns through (the sidebar keeps its own surface); All is fully transparent, sidebar and bottom included. Light and dark grounds each have their own hue and strength; strength 0 leaves only the base colour, and the amber glint belongs to the light scheme only.',
+  // ── 0.1.4 M1: glass material ──────────────────────────────────────────────
+  'glass.title': 'Glass material',
+  'glass.on': 'On',
+  'glass.off': 'Off',
+  'glass.blur': 'Blur',
+  'glass.hint': 'A translucent, background-blurred plane on the input card, so the glow and the transcript scrolling behind it show through; blur 0 leaves the translucent fill only (the fallback when compositing is unavailable). This release does the input card only; the sidebar and the top bar follow.',
 } as const
 
 /** Every key the section renders (the namespace's dictionary union). */

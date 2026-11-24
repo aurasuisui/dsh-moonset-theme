@@ -112,6 +112,16 @@ export const Config = Schema.object({
   glowStrengthLight: maybeVolatile(Schema.number().min(0).max(200).default(90)),
   glowHueDark: maybeVolatile(Schema.union([...GLOW_HUE_VALUES]).default('night')),
   glowStrengthDark: maybeVolatile(Schema.number().min(0).max(200).default(100)),
+  // ── 0.1.4 M1: the glass material ──────────────────────────────────────────
+  // Two more volatile fields on the SAME form (the client reads and writes them
+  // through the same durable store), so the material travels with the ground and
+  // a profile that never opens the section keeps the shipped look: 玻璃默认开、
+  // 模糊 12px. The bounds mirror `skin.ts`'s GLASS_BLUR_MIN/MAX (0-30); the
+  // client half owns the resolver, and this copy is cross-checked in
+  // `tests/settings.spec.ts` (the client cannot import this module — it pulls
+  // schemastery).
+  glass: maybeVolatile(Schema.boolean().default(true)),
+  glassBlur: maybeVolatile(Schema.number().min(0).max(30).default(12)),
 })
 
 /**

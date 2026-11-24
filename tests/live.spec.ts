@@ -6,7 +6,17 @@ import { RESTORE_WINDOW_MS, WRITE_DEBOUNCE_MS } from '../src/client/durable'
 import { apply } from '../src/client/index'
 import { en, zh, type MoonsetLocaleKey } from '../src/client/locales'
 import { MOONSET_DARK, MOONSET_LIGHT } from '../src/client/palettes'
-import { GLOW_HUES, GLOW_SCOPES, type GlowHue, type GlowScope } from '../src/client/skin'
+import {
+  DEFAULT_GLASS,
+  DEFAULT_GLASS_BLUR,
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
+  GLASS_BLUR_STEP,
+  GLOW_HUES,
+  GLOW_SCOPES,
+  type GlowHue,
+  type GlowScope,
+} from '../src/client/skin'
 import {
   MoonsetSection,
   type MoonsetSectionFace,
@@ -542,12 +552,30 @@ const LABELS: MoonsetSectionProps['labels'] = {
     label: zh[`glow.hue.${hue}` as MoonsetLocaleKey],
   })),
   hint: zh['glow.hint'],
+  // 0.1.4 M1: the material block's copy.
+  glassTitle: zh['glass.title'],
+  glassOn: zh['glass.on'],
+  glassOff: zh['glass.off'],
+  glassBlurTitle: zh['glass.blur'],
+  glassHint: zh['glass.hint'],
 }
 
-/** The three M2 fields a view carries, at their contract defaults (M3: B `main`). */
+/**
+ * The fields a view carries at their contract defaults (M3: B `main`).
+ *
+ * 0.1.4 M1 adds the material's pair — same view, same `read()`, no second
+ * source of truth for the section.
+ */
 const GLOW_FIELDS: Pick<
   MoonsetSectionView,
-  'glowScope' | 'glow' | 'glowHueLight' | 'glowStrengthLight' | 'glowHueDark' | 'glowStrengthDark'
+  | 'glowScope'
+  | 'glow'
+  | 'glowHueLight'
+  | 'glowStrengthLight'
+  | 'glowHueDark'
+  | 'glowStrengthDark'
+  | 'glass'
+  | 'glassBlur'
 > = {
   glowScope: 'main',
   glow: true,
@@ -555,6 +583,8 @@ const GLOW_FIELDS: Pick<
   glowStrengthLight: 90,
   glowHueDark: 'night',
   glowStrengthDark: 100,
+  glass: DEFAULT_GLASS,
+  glassBlur: DEFAULT_GLASS_BLUR,
 }
 
 /**
@@ -571,6 +601,8 @@ function mountSection(spec: {
   readonly onStrengthLight?: (next: number) => void
   readonly onHueDark?: (hue: GlowHue) => void
   readonly onStrengthDark?: (next: number) => void
+  readonly onToggleGlass?: (next: boolean) => void
+  readonly onGlassBlur?: (next: number) => void
 }): { mount: HookMount; listeners: Set<() => void> } {
   const listeners = new Set<() => void>()
   const props: MoonsetSectionProps = {
@@ -581,6 +613,8 @@ function mountSection(spec: {
     onStrengthLight: spec.onStrengthLight ?? (() => {}),
     onHueDark: spec.onHueDark ?? (() => {}),
     onStrengthDark: spec.onStrengthDark ?? (() => {}),
+    onToggleGlass: spec.onToggleGlass ?? (() => {}),
+    onGlassBlur: spec.onGlassBlur ?? (() => {}),
     labels: LABELS,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
@@ -887,9 +921,18 @@ describe('M6 设置区 — 浅色 / 深色两组光晕', () => {
       && LABELS.hueOptions.some((option) => textOf(node) === option.label))
   }
 
-  /** Both strength sliders, in document order. */
+  /**
+   * Both GROUND strength sliders, in document order.
+   *
+   * Selected by their accessible name rather than by position: 0.1.4 M1 adds a
+   * third range input (the material's blur), and the tree walker visits the
+   * panel breadth-first, so an index into "all range inputs" is not a
+   * statement about the panel.
+   */
   function sliders(tree: unknown): FakeElement[] {
-    return elementsUnder(tree).filter((node) => node.type === 'input' && node.props.type === 'range')
+    const names = [LABELS.lightTitle, LABELS.darkTitle].map((title) => title + ' ' + LABELS.strengthTitle)
+    return elementsUnder(tree).filter((node) => node.type === 'input' && node.props.type === 'range'
+      && names.includes(String(node.props['aria-label'])))
   }
 
   it('renders two groups, each with three hue buttons and a slider', () => {
@@ -1006,9 +1049,17 @@ describe('M6 设置区 — 浅色 / 深色两组光晕', () => {
 // ── M2: 地面范围 / 环境光晕 / 强度 ───────────────────────────────────────────
 
 describe('M2 设置区 — 地面范围、光晕开关与强度', () => {
-  /** The rendered slider (the only range input). */
+  /**
+   * The LIGHT ground's strength slider.
+   *
+   * By accessible name, not by position: 0.1.4 M1 adds the material's blur
+   * slider to the same panel, and "the first range input in a breadth-first
+   * walk" stopped being that statement.
+   */
   function slider(tree: unknown): FakeElement {
-    const input = elementsUnder(tree).find((node) => node.type === 'input' && node.props.type === 'range')
+    const name = LABELS.lightTitle + ' ' + LABELS.strengthTitle
+    const input = elementsUnder(tree).find((node) => node.type === 'input' && node.props.type === 'range'
+      && node.props['aria-label'] === name)
     if (input === undefined) throw new Error('the section rendered no strength slider')
     return input
   }
@@ -1182,13 +1233,18 @@ describe('M1 设置区 — 选中按钮可读性（G1）', () => {
       // The active seats the plan named: the three theme buttons, the three
       // 地面范围 buttons, one hue per ground, plus the 环境光晕 switch — which
       // shares the same style constant, so it is covered by the same change.
-      expect(pressedButtons(tree).map((button) => textOf(button))).toEqual([
+      // 0.1.4 M1: the material switch is the sixth pressed seat (glass
+      // defaults ON) and shares the same constant on purpose — an active seat
+      // is an active seat. Sorted comparison: the walker is breadth-first, so
+      // the returned ORDER is a fact about the walker, not about the panel.
+      expect(pressedButtons(tree).map((button) => textOf(button) ?? '').sort()).toEqual([
         zh['option.light'],
         zh['glow.title'] + ' ' + zh['glow.on'],
         zh['glow.scope.main'],
         zh['glow.hue.soft'],
         zh['glow.hue.night'],
-      ])
+        zh['glass.title'] + ' ' + zh['glass.on'],
+      ].sort())
       for (const button of pressedButtons(tree)) {
         expect(styleOf(button)).toMatchObject({
           border: '1px solid var(--dsw-static-deepseek-400)',
@@ -1277,17 +1333,89 @@ describe('M1 设置区 — 选中按钮可读性（G1）', () => {
 
   it('rides the same accent on the strength sliders (M1.5)', () => {
     // The range input's accentColor was the same brand-primary ink as the button
-    // fill: in dark it painted a near-white track and thumb. The two sliders are
+    // fill: in dark it painted a near-white track and thumb. The sliders are
     // part of the accent seat family, so they read the same rung the fill does.
+    // 0.1.4 M1: three of them now — the two grounds and the material's blur —
+    // and the material's slider is an accent seat for the same reason.
     const { mount } = mountSection({ view: () => VIEW })
     const tree = mount.mount()
     try {
       const sliders = elementsUnder(tree).filter((node) => node.type === 'input' && node.props.type === 'range')
-      expect(sliders).toHaveLength(2)
+      expect(sliders).toHaveLength(3)
       for (const slider of sliders) {
         expect(styleOf(slider).accentColor).toBe('var(--dsw-static-deepseek-400)')
         expect(styleOf(slider).accentColor).not.toContain('brand-primary')
       }
+    } finally {
+      mount.unmount()
+    }
+  })
+})
+
+// ── 0.1.4 M1: 玻璃材质（输入卡一面） ─────────────────────────────────────────
+
+describe('0.1.4 M1 设置区 — 玻璃材质', () => {
+  /** The material switch, by the label it renders in one of its two states. */
+  function glassSwitch(tree: unknown, on: boolean): FakeElement | undefined {
+    const label = LABELS.glassTitle + ' ' + (on ? LABELS.glassOn : LABELS.glassOff)
+    return elementsUnder(tree).find((node) => node.type === 'button' && textOf(node) === label)
+  }
+
+  /** The blur slider, by its accessible name (the panel has three sliders). */
+  function blurSlider(tree: unknown): FakeElement | undefined {
+    const name = LABELS.glassTitle + ' ' + LABELS.glassBlurTitle
+    return elementsUnder(tree).find((node) => node.type === 'input' && node.props.type === 'range'
+      && node.props['aria-label'] === name)
+  }
+
+  it('renders the material switch and the blur slider from read()', () => {
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS, glassBlur: 18 }
+    const { mount } = mountSection({ view: () => view })
+    const tree = mount.mount()
+    try {
+      // ON by default (契约 §八 已决 1): the switch is pressed and reads 开.
+      expect(glassSwitch(tree, true)?.props['aria-pressed']).toBe(true)
+      // The slider is the MATERIAL's range, not the ground's 0-200: 0-30 by 2.
+      expect(blurSlider(tree)?.props).toMatchObject({
+        min: GLASS_BLUR_MIN,
+        max: GLASS_BLUR_MAX,
+        step: GLASS_BLUR_STEP,
+        value: 18,
+      })
+      // ...and the live value is printed in px beside it.
+      expect(elementsUnder(tree).some((node) => node.type === 'span' && textOf(node) === '18px')).toBe(true)
+      // The contract's numbers, not a drifted default.
+      expect([GLASS_BLUR_MIN, GLASS_BLUR_MAX, GLASS_BLUR_STEP]).toEqual([0, 30, 2])
+    } finally {
+      mount.unmount()
+    }
+  })
+
+  it('calls onToggleGlass / onGlassBlur and moves its own view at once', () => {
+    const view: MoonsetSectionView = { choice: 'light', status: 'mock', ...GLOW_FIELDS }
+    const toggles: boolean[] = []
+    const blurs: number[] = []
+    const { mount } = mountSection({
+      view: () => view,
+      onToggleGlass: (next) => { toggles.push(next) },
+      onGlassBlur: (next) => { blurs.push(next) },
+    })
+    const tree = mount.mount()
+    try {
+      // The switch: the handler sees the new value and THIS render moves, even
+      // though the store still answers ON (optimistic, like every other seat).
+      press(tree, LABELS.glassTitle + ' ' + LABELS.glassOn)
+      expect(toggles).toEqual([false])
+      expect(view.glass).toBe(true)
+      expect(glassSwitch(mount.update(), false)?.props['aria-pressed']).toBe(false)
+      // The slider hands over the parsed number (never a string) and moves its
+      // own value; the ground's strengths are untouched.
+      const onChange = blurSlider(mount.update())?.props.onChange
+      if (typeof onChange !== 'function') throw new Error('the blur slider has no onChange')
+      ;(onChange as (event: unknown) => void)({ currentTarget: { value: '6' } })
+      expect(blurs).toEqual([6])
+      expect(elementsUnder(mount.update()).some((node) => node.type === 'span' && textOf(node) === '6px')).toBe(true)
+      expect(view.glowStrengthLight).toBe(90)
     } finally {
       mount.unmount()
     }

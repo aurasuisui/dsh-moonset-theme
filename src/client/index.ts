@@ -153,11 +153,18 @@ export type {
   MoonsetSectionView,
 } from './settings-section.tsx'
 export {
+  DEFAULT_GLASS,
+  DEFAULT_GLASS_BLUR,
   DEFAULT_GLOW_HUE_DARK,
   DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH_DARK,
   DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLASS_ATTR,
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
+  GLASS_BLUR_STEP,
+  GLASS_BLUR_TOKEN,
   GLOW_ALPHA_AT_FULL,
   GLOW_HUES,
   GLOW_HUE_AT_FULL,
@@ -170,6 +177,8 @@ export {
   darkGlowAlphas,
   glowAlphas,
   mountSkin,
+  resolveGlass,
+  resolveGlassBlur,
   resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
@@ -263,6 +272,12 @@ function sectionLabels(t: SectionTranslate): MoonsetSectionLabels {
     lightTitle: t('glow.light.title'),
     darkTitle: t('glow.dark.title'),
     hint: t('glow.hint'),
+    // 0.1.4 M1: the material block's copy.
+    glassTitle: t('glass.title'),
+    glassOn: t('glass.on'),
+    glassOff: t('glass.off'),
+    glassBlurTitle: t('glass.blur'),
+    glassHint: t('glass.hint'),
   }
 }
 
@@ -332,6 +347,11 @@ function wireSettings(ctx: ClientContext): void {
       strengthLight: current.strengthLight,
       hueDark: current.hueDark,
       strengthDark: current.strengthDark,
+      // 0.1.4 M1: the material. Both fields ride this one options object, so
+      // the sheet, the root attribute and the inline radius always move
+      // together (they are three facts of ONE switch).
+      glass: current.glass,
+      glassBlur: current.glassBlur,
     }
   }
   /** The pending sheet rebuild (cleared by the teardown). */
@@ -395,6 +415,27 @@ function wireSettings(ctx: ClientContext): void {
 
   const setStrengthDark = (next: number): void => {
     glow.write({ strengthDark: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  /**
+   * 0.1.4 M1: the material's two controls.
+   *
+   * Same clock as every other surface control: the durable write lands at
+   * 300 ms, the sheet (and with it the root attribute and the inline blur
+   * radius) rebuilds at 150 ms. A blur drag therefore emits ONE rebuild, and
+   * because the radius is a custom property the rebuild re-points a value
+   * rather than re-parsing the rules.
+   */
+  const setGlassOn = (next: boolean): void => {
+    glow.write({ glass: next })
+    scheduleSkinRebuild()
+    notifyView()
+  }
+
+  const setGlassBlur = (next: number): void => {
+    glow.write({ glassBlur: next })
     scheduleSkinRebuild()
     notifyView()
   }
@@ -836,6 +877,9 @@ function wireSettings(ctx: ClientContext): void {
       glowStrengthLight: current.strengthLight,
       glowHueDark: current.hueDark,
       glowStrengthDark: current.strengthDark,
+      // 0.1.4 M1: the material's own two facts (same read, no second source).
+      glass: current.glass,
+      glassBlur: current.glassBlur,
     }
   }
 
@@ -850,6 +894,8 @@ function wireSettings(ctx: ClientContext): void {
     onStrengthLight: setStrengthLight,
     onHueDark: setHueDark,
     onStrengthDark: setStrengthDark,
+    onToggleGlass: setGlassOn,
+    onGlassBlur: setGlassBlur,
     labels: sectionLabels(t),
     subscribe,
     read,

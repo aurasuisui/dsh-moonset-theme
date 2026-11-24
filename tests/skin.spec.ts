@@ -44,11 +44,18 @@ import { BOOT_SHEET_SELECTOR } from '../src/client/boot-cleanup'
 import { SKIN_REBUILD_MS, apply } from '../src/client/index'
 import { MOONSET_DARK, MOONSET_LIGHT, MOONSET_TOKEN_OVERRIDES } from '../src/client/palettes'
 import {
+  DEFAULT_GLASS,
+  DEFAULT_GLASS_BLUR,
   DEFAULT_GLOW_HUE_DARK,
   DEFAULT_GLOW_HUE_LIGHT,
   DEFAULT_GLOW_SCOPE,
   DEFAULT_GLOW_STRENGTH_DARK,
   DEFAULT_GLOW_STRENGTH_LIGHT,
+  GLASS_ATTR,
+  GLASS_BLUR_MAX,
+  GLASS_BLUR_MIN,
+  GLASS_BLUR_STEP,
+  GLASS_BLUR_TOKEN,
   GLOW_ALPHA_AT_FULL,
   GLOW_HUES,
   GLOW_HUE_AT_FULL,
@@ -62,6 +69,8 @@ import {
   darkGlowAlphas,
   glowAlphas,
   mountSkin,
+  resolveGlass,
+  resolveGlassBlur,
   resolveGlowHue,
   resolveGlowScope,
   resolveGlowStrength,
@@ -89,21 +98,25 @@ const CANVAS = '--dsw-alias-bg-base'
 
 /**
  * The sheet's line budget: 60 through 0.1.2, 75 for the first 0.1.3 M2 pass,
- * 95 for the per-class pass (M2b).
+ * 95 for the per-class pass (M2b), **115 for the 0.1.4 material**.
  *
  * The step-row entry is the first whitelist class that addresses TWO cells of a
  * host row, a per-kind hue for each of them, and their failed state: four class
- * declaration blocks plus seven rules (measured 55 → 93). The architecture doc
+ * declaration blocks plus seven rules (measured 55 → 93). 0.1.4 M1 buys the
+ * material's two rules (13 lines: the ::before plane + the card's own clear) for
+ * the INPUT CARD ONLY; M2 adds one selector line per rule for each of the other
+ * two faces, which is why the ceiling is 115 and not 105. The architecture doc
  * §11.5 carries the same number.
  */
-const SHEET_BUDGET = 95
+const SHEET_BUDGET = 115
 
 /**
  * Rule blocks in the default sheet: nine through 0.1.2, sixteen since 0.1.3 M2b
  * (two cell rules, four class blocks and the failed-step rule on top of the
- * nine the 0.1.2 sheet shipped).
+ * nine the 0.1.2 sheet shipped), eighteen since 0.1.4 M1 (the material's card
+ * rule and its ::before plane).
  */
-const SHEET_RULES = 16
+const SHEET_RULES = 18
 
 /**
  * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
@@ -116,7 +129,8 @@ const SHEET_RULES = 16
  * pre-glow sheet still carries them.
  */
 const EXPECTED_BASE_CSS = [
-  "/* dsh-moonset[0.1.3]: skin — P5 whitelist (selection, item text, ground, step rows) */",
+  "/* dsh-moonset[0.1.4]: skin — P5 whitelist (selection, item text, ground, step",
+  "   rows, material) */",
   "html body ::selection {",
   "  background: color-mix(in srgb, var(--dsw-static-deepseek-500) 22%, transparent);",
   "  color: var(--dsw-static-deepseek-500);",
@@ -213,8 +227,24 @@ const EXPECTED_GLOW_CSS = [
   '}',
 ].join('\n')
 
-/** The complete 0.1.2 sheet: the 0.1.1 rules plus the ground. */
-const EXPECTED_CSS = EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS
+/** The 0.1.4 M1 material segment (the input card's glass plane), verbatim. */
+const EXPECTED_GLASS_CSS = [
+  '/* 0.1.4 M1 glass (input card): the material is a ::before plane (P6), so the',
+  '   card itself paints nothing; isolation keeps the -1 plane inside it. */',
+  'html[data-moonset-skin][data-moonset-glass] [data-composer-card] {',
+  '  position: relative; isolation: isolate; background: transparent;',
+  '}',
+  'html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before {',
+  "  content: ''; position: absolute; inset: 0; z-index: -1;",
+  '  border-radius: inherit; pointer-events: none;',
+  '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
+  '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
+  '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
+  '}',
+].join('\n')
+
+/** The complete 0.1.4 sheet: the 0.1.1/0.1.3 rules, the ground, then the material. */
+const EXPECTED_CSS = EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS + '\n' + EXPECTED_GLASS_CSS
 
 /** The LIGHT ground rule of one sheet (the night anchor and the dark rule follow). */
 function lightGroundRule(sheet: string): string {
@@ -373,6 +403,11 @@ class StubSheet implements SkinSheetElement {
  */
 class StubDocument implements SkinRoot {
   readonly attributes = new Map<string, string>()
+  /**
+   * `<html>`'s inline CUSTOM PROPERTIES (0.1.4): the ONE element-level style
+   * write the plugin makes, the glass blur radius.
+   */
+  readonly inlineStyle = new Map<string, string>()
   /** Every element ever created or appended (attached and detached). */
   readonly sheets: StubSheet[] = []
   readonly documentElement = {
@@ -381,6 +416,14 @@ class StubDocument implements SkinRoot {
     },
     removeAttribute: (name: string): void => {
       this.attributes.delete(name)
+    },
+    style: {
+      setProperty: (name: string, value: string): void => {
+        this.inlineStyle.set(name, value)
+      },
+      removeProperty: (name: string): void => {
+        this.inlineStyle.delete(name)
+      },
     },
   }
   readonly head = {
@@ -448,7 +491,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(skinCss()).toBe(EXPECTED_CSS)
   })
 
-  it('stays inside the whitelist budget: <= 95 lines, sixteen rules, no layout', () => {
+  it('stays inside the whitelist budget: <= 115 lines, eighteen rules, no layout', () => {
     const css = skinCss()
     const lines = css.split('\n')
 
@@ -476,6 +519,10 @@ describe('skinCss — the whitelisted rules', () => {
     const darkStart = css.indexOf('/* 0.1.2 ground (dark)')
     const clearStart = css.indexOf('html[data-moonset-skin] #root :has(')
     const bandStart = css.indexOf('/* 0.1.2 bottom band (M2)')
+    // 0.1.4 M1: the material is its own segment, appended LAST (it is the only
+    // entry that may write a position, so keeping it in one place is what makes
+    // the layout check below decidable).
+    const glassStart = css.indexOf('/* 0.1.4 M1 glass')
     // 0.1.3 M2 sits between the selected-item rules and the ground: it is text
     // colouring, not a paint layer, so it rides the 0.1.1 half of the sheet.
     const stepStart = css.indexOf('/* 0.1.3 M2')
@@ -488,6 +535,7 @@ describe('skinCss — the whitelisted rules', () => {
     expect(darkStart).toBeGreaterThan(groundStart)
     expect(clearStart).toBeGreaterThan(darkStart)
     expect(bandStart).toBeGreaterThan(clearStart)
+    expect(glassStart).toBeGreaterThan(bandStart)
     expect(css.slice(selectedStart, underlineStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(underlineStart, underlineEnd).split('\n').length).toBeLessThanOrEqual(12)
     // The step-row entry: two cell rules, four class declaration blocks and the
@@ -498,10 +546,19 @@ describe('skinCss — the whitelisted rules', () => {
     expect(css.slice(groundStart, darkStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(darkStart, clearStart).split('\n').length).toBeLessThanOrEqual(12)
     expect(css.slice(clearStart, bandStart).split('\n').length).toBeLessThanOrEqual(12)
-    expect(css.slice(bandStart).split('\n').length).toBeLessThanOrEqual(12)
+    expect(css.slice(bandStart, glassStart).split('\n').length).toBeLessThanOrEqual(12)
+    // The material's two rules: 13 lines, the ceiling the 115 budget bought.
+    expect(css.slice(glassStart).split('\n').length).toBeLessThanOrEqual(14)
     // No layout, no structure, no conditional animation: this sheet paints.
     expect(css).not.toMatch(/@media|@supports|!important|animation|transition/)
-    expect(css).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
+    // ...with ONE documented exception (0.1.4 M1): the material's ::before needs
+    // a positioned host and a full-bleed inset. Everything before that segment
+    // is still layout-free, and inside it the exception is ENUMERATED, so it
+    // cannot quietly grow a width/margin/overflow.
+    expect(css.slice(0, glassStart)).not.toMatch(/\b(?:display|position|grid|flex|width|height|margin|padding|overflow)\s*:/)
+    const material = css.slice(glassStart)
+    expect(material.match(/\b(?:display|grid|flex|width|height|margin|padding|overflow)\s*:/g) ?? []).toEqual([])
+    expect(material.match(/\b(?:position|inset)\s*:/g) ?? []).toEqual(['position:', 'position:', 'inset:'])
   })
 
   it('takes every colour from a token — except the ONE night anchor (M5)', () => {
@@ -528,15 +585,20 @@ describe('skinCss — the whitelisted rules', () => {
       'var(--dsw-static-green-500)',
       'var(--dsw-static-amber-600)',
       'var(--dsw-static-violet-400)',
+      // 0.1.4 M1: the material's edge highlight — the palette's own near-white
+      // (#FAFAFC light / #EEF0F7 dark), not the plan's rgba(255,255,255,.10)
+      // literal: same pixel, and P5's "no literal colour" rule survives.
+      'var(--dsw-static-neutral-bluish-00)',
     ]))
     // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
     // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
     // ground (night): one canvas. 0.1.3 M2b: the step-row name default is the
     // accent again, each class mixes its family twice (name + arguments) toward
     // label-primary / label-secondary, the arguments default is a label alias,
-    // and the failed step is one state alias. The night anchor refs are counted
-    // separately.
-    expect(tokens).toHaveLength(28)
+    // and the failed step is one state alias. 0.1.4 M1: the material adds the
+    // canvas under its plane and the near-white on its top edge. The night
+    // anchor refs are counted separately.
+    expect(tokens).toHaveLength(30)
     // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
     // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
     expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
@@ -893,9 +955,13 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
   it('drops BOTH grounds — light and dark — when the switch is off', () => {
     // The switch is not a strength: `glow: false` must leave no dark rule, no
     // layer and no scope behind, at any strength (0.1.2 D4's pre-glow screen).
+    // 0.1.4: the MATERIAL is its own switch (GLASS_ATTR), so "pre-glow" is the
+    // base half plus the material segment — the pre-GLASS sheet needs BOTH off.
     for (const strength of [GLOW_STRENGTH_MIN, 100, GLOW_STRENGTH_MAX]) {
       const off = skinCss({ glow: false, strengthLight: strength, strengthDark: strength })
-      expect(off).toBe(EXPECTED_BASE_CSS)
+      expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLASS_CSS)
+      expect(skinCss({ glow: false, glass: false, strengthLight: strength, strengthDark: strength }))
+        .toBe(EXPECTED_BASE_CSS)
       expect(off).not.toContain('data-ds-dark-theme')
       expect(off).not.toContain('radial-gradient')
       expect(off).not.toContain('linear-gradient')
@@ -958,9 +1024,12 @@ describe('skinCss — the 0.1.2 ground (wash + two fixed spots)', () => {
 
   it('drops the WHOLE ground rule when the M2 switch is off (never alpha 0)', () => {
     // Off means the rule does not exist: alpha 0 would still composite
-    // (0.1.2 §一), and D4's bar is a pre-glow screenshot.
+    // (0.1.2 §一), and D4's bar is a pre-glow screenshot. 0.1.4: the material
+    // segment survives (its own switch), so the pre-GLOW sheet is base+material
+    // and only "both off" returns the 0.1.1/0.1.3 sheet byte-for-byte.
     const off = skinCss({ glow: false })
-    expect(off).toBe(EXPECTED_BASE_CSS)
+    expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLASS_CSS)
+    expect(skinCss({ glow: false, glass: false })).toBe(EXPECTED_BASE_CSS)
     expect(off).not.toContain('radial-gradient')
     expect(off).not.toContain('linear-gradient')
     expect(off).not.toMatch(/html\[data-moonset-skin\] body \{/)
@@ -1092,7 +1161,10 @@ describe('skinCss — the 0.1.2 visibility (host layers cleared to the panel roo
     const off = skinCss({ glow: false })
     expect(off).not.toContain('background-color: transparent')
     expect(off).not.toContain('#root')
-    expect(off).toBe(EXPECTED_BASE_CSS)
+    // 0.1.4: the material is a different switch; with it off as well this is
+    // the pre-glow sheet byte-for-byte.
+    expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLASS_CSS)
+    expect(skinCss({ glow: false, glass: false })).toBe(EXPECTED_BASE_CSS)
   })
 })
 
@@ -2113,3 +2185,172 @@ describe('apply — the skin follows the stored choice', () => {
   })
 })
 
+
+
+/* ------------------------------------------------------------------ *
+ * 0.1.4 M1 玻璃材质（输入卡一面）                                      *
+ * ------------------------------------------------------------------ */
+
+describe('0.1.4 M1 玻璃材质 — 输入卡一面', () => {
+  /** The material segment of one sheet (everything from its comment on). */
+  function materialSegment(css: string): string {
+    const start = css.indexOf('/* 0.1.4 M1 glass')
+    if (start === -1) throw new Error('the sheet carries no material segment:\n' + css)
+    return css.slice(start)
+  }
+
+  it('paints the material on the card`s OWN ::before, on the host`s stable attribute', () => {
+    const css = skinCss()
+    // Verbatim: this segment IS the whitelist entry, so a reworded selector, a
+    // moved declaration or a third rule has to fail here.
+    expect(materialSegment(css)).toBe(EXPECTED_GLASS_CSS)
+    // The card is addressed by the attribute the installed UI renders —
+    // `data-composer-card` (ui-conversation `InputBar.tsx:462`), on the very
+    // node whose hashed class carries
+    // `background: var(--dsw-specific-input-major)` (`InputBar.module.css:71`).
+    // So the D2 fallback (`the seat`s first wrapper div, depth <= 2`) is NOT
+    // needed: one stable attribute, no depth counting.
+    expect(css).toContain('[data-composer-card]')
+    expect(css).not.toContain('composerSeat >')
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    const selectorText = rules.replace(/\{[^}]*\}/g, '')
+    expect(selectorText).not.toMatch(/\[class|\*=/)
+    // One plane, and no ::after of ours (the host owns the trigger outline).
+    expect(rules.match(/::before/g)).toHaveLength(1)
+    expect(rules.match(/::after/g)).toHaveLength(1)
+  })
+
+  it('clears the card`s own fill and draws nothing else on it (P6)', () => {
+    const css = skinCss()
+    const cardRule = /html\[data-moonset-skin\]\[data-moonset-glass\] \[data-composer-card\] \{([\s\S]*?)\}/.exec(css)
+    if (cardRule === null) throw new Error('missing the card rule')
+    const declarations = cardRule[1].split(';').map((part) => part.trim()).filter(Boolean)
+    // Exactly the three the recipe needs: a positioned host for the plane, a
+    // stacking context that keeps it inside the card, and the host fill cleared
+    // so the plane is the only paint. The host`s shadow is NOT touched.
+    expect(declarations).toEqual([
+      'position: relative',
+      'isolation: isolate',
+      'background: transparent',
+    ])
+    const plane = /\[data-composer-card\]::before \{([\s\S]*?)\}/.exec(css)
+    if (plane === null) throw new Error('missing the material plane')
+    const planeDeclarations = plane[1].split(';').map((part) => part.trim()).filter(Boolean)
+    // Full-bleed, radius inherited, no hit testing, and BEHIND the card`s
+    // content. The z-index is not decoration: measured on Chromium, a plane
+    // without it paints in the positioned layer and its backdrop-filter blurs
+    // the card`s own draft text away.
+    expect(planeDeclarations).toContain("content: ''")
+    expect(planeDeclarations).toContain('position: absolute')
+    expect(planeDeclarations).toContain('inset: 0')
+    expect(planeDeclarations).toContain('z-index: -1')
+    expect(planeDeclarations).toContain('border-radius: inherit')
+    expect(planeDeclarations).toContain('pointer-events: none')
+    // No layout beyond the positioning declarations: the card keeps its box,
+    // radius and host shadow.
+    expect(planeDeclarations.some((entry) => /^(?:width|height|margin|padding|overflow|display)/.test(entry))).toBe(false)
+    expect(css).not.toMatch(/box-shadow:\s*none/)
+  })
+
+  it('mixes the material base and its edge from tokens, never from a literal', () => {
+    const material = materialSegment(skinCss())
+    // The material base is the canvas at 62% (方案自适应), and the top edge is
+    // the palette`s own near-white at 10% — the plan sketched
+    // `rgba(255,255,255,0.10)`, and this is the same pixel by token.
+    expect(material).toContain('color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent)')
+    expect(material).toContain('color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent)')
+    expect(material).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(material).not.toMatch(/\b(?:rgba?|hsla?)\(/)
+    // ...and "near-white" really holds in BOTH schemes, so the highlight cannot
+    // turn into a dark line in the dark palette.
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const edge = rgbOf(resolveToken(table, '--dsw-static-neutral-bluish-00'))
+      expect(Math.min(edge.r, edge.g, edge.b), scheme + ' edge highlight must be near-white').toBeGreaterThan(200)
+    }
+  })
+
+  it('takes the radius from the inline property, so the sheet never carries it', () => {
+    const reference = skinCss()
+    expect(reference).toContain('backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)')
+    // Every radius produces the SAME bytes: the knob re-points a value instead
+    // of re-parsing the rules (that is also why the verbatim assertion above is
+    // radius-independent).
+    for (const radius of [GLASS_BLUR_MIN, 4, DEFAULT_GLASS_BLUR, GLASS_BLUR_MAX]) {
+      expect(skinCss({ glassBlur: radius })).toBe(reference)
+    }
+    expect(reference).not.toMatch(/blur\(\d/)
+    // ...and the value lands on <html> as a px length.
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe(DEFAULT_GLASS_BLUR + 'px')
+  })
+
+  it('resolves a dirty radius into 0-30, and falls back to the shipped default', () => {
+    expect(resolveGlassBlur(undefined)).toBe(DEFAULT_GLASS_BLUR)
+    expect(resolveGlassBlur('8')).toBe(8)
+    expect(resolveGlassBlur(-4)).toBe(GLASS_BLUR_MIN)
+    expect(resolveGlassBlur(999)).toBe(GLASS_BLUR_MAX)
+    expect(resolveGlassBlur(7.6)).toBe(8)
+    expect(resolveGlassBlur(Number.NaN)).toBe(DEFAULT_GLASS_BLUR)
+    // The switch: a missing or non-boolean value is the default, which is ON.
+    expect(resolveGlass(undefined)).toBe(true)
+    expect(resolveGlass(false)).toBe(false)
+    expect(DEFAULT_GLASS).toBe(true)
+    expect([GLASS_BLUR_MIN, GLASS_BLUR_MAX, GLASS_BLUR_STEP]).toEqual([0, 30, 2])
+  })
+
+  it('drops both rules when the material switch is off — and rides its OWN switch', () => {
+    const off = skinCss({ glass: false })
+    expect(off).toBe(EXPECTED_BASE_CSS + '\n' + EXPECTED_GLOW_CSS)
+    expect(off).not.toContain('data-moonset-glass')
+    expect(off).not.toContain('backdrop-filter')
+    expect(off).not.toContain('::before')
+    // Independent of the ground in both directions: "glow off" keeps the
+    // material, "glass off" keeps the ground (契约 §一 P7 + §八 已决 2).
+    expect(skinCss({ glow: false })).toContain('[data-composer-card]::before')
+    expect(skinCss({ glass: false })).toContain('radial-gradient')
+  })
+
+  it('mounts the gate and the radius together, moves both, and removes both', () => {
+    const doc = new StubDocument()
+    mountSkin(doc)
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('12px')
+
+    // A slider move re-points the property; the gate stays.
+    updateSkin({ glassBlur: 4 }, doc)
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('4px')
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+
+    // The switch removes BOTH facts but leaves the sheet alive: the selection,
+    // the ground and the step rows are not the material`s business.
+    updateSkin({ glass: false }, doc)
+    expect(doc.attributes.has(GLASS_ATTR)).toBe(false)
+    expect(doc.inlineStyle.has(GLASS_BLUR_TOKEN)).toBe(false)
+    expect(doc.attached()).toHaveLength(1)
+
+    updateSkin({ glass: true, glassBlur: 8 }, doc)
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('8px')
+
+    // Zero residue: the unload takes the attribute and the inline property.
+    unmountSkin(doc)
+    expect(doc.attributes.size).toBe(0)
+    expect(doc.inlineStyle.size).toBe(0)
+    expect(doc.attached()).toHaveLength(0)
+  })
+
+  it('takes the material off with the sheet when the choice is off', () => {
+    const doc = new StubDocument()
+    syncSkin('light', doc)
+    expect(doc.attributes.get(SKIN_ATTR)).toBe('')
+    expect(doc.attributes.get(GLASS_ATTR)).toBe('')
+    expect(doc.inlineStyle.get(GLASS_BLUR_TOKEN)).toBe('12px')
+    // The official theme brings no Moonset material either: one `off` clears
+    // the sheet, the gate and the radius together.
+    syncSkin('off', doc)
+    expect(doc.attributes.size).toBe(0)
+    expect(doc.inlineStyle.size).toBe(0)
+    expect(doc.attached()).toHaveLength(0)
+  })
+})
