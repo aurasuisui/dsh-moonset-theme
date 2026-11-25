@@ -835,13 +835,17 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * The caption strip is the one face that is ALREADY a `::before`: it is a leaf
  * paint surface with no content of its own, so the material goes on it directly
  * (geometry stays the host's: `inset`, `height` and the drag region are not
- * touched here).
+ * touched here). Its base colour follows the HOST's caption fill rather than the
+ * canvas — R2's fix, because the OS caption buttons are painted over that fill.
  *
- * ONE material, shared verbatim by the planes and the strip (`material` below is
- * emitted twice): the canvas at 62% plus a 10% near-white top highlight
+ * ONE material: the canvas at 62% plus a 10% near-white top highlight
  * (`--dsw-static-neutral-bluish-00`) — a token, not the plan's
  * `rgba(255,255,255,0.10)`, so P5's "every colour from a token" rule holds (the
- * sheet's only literals stay the two night anchors). The HEADER is the one face
+ * sheet's only literals stay the two night anchors). The strip's BASE is the
+ * one deliberate deviation (0.1.6 R2): it must match the OS caption overlay the
+ * desktop shell paints from `--dsw-specific-sidebar-fill`, or the native
+ * min/max/close band reads grey against our strip (see {@link stripMaterial} in
+ * the builder). The HEADER is the one face
  * that adds anything: it keeps the host's 0.5px `border-bottom` (nothing here
  * writes `border`) and paints the material's own bottom edge on the plane,
  * because a 1px line under a 62%-opaque plane would be muted to invisibility.
@@ -862,11 +866,32 @@ function glassRules(): readonly string[] {
   const header = `${SKIN_GATE} #root ${HEADER_HOOK}`
   /** The Windows caption strip (M2): the frame's existing ::before. */
   const strip = `${WINDOWS_GATE} ${STRIP_HOOK}`
-  /** The material itself — the SAME three declarations on every face. */
+  /** The material itself — the SAME three declarations on every plane. */
   const material = [
     '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
     '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
     '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
+  ]
+  /**
+   * The caption strip's OWN base — the host caption fill, not the canvas (R2).
+   *
+   * 0.1.6 real-machine report: the Windows min/max/close controls looked grey.
+   * They are the OS caption overlay, and the desktop shell feeds
+   * `setTitleBarOverlay` the colour of a probe styled
+   * `background-color: var(--dsw-specific-sidebar-fill)`
+   * (`lib/preload-app.cjs:1796` → `:1823` → `lib/main.js:21450`); the host's own
+   * strip paints that same token (`AppFrame.module.css:40-47`). Feeding the
+   * material the CANVAS base therefore made our strip 3.72/255 lighter than the
+   * native control band in light (4.96/255 darker in dark), and the band read as
+   * a grey block. Painted as 62% of the SAME token over the frame's own
+   * sidebar-fill, the compositing result is exactly that token: strip and OS band
+   * agree to 0/255 in BOTH schemes. The blur and the top highlight stay the
+   * shared recipe, byte for byte.
+   */
+  const stripMaterial = [
+    '  background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 62%, transparent);',
+    material[1],
+    material[2],
   ]
   return [
     '/* 0.1.4 glass (M1 card, M2 top bar, M3 header; the sidebar left in M6): ONE',
@@ -886,7 +911,7 @@ function glassRules(): readonly string[] {
     '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);',
     '}',
     `${strip} {`,
-    ...material,
+    ...stripMaterial,
     '}',
     `${card},`,
     `${header} {`,
@@ -953,6 +978,15 @@ function glassRules(): readonly string[] {
  *    `--changes-fill` seat, now pointed at `--dsh-moonset-surface-head`.
  *    The edge stays `border-l2` + the same-token inset ring, so the card is a
  *    two-layer docs-site box drawn by its border, not by an accent fill.
+ *
+ *    0.1.6 R3 (real-machine): the 60px header's HOVER was still grey. The host
+ *    paints `button.header:hover { background: var(--changes-hover) }` and the
+ *    card declares `--changes-hover: var(--dsw-alias-card-fill-hover)` — a
+ *    NEUTRAL rung (light `#E3E4E9` / dark `#3A3D48`), not the accent wash the file
+ *    rows hover with (`ChangedFiles.module.css:2`, `:9`, `:37`). The card now
+ *    re-points `--changes-hover` at the SAME `--dsw-alias-interactive-bg-hover`
+ *    the rows read, so header and rows share one indigo hover (light `#E8E7F7`,
+ *    dark `#1A1D2E`) and the 13px title keeps AA (15.15:1 / 13.94:1).
  *  - **G3, the `上下文注入` row.** It is a `DisclosureRow` whose row root carries
  *    no `data-variant`, so the 0.1.3 step-row rules never reach it
  *    (`ContextInjectionRow.tsx:51`). Its collapsed content publishes the only
@@ -984,7 +1018,7 @@ function colourRules(): readonly string[] {
     '/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the',
     '   context-injection row and the LIGHT failure red. No layout property. */',
     'html[data-moonset-skin] body [data-changed-files] {',
-    `  background-color: var(${SURFACE_BODY_TOKEN}); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(${SURFACE_HEAD_TOKEN});`,
+    `  background-color: var(${SURFACE_BODY_TOKEN}); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(${SURFACE_HEAD_TOKEN}); --changes-hover: var(--dsw-alias-interactive-bg-hover);`,
     '}',
     "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
     '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',

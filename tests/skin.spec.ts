@@ -256,11 +256,13 @@ const EXPECTED_GLOW_CSS = [
  * The 0.1.4 material segment (FOUR faces, ONE recipe), verbatim.
  *
  * M1 shipped the input card, M2 the sidebar column and the Windows caption
- * strip, M3 the conversation header. `background` / `backdrop-filter` /
- * `box-shadow` stay the SAME TEXT on the planes and the strip; two faces
- * deviate on purpose and ONLY where the real-machine report demanded it (the
- * sidebar's base, the header's bottom edge) — the parity case below reads both
- * back out of the sheet, so a silent third deviation fails.
+ * strip, M3 the conversation header. `backdrop-filter` / `box-shadow` stay the
+ * SAME TEXT on every face; THREE deviations are deliberate and ONLY where a
+ * real-machine report demanded them: the strip's BASE (0.1.6 R2 — it must match
+ * the OS caption overlay, which the shell paints from
+ * `--dsw-specific-sidebar-fill`), the header's bottom edge (0.1.4 M3) and the
+ * sidebar's removed base (0.1.4 M6). The parity case below reads the faces back
+ * out of the sheet, so a silent fourth deviation fails.
  */
 const EXPECTED_GLASS_CSS = [
   '/* 0.1.4 glass (M1 card, M2 top bar, M3 header; the sidebar left in M6): ONE',
@@ -282,7 +284,7 @@ const EXPECTED_GLASS_CSS = [
   '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);',
   '}',
   "html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before {",
-  '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
+  '  background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 62%, transparent);',
   '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
   '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
   '}',
@@ -321,14 +323,16 @@ const EXPECTED_GLASS_CSS = [
  * false-alarm revert: the card is the host's in-memory projection of the turn,
  * so a restart clearing it is HOST behaviour, not a skin bug), the
  * context-injection row (G3) and the LIGHT failure red (G4). They ride no
- * switch: "glow off" and "glass off" both keep them. The card's visibility
- * numbers are in docs/architecture.md §11.8 (light 1.214:1 / dark 1.169:1).
+ * switch: "glow off" and "glass off" both keep them. 0.1.6 re-points the card's
+ * fills at the surface pair and its hover at the accent wash (R3 — the host's
+ * `--changes-hover` default is a NEUTRAL rung); the card's 0.1.6 numbers are in
+ * docs/architecture.md §11.10/§11.11.
  */
 const EXPECTED_COLOUR_CSS = [
   "/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the",
   "   context-injection row and the LIGHT failure red. No layout property. */",
   "html[data-moonset-skin] body [data-changed-files] {",
-  "  background-color: var(--dsh-moonset-surface-body); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsh-moonset-surface-head);",
+  "  background-color: var(--dsh-moonset-surface-body); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsh-moonset-surface-head); --changes-hover: var(--dsw-alias-interactive-bg-hover);",
   "}",
   "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
   "  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));",
@@ -845,9 +849,15 @@ describe('skinCss — the whitelisted rules', () => {
       'var(--dsw-alias-border-l3)',
       // 0.1.6 M2: the card's surface is the doc-site pair (a `--dsh-moonset-`
       // variable, counted with the night anchor refs below), so the last token
-      // left on the card is the hairline ring's. (0.1.5 G2 had read
+      // left on the card's FILL is the hairline ring's. (0.1.5 G2 had read
       // `bg-module-platform` here; the accent tint is gone.)
       'var(--dsw-alias-border-l2)',
+      // 0.1.6 R3: the card's hover re-point — the SAME accent wash the file rows
+      // read, so header and rows hover as one family.
+      'var(--dsw-alias-interactive-bg-hover)',
+      // 0.1.6 R2: the caption strip's base — the colour the desktop shell feeds
+      // the native `setTitleBarOverlay` (and the host's own strip paints).
+      'var(--dsw-specific-sidebar-fill)',
     ]))
     // 0.1.1 rules: accent x4 (selection bg + text, label, underline). Light
     // ground (soft): accent halo + amber glint + accent wash + canvas. Dark
@@ -863,9 +873,11 @@ describe('skinCss — the whitelisted rules', () => {
     // neighbour mixes on both sides): 53 in the final 0.1.5 sheet. 0.1.6 M2 takes
     // the card's two `bg-module-platform` reads away (its surface is now the
     // `--dsh-moonset-surface-*` pair) and adds none back (the code box moves
-    // through the host's own `--dsl-` variable): 51 total. The night anchor /
-    // surface refs are counted separately.
-    expect(tokens).toHaveLength(51)
+    // through the host's own `--dsl-` variable): 51 total. 0.1.6 R3 adds the
+    // card's hover wash and R2 swaps the strip's canvas base for the host caption
+    // fill (one `--dsw-alias-bg-base` out, two tokens in): 52 total. The night
+    // anchor / surface refs are counted separately.
+    expect(tokens).toHaveLength(52)
     // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
     // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
     expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
@@ -2736,8 +2748,17 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     const planes = materialOf('html[data-moonset-skin][data-moonset-glass] [data-composer-card]::before,')
     const strip = materialOf("html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before")
     expect(planes).toHaveLength(3)
-    // Verbatim equality between the card/sidebar plane and the caption strip.
-    expect(strip).toEqual(planes)
+    expect(strip).toHaveLength(3)
+    // Verbatim equality on the blur and the top highlight — the recipe that makes
+    // the faces one material.
+    expect(strip.slice(1)).toEqual(planes.slice(1))
+    // 0.1.6 R2: the strip's BASE is the ONE deliberate deviation. The Windows
+    // min/max/close controls are the OS caption overlay and their colour is the
+    // shell's `--dsw-specific-sidebar-fill` probe (`lib/preload-app.cjs:1796` →
+    // `:1823` → `lib/main.js:21450`); a canvas base made our strip 3.72/255 off the
+    // native band in light. See the R2 case below for the colour proof.
+    expect(strip[0]).toBe('background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 62%, transparent)')
+    expect(planes[0]).toBe('background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent)')
   })
 
   it('addresses each face by a stable hook, one `>` hop at most', () => {
@@ -2828,6 +2849,39 @@ describe('0.1.4 玻璃材质 — 三面共用一份材质', () => {
     // header inherit the planes rule's value.
     const materials = [...css.matchAll(/backdrop-filter:\s*blur\((var\([^)]*\))\)/g)].map((m) => m[1])
     expect(new Set(materials)).toEqual(new Set(['var(--dsh-moonset-glass-blur)']))
+  })
+
+  it('0.1.6 R2: the caption strip matches the OS caption overlay exactly', () => {
+    const css = skinCss()
+    // The native min/max/close band is painted by Windows from the colour the
+    // desktop shell feeds `setTitleBarOverlay`. The shell reads it off a probe
+    // styled `background-color: var(--dsw-specific-sidebar-fill)`
+    // (`lib/preload-app.cjs:1796` probe → `:1823` send → `lib/main.js:21450`
+    // setTitleBarOverlay), and the HOST's own strip paints that same token
+    // (`AppFrame.module.css:27-31` frame, `:40-47` ::before). So our strip must
+    // composite to exactly it — a canvas base made it 3.72/255 lighter in light
+    // (the real-machine 'grey buttons' report) and 4.96/255 darker in dark.
+    const at = css.indexOf('[data-windows-titlebar]')
+    expect(at).toBeGreaterThan(-1)
+    const strip = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
+    const mix = /background: color-mix\(in srgb, var\((--dsw-[a-z0-9-]+)\) (\d+)%, transparent\);/.exec(strip)
+    expect(mix).not.toBeNull()
+    expect(mix![1]).toBe('--dsw-specific-sidebar-fill')
+    expect(Number(mix![2])).toBe(62)
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      // The frame behind the strip paints the SAME token, so 62% of X over X is X.
+      const sidebar = colourOf(table, table['--dsw-specific-sidebar-fill'])
+      const composite = over({ ...sidebar, a: 0.62 }, sidebar)
+      for (const channel of ['r', 'g', 'b'] as const) {
+        expect(Math.abs(composite[channel] - sidebar[channel]), scheme + ' strip vs OS band ' + channel).toBeLessThan(1e-9)
+      }
+      // ...and the old canvas base DID drift, by at least 3/255 (the number the
+      // real-machine report was built on):
+      const canvas = colourOf(table, table['--dsw-alias-bg-base'])
+      const before = over({ ...canvas, a: 0.62 }, sidebar)
+      const drift = Math.max(...(['r', 'g', 'b'] as const).map((channel) => Math.abs(before[channel] - sidebar[channel])))
+      expect(drift, scheme + ' old drift = ' + drift.toFixed(2) + '/255').toBeGreaterThanOrEqual(3)
+    }
   })
 
   /* ── 0.1.4 M4: the header floats, and the float is MEASURED ─────────────── */
@@ -3081,7 +3135,14 @@ describe('skinCss — 0.1.5 色彩条目', () => {
       'border-color: var(--dsw-alias-border-l2)',
       'box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2)',
       '--changes-fill: var(--dsh-moonset-surface-head)',
+      '--changes-hover: var(--dsw-alias-interactive-bg-hover)',
     ])
+    // 0.1.6 R3 (real-machine): the header's hover was NEUTRAL grey because the
+    // host's `button.header:hover { background: var(--changes-hover) }` reads the
+    // card's own `--changes-hover`, whose default is `card-fill-hover` — a neutral
+    // rung (`ChangedFiles.module.css:2` / `:9`). The re-point makes the header
+    // hover with the SAME accent wash as the file rows (`:37`).
+    expect(card.declarations).toContain('--changes-hover: var(--dsw-alias-interactive-bg-hover)')
     // D3: the pair is spent CARD-SCOPED — the two variables are read here and in
     // the code-box rules (2 + 2), never re-declared for a whole surface, and no
     // bg-layer rung is re-pointed anywhere.
@@ -3136,6 +3197,34 @@ describe('skinCss — 0.1.5 色彩条目', () => {
       const band = contrastRatio(rgbOf(head), rgbOf(body))
       expect(band, scheme + ' head/body band = ' + band.toFixed(3) + ':1').toBeGreaterThan(1)
       expect(band).toBeLessThan(1.1)
+    }
+  })
+
+
+  it('0.1.6 R3: the card header hovers with the accent wash, not a neutral grey', () => {
+    const css = skinCss()
+    const card = colourRules(css).find((rule) => rule.selectors.some((selector) => selector.includes('[data-changed-files]')))
+    if (card === undefined) throw new Error('no [data-changed-files] rule')
+    // The host paints `button.header:hover { background: var(--changes-hover) }`
+    // (`ChangedFiles.module.css:9`) and declares the default on the card as
+    // `--changes-hover: var(--dsw-alias-card-fill-hover)` (`:2`) — a NEUTRAL rung,
+    // which is the grey the user saw. The card now points it at the SAME token the
+    // file rows hover with (`:37`), so the whole card shares one accent wash.
+    const hover = card.declarations.find((entry) => entry.startsWith('--changes-hover: '))
+    expect(hover).toBe('--changes-hover: var(--dsw-alias-interactive-bg-hover)')
+    const name = /var\((--dsw-[a-z0-9-]+)\)/.exec(hover!)?.[1]
+    expect(name).toBe('--dsw-alias-interactive-bg-hover')
+    for (const [scheme, table] of [['light', MOONSET_LIGHT], ['dark', MOONSET_DARK]] as const) {
+      const wash = colourOf(table, table['--dsw-alias-interactive-bg-hover'])
+      const neutral = colourOf(table, table['--dsw-alias-card-fill-hover'])
+      // Indigo family: the wash leans further toward blue than the neutral rung
+      // it replaces (light b-r 15 vs 6, dark 20 vs 14), and it is the exact token
+      // the rows already use — one hover, not two.
+      expect(wash.b - wash.r, scheme + ' wash b-r').toBeGreaterThan(neutral.b - neutral.r)
+      // The 13px title keeps AA on the wash (measured 15.15:1 light / 13.94:1 dark).
+      const title = colourOf(table, table['--dsw-alias-label-primary'])
+      const ratio = contrastRatio(title, wash)
+      expect(ratio, scheme + ' title on hover = ' + ratio.toFixed(2) + ':1').toBeGreaterThanOrEqual(4.5)
     }
   })
 

@@ -35,6 +35,7 @@
 | [B25](#b25-注册表不存-label) | 注册表不存 label | M4 债 2 | P3 |
 | [B26](#b26-同一时刻只让一方掌权) | 同一时刻只让一方掌权 | 已决 #13 | 文档已覆盖 |
 | [B27](#b27-不做的三件事) | 不做的三件事（玻璃层移植 / TUI / 发布） | 非目标 / 已知债 | 不做 |
+| [B28](#b28-windows-标题条应用--编辑下拉是原生菜单) | Windows 标题条「应用 / 编辑」下拉是原生菜单 | 0.1.6 R1 真机反馈 | P3 |
 
 ---
 
@@ -348,3 +349,21 @@ M7.1 的跑法（catppuccin `disabled: true`）。若将来要做"互相让位"�
   属于另一条发布面（已知债）。
 - **不做 npm 发布 / 打 tag / 合并分支**：任何 `npm publish`、`git push --tags` 都须人类口令
   （非目标）。
+
+## B28 Windows 标题条「应用 / 编辑」下拉是原生菜单
+
+**问题**：0.1.6 真机反馈 R1 —— 打开这两个菜单后仍是系统原色，皮肤够不到。实测（0.2.2-rc.5
+桌面壳）：菜单条按钮本身是 HTML（`lib/preload-app.cjs:1664` 的 shadow-root 菜单条，读主题
+token，已经跟随调色板），但点击走 `DESKTOP_IPC.windowsMenu`（`:1725`）到主进程
+`ipcMain.handle(…, …)`（`lib/main.js:21413`），由 `Menu.buildFromTemplate(items).popup({…})`
+（**`lib/main.js:21438`**）弹出——**Electron 原生菜单**，不吃 CSS、也不吃
+`setTitleBarOverlay`。另外它的明暗只跟 `nativeTheme.themeSource`（预加载 `syncNativeTheme()`
+从宿主 `html[data-ds-theme-source]` 转发，`lib/preload-app.cjs:93` / `lib/main.js:20881`），
+该属性第三方主题不能写——Moonset 深色 + 系统浅色时下拉仍是浅色系统菜单。
+
+**为什么现在不做**：原生菜单由 OS 绘制，主题层没有任何注入点；把它改成 HTML 菜单是宿主的
+产品/可访问性决策（原生菜单有系统键盘行为与屏幕阅读器支持），插件单方面做不到。
+
+**建议做法**：向宿主提两个选项之一——① 菜单条与下拉改为 HTML 菜单（`[role=menu]` + 稳定
+`data-*` 钩子），本表就能像卡片那样上色；② 原生菜单提供主题化能力（Electron `Menu` 目前没有）。
+在那之前文档明确写「标题条菜单是系统菜单，不随主题变色」；菜单**按钮**已随主题，无需处理。

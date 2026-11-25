@@ -418,10 +418,10 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **地面可见性**（M2 起三档可调 + 底部遮罩带） | `#root :has([data-slot='main'], [data-slot='sidebar'], [data-slot='rightbar'])` / `:has([data-composer-seat])` / `:has(> [data-slot='shell.bottom'])` / `[data-slot='main'] > div` / `[data-slot='sidebar'] > div` 上的 `background-color: transparent`；外加 `#root [data-composer-seat] { background-image: none }`（底部遮罩带） | 宿主把 `--dsw-alias-bg-base`（侧栏是 `--dsw-specific-sidebar-fill`）画在外壳链、三列与每个面板页根上，地面在它们**下面**；这些面没有稳定属性（类名按构建哈希，`data-global-panel` 只在面板打开时存在），只能靠结构 + 渲染器锚点。底部那条遮罩带更是 **image**（不是颜色），token 和 `background-color` 都改不到 | 0.1.2 M1.5 / M2 |
 | **色相锚点** | `html[data-moonset-skin] { --dsh-moonset-night: #2563EB }` + 暗色 `body[data-ds-dark-theme]` 覆盖为 `#60A5FA`；只有 `night` 色相读它 | 228 键表里**没有可用的蓝**：`blue-500` = `#4F46E5`/`#818CF8`、`blue-600` = `#413BB9`/`#6B74CE` 全是靛，`deepseek-*` 就是强调色本身，`violet-400` 更紫，`sky`/`cyan` 家族根本不存在 | 0.1.2 M5 |
 | **轨迹步骤行**（按类型分色） | 两条格子规则 `html[data-moonset-skin] body [data-variant][data-state] :has(+ [data-shimmer-decoration])`（工具名）与 `… [data-shimmer-decoration] + *`（参数/路径），读行上发布的两个自定义属性 `--dsh-moonset-step-name/-args`；四条类声明 `… [data-variant='bash' \| 'read' \| 'write' \| 'edit' \| 'search' \| 'think'] { … }`；失败规则 `… [data-state='error']`（两格 + `~ [data-tone]` 胶囊，写在最后） | 步骤行的**工具名**与**参数/路径**两个格子都只有按构建哈希的 CSS Module 类名，没有 `data-*`；但行根有 `[data-variant][data-state]`（工具行还有 `[data-tool]`）、名字与参数之间那颗 `·` 有 `[data-shimmer-decoration]`、退出码胶囊是 `Tag` 的 `[data-tone]`。两格只能**相对那颗点**定位；「每类一个色相」又要**两套方案都成立**，所以色相用 `color-mix(family, label token)` 交给方案自适应，再由行上的自定义属性把「类 → 两格」接起来 | 0.1.3 M2b |
-| **材质面**（0.1.4 M1 输入卡 / M2 顶栏 / M3 header / M4 header 悬浮；**侧栏 M6 起不做**） | 三面**共用一份材质**（`background: color-mix(bg-base 62%)` + `backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)` + `inset 0 1px 0` 近白高光），只换选择器：① `[data-composer-card]`（输入卡，宿主稳定属性，`InputBar.tsx:462`）；② `#root [data-slot='conversation.header'] > header`（会话 header：header 槽锚点 `display:contents`，其子元素就是 `ConversationHeader` 的 `<header>`，`ConversationHeader.tsx:18` / `ConversationMainPanel.tsx:39`；用槽键锚点而不是 `[data-window-drag]`，因为侧栏也有两行带这个拖动标记）；③ `html[data-windows-titlebar] … #root [data-slot='root'] > div::before`（Windows 标题条）。①② 用 `position: relative` / `isolation: isolate` / `background: transparent` 清底并托管 `::before` 平面（`content` / `position: absolute` / `inset: 0` / `z-index: -1` / `border-radius: inherit` / `pointer-events: none`）；③ 是**叶子平面**（本就无内容），材质直接画在它身上，几何全留宿主。header 额外在**平面上**画一条 `inset 0 -1px 0 var(--dsw-alias-border-l3)` 底边（宿主那条 0.5px `border-bottom` 一条字都不写、原样保留）。**侧栏自 2026-11-24 起不做材质**（用户决定「侧栏先不做玻璃材质了」）：材质段不再出现 `data-slot='sidebar'`，侧栏恢复宿主原样、由 `--dsw-specific-sidebar-fill` 自己画；M4 那档 tinted 底色随之一并删除。整表唯一的侧栏提及是 0.1.2 起的 **C 档地面规则**（`all` 这个「全透明」比较模式，非材质，默认 `main` 不碰侧栏）。 | P6：材质必须画在**背靠内容**的平面上——容器本体若也画，`backdrop-filter` 只会糊到自己；而「该有内容的平面却压在内容之下」则只透不糊。**面背后是什么**：输入卡与 header 背后都是正文（header 自 M4 起**悬浮**），顶栏背后是地面。**M5 的教训**：悬浮那条规则一度写成 `[data-phase='active'] #root …`，而 `#root` 是相位元素的**祖先**，真机上一字未匹配——header 没有 `z-index`、正文盖住它（点击失效、只透不糊、滑块无效），现由结构守卫测试锁住（任何选择器里 `#root` 必须在相位门之前）。**实测**：少了 `z-index:-1` 时平面按定位层绘制、盖在 in-flow 正文之上（M1，Chromium）；header 带右半段玻璃开时出现低至 19/255 的糊字像素、关玻璃最暗 223/255（M5）；侧栏两种配方的开/关均值差 浅 Δ5.4 / 暗 Δ7.6（共享材质）与 暗 Δ11.7（M4 tinted，已随 M6 移除）。 | 0.1.4 M1…M6 |
+| **材质面**（0.1.4 M1 输入卡 / M2 顶栏 / M3 header / M4 header 悬浮；**侧栏 M6 起不做**） | 三面**共用一份材质**（`backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)` + `inset 0 1px 0` 近白高光逐字相同；底色是画布 62%，**只有顶栏自 0.1.6 R2 起换成 `--dsw-specific-sidebar-fill` 62%**——那是宿主 caption 与原生 `setTitleBarOverlay` 用的同一个 token，见 §11.11），只换选择器：① `[data-composer-card]`（输入卡，宿主稳定属性，`InputBar.tsx:462`）；② `#root [data-slot='conversation.header'] > header`（会话 header：header 槽锚点 `display:contents`，其子元素就是 `ConversationHeader` 的 `<header>`，`ConversationHeader.tsx:18` / `ConversationMainPanel.tsx:39`；用槽键锚点而不是 `[data-window-drag]`，因为侧栏也有两行带这个拖动标记）；③ `html[data-windows-titlebar] … #root [data-slot='root'] > div::before`（Windows 标题条）。①② 用 `position: relative` / `isolation: isolate` / `background: transparent` 清底并托管 `::before` 平面（`content` / `position: absolute` / `inset: 0` / `z-index: -1` / `border-radius: inherit` / `pointer-events: none`）；③ 是**叶子平面**（本就无内容），材质直接画在它身上，几何全留宿主。header 额外在**平面上**画一条 `inset 0 -1px 0 var(--dsw-alias-border-l3)` 底边（宿主那条 0.5px `border-bottom` 一条字都不写、原样保留）。**侧栏自 2026-11-24 起不做材质**（用户决定「侧栏先不做玻璃材质了」）：材质段不再出现 `data-slot='sidebar'`，侧栏恢复宿主原样、由 `--dsw-specific-sidebar-fill` 自己画；M4 那档 tinted 底色随之一并删除。整表唯一的侧栏提及是 0.1.2 起的 **C 档地面规则**（`all` 这个「全透明」比较模式，非材质，默认 `main` 不碰侧栏）。 | P6：材质必须画在**背靠内容**的平面上——容器本体若也画，`backdrop-filter` 只会糊到自己；而「该有内容的平面却压在内容之下」则只透不糊。**面背后是什么**：输入卡与 header 背后都是正文（header 自 M4 起**悬浮**），顶栏背后是地面。**M5 的教训**：悬浮那条规则一度写成 `[data-phase='active'] #root …`，而 `#root` 是相位元素的**祖先**，真机上一字未匹配——header 没有 `z-index`、正文盖住它（点击失效、只透不糊、滑块无效），现由结构守卫测试锁住（任何选择器里 `#root` 必须在相位门之前）。**实测**：少了 `z-index:-1` 时平面按定位层绘制、盖在 in-flow 正文之上（M1，Chromium）；header 带右半段玻璃开时出现低至 19/255 的糊字像素、关玻璃最暗 223/255（M5）；侧栏两种配方的开/关均值差 浅 Δ5.4 / 暗 Δ7.6（共享材质）与 暗 Δ11.7（M4 tinted，已随 M6 移除）。 | 0.1.4 M1…M6 |
 | **0.1.5 三处色彩条目**（回合改动卡 / `上下文注入` 行 / 浅色失败红） | ① 卡片（0.1.6 起两个填充值改读表面锚点，见下表第十类）：`html[data-moonset-skin] body [data-changed-files] { background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform) }`；② 上下文行：`… body [data-disclosure-row]:has([data-context-source], [data-context-summary]) { color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500)) }`；③ 浅色失败红：`… body:not([data-ds-dark-theme]) { --dsh-moonset-error: color-mix(… error-primary 70%, label-primary) }` | ① 卡片的底与 header 的底是**两条**宿主规则里的字面 token（`ChangedFiles.module.css:2`：`background: var(--dsw-alias-bg-layer-1)` + `--changes-fill: var(--dsw-alias-card-fill)`），而浅色表里那个 layer 就是画布 token——第一版照它改（`bg-layer-2`）结果卡片/页面 1.000:1 整张消失；现在用 `bg-module-platform`（12% accent 叠画布）+ 1px inset 环，实测 浅 1.214 / 暗 1.169、标题 14.65 / 13.52、文件行 5.04 / 5.84（§11.8）。**曾误判为「皮肤把卡片弄没了」而整体回退，用户澄清后恢复：这张卡是宿主内存里本轮回合的投影，重启后消失是宿主正常行为**；② `上下文注入` 行走的是 `DisclosureRow`（行根无 `[data-variant][data-state]`），唯一稳定钩子是 `data-context-source` / `data-context-summary`，title 是 TextShimmer 的 `color: inherit`；③ 失败色浅色下过艳，`red-400` 与「向画布混」都过不了 D2（胶囊底 3.94:1），只有向墨色混既降彩度又保 AA（9.43 / 7.77），且只在浅色生效 | 0.1.5（G2 曾误回退、已恢复） |
 | **0.1.5 M2 回合导航轨**（宿主形态 + 染色 + 悬停预览） | 九条规则，**只上色不上几何**：`… nav[aria-label] { --dsh-moonset-rail-accent: deepseek-500 }` + 暗色覆盖 `deepseek-400`；刻度 `[data-index]::before { background: accent; transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease }`；当前项 `[aria-current='true']::before { background: color-mix(amber 86%, label-primary); box-shadow: 0 0 4px color-mix(amber 55%, transparent) }`；当前项前后各 1 / 2 项 = `color-mix(amber 55% / 28%, accent)`（`+` 与 `:has(+ …)` 成对定位）；**悬停预览**用 `[aria-describedby]` 走同一套（琥珀 + 前后各两项混色） | 宿主那根轨道是**每回合一根 20×2px 横刻度**（`.mark::before`，右对齐、10px 一档），状态完全由 `scaleX` 决定：静止 `.6`、未加载 `.4 + opacity .6`、预览 `.9`、当前 `1`（`TurnNavigator.module.css:106 / :113 / :118 / :127`）；配色全在按构建哈希的类规则里，稳定属性只有 `aria-current` / `aria-busy` / `aria-describedby`，行根是 `<nav aria-label>`（`TurnNavigator.tsx:233-235`）。三次真机反馈：圆点形态被否 → 竖线渐变被否（「亮暗非常割裂」）→ 定稿**只染色**，并针对宿主固定的宽度阶梯（`.4/.6/.9/1`，几何不许动）做两处**纯外观补偿**：当前 / 悬停项加一圈 4px 琥珀光晕（读作「高亮」而不是「变宽」），以及把宿主自己的 140ms 过渡 **扩写**（保留 transform + background-color，只加 box-shadow）。**悬停钩子**：`TurnNavigator.tsx:256` 只给被预览的那根刻度传 `previewId`，:72 把它写进 `aria-describedby`，所以该属性就是悬停态（`.markPreview` 是哈希类，且刻度只有 20×2px，`:hover` 一离开就没了）；宿主的 tooltip 卡（`role=tooltip`）不动。**真·逐 index 沿轨道渐变不行**（`[data-index]` 取值开集） | 0.1.5 M2 |
-| **0.1.6 表面锚点**（文档站两层色：编辑卡 + 代码框） | 两个皮肤自有变量 `--dsh-moonset-surface-head` / `-body`：浅 `#FDFDFE` / `#F7F8FC`（`html[data-moonset-skin]` 一条），暗 `#121420` / `#0D0F17`（`html[data-moonset-skin] body[data-ds-dark-theme]` 一条）。消费端三条：① 编辑卡 `… body [data-changed-files] { background-color: var(--…-body); --changes-fill: var(--…-head) }`（边仍是 `border-l2` + 同 token 1px inset 环）；② 代码框头 `… body [data-code-block-banner] { background-color: var(--…-head) }`；③ 代码框体 `… body :has(> [data-code-block-content]) { --dsl-code-block-background: var(--…-body) }` | 用户按文档站**逐字**给了四个 hex（契约 §一 硬指标），228 键表没有这个精度：宿主卡片底 `--dsw-alias-bg-layer-1` 在浅色表里就是画布（`bluish-00` = `#FAFAFC`），代码框是 `--dsw-alias-markdown-code-block` / `-banner` = `#F9FAFB` / `#1B1B1C`（即 0.1.5 的旧面）。代码框的 banner 与内容体在编译后仍有**稳定属性**（`data-code-block-banner` 两种头共用、`data-code-block-content` 在内容 div 上，见 §11.10），头的两种实现各读不同变量、体只能借宿主的 `--dsl-code-block-background`；卡片的 `--changes-fill` 是宿主自己的座位。D3 实测四对照 ≥4.5:1（浅 18.25 / 6.01，暗 15.35 / 6.92；代码框 18.25 / 17.48 与 15.35 / 16.03），**不需要改任何文字色** | 0.1.6 M1/M2 |
+| **0.1.6 表面锚点**（文档站两层色：编辑卡 + 代码框） | 两个皮肤自有变量 `--dsh-moonset-surface-head` / `-body`：浅 `#FDFDFE` / `#F7F8FC`（`html[data-moonset-skin]` 一条），暗 `#121420` / `#0D0F17`（`html[data-moonset-skin] body[data-ds-dark-theme]` 一条）。消费端三条：① 编辑卡 `… body [data-changed-files] { background-color: var(--…-body); --changes-fill: var(--…-head); --changes-hover: var(--dsw-alias-interactive-bg-hover) }`（边仍是 `border-l2` + 同 token 1px inset 环；R3 的悬停色见 §11.11）；② 代码框头 `… body [data-code-block-banner] { background-color: var(--…-head) }`；③ 代码框体 `… body :has(> [data-code-block-content]) { --dsl-code-block-background: var(--…-body) }` | 用户按文档站**逐字**给了四个 hex（契约 §一 硬指标），228 键表没有这个精度：宿主卡片底 `--dsw-alias-bg-layer-1` 在浅色表里就是画布（`bluish-00` = `#FAFAFC`），代码框是 `--dsw-alias-markdown-code-block` / `-banner` = `#F9FAFB` / `#1B1B1C`（即 0.1.5 的旧面）。代码框的 banner 与内容体在编译后仍有**稳定属性**（`data-code-block-banner` 两种头共用、`data-code-block-content` 在内容 div 上，见 §11.10），头的两种实现各读不同变量、体只能借宿主的 `--dsl-code-block-background`；卡片的 `--changes-fill` 是宿主自己的座位。D3 实测四对照 ≥4.5:1（浅 18.25 / 6.01，暗 15.35 / 6.92；代码框 18.25 / 17.48 与 15.35 / 16.03），**不需要改任何文字色** | 0.1.6 M1/M2 |
 
 当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1…M6 + 0.1.5 G1…G4 + M2 导航轨 + 0.1.6 表面锚点，全表三十九条规则，198 行 / C 档 200 行）：
 
@@ -537,7 +537,7 @@ html[data-moonset-skin][data-moonset-glass] #root [data-slot='conversation.heade
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);
 }
 html[data-windows-titlebar][data-moonset-skin][data-moonset-glass] #root [data-slot='root'] > div::before {
-  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);
+  background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 62%, transparent);
   backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);
 }
@@ -570,7 +570,7 @@ html[data-moonset-skin][data-moonset-glass] [data-phase='active'] [data-conversa
 /* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the
    context-injection row and the LIGHT failure red. No layout property. */
 html[data-moonset-skin] body [data-changed-files] {
-  background-color: var(--dsh-moonset-surface-body); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsh-moonset-surface-head);
+  background-color: var(--dsh-moonset-surface-body); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsh-moonset-surface-head); --changes-hover: var(--dsw-alias-interactive-bg-hover);
 }
 html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {
   color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));
@@ -968,8 +968,8 @@ padding 公式里解析出来**再断言 `top` = −空气，公式一改就红�
 且两套方案都过 3:1 非文本对比、四种开关组合字节相同且不吃 `[data-moonset-glass]`；
 **0.1.6 改 2 条**：G2 的卡片断言换成 0.1.6 的表面（`--dsh-moonset-surface-body` / `-head`，边仍是
 `border-l2` 双线），原来的可见性守卫（卡/页 ≥1.15）随 accent 底退役——新面刻意贴近页面，改由 D3
-的四对照复算 + 头/体层差 + 双线边来守；**增 3 条**：M1 四个 hex 逐字 + 两条声明块、M2 代码框
-两条属性钩子（无类名、无层级、不碰 `--shiki-`、开关无关）、D3 的代码框两对照与 ≤6/255 的 shiki 位移；
+的四对照复算 + 头/体层差 + 双线边来守；**增 5 条**：M1 四个 hex 逐字 + 两条声明块、M2 代码框
+两条属性钩子（无类名、无层级、不碰 `--shiki-`、开关无关）、D3 的代码框两对照与 ≤6/255 的 shiki 位移、**R2** 的顶栏底色与原生 caption 逐通道 0 差（旧底色 ≥3/255 的漂移也钉住）、**R3** 的卡片 hover 换档与标题 AA；
 0.1.4 M4 增 5 条：悬浮两条只剩两项声明且 padding = |margin| + 12（公式自洽）、header 只写
 `z-index` 一条、实测高度写/重写/零高度的拒绝、四次有界重试读到即停且卸载取消、
 关玻璃与卸载把 `--dsh-moonset-header-h` 一起清掉；
@@ -1270,3 +1270,61 @@ bundle 自己的 `文件:行:列`（JS 压缩后 200 行、CSS 压缩后 2 行�
 也多数低于 4.5，是宿主的既有设计，不是本次回归）。
 
 **行数**：181 → 198（C 档 200），规则 35 → 39；预算 185 → 202（§11.5）。
+
+### 11.11 0.1.6 真机反馈 R1–R3：证据、改法与结论
+
+**R1：标题条「应用 / 编辑」菜单 —— 下拉是原生菜单，不可改（记债为 B28）。**
+先把两层分开：菜单**按钮**是 HTML，**下拉菜单**是原生。
+
+- 按钮：预加载脚本在 **shadow root** 里挂了一个菜单条（`lib/preload-app.cjs:1664`
+  `installWindowsMenu()`；`L1665` 建 div、`L1666` 写 `dataset.windowsMenu`、`L1667`
+  `attachShadow({mode:'open'})`；样式 `L1675` 读 `color: var(--dsw-alias-label-secondary)`；
+  两个按钮 `L1750` `createButton("application")` / `"edit"`）。shadow root 本表够不到，
+  但它读主题 token，**已经跟随调色板**。
+- 下拉：点击走 `electron.ipcRenderer.invoke(DESKTOP_IPC.windowsMenu, name, rect.left, rect.bottom)`
+  （`lib/preload-app.cjs:1725`）→ 主进程 `ipcMain.handle(DESKTOP_IPC.windowsMenu, …)`
+  （`lib/main.js:21413`）→ `Menu.buildFromTemplate(items).popup({ window, x, y, callback })`
+  （**`lib/main.js:21438`**）。这是 **Electron/OS 原生菜单**：不吃 CSS、不吃
+  `setTitleBarOverlay`，主题层没有注入点。**不可改**，真主题化要宿主把菜单改成 HTML
+  （或提供钩子），见 backlog B28。
+- 旁证：win32 的 `setApplicationMenu` 只装了**不可见的 devtools 快捷键**
+  （`lib/main.js:21373` 附近，`windowsDevToolsShortcuts`），与标题条菜单无关。
+- **明暗也救不了**：原生菜单的 light/dark 只跟 `nativeTheme.themeSource`，而它由预加载脚本
+  `syncNativeTheme()`（`lib/preload-app.cjs:93`）从宿主 `html[data-ds-theme-source]`
+  （属性名在 `:83`）转发给主进程（`lib/main.js:20881`）。该属性归官方 ui-theme，第三方主题
+  写不了；所以 Moonset 深色 + 系统浅色时，下拉仍是**浅色系统菜单**，调色板永远不生效。
+
+**R2：浅色窗控按钮发灰 —— 灰色来自我们（顶栏材质底色），已修。**
+- 窗控按钮本身是 Windows 的 **caption overlay**，由 `setTitleBarOverlay` 上色；桌面壳喂给它的
+  颜色来自一个隐藏探针：`probe.style.cssText = "…background-color:var(--dsw-specific-sidebar-fill);
+  color:var(--dsw-alias-label-primary)"`（`lib/preload-app.cjs:1796`），变更经
+  `windowsAppearance`（`:1823`）发给主进程（`lib/main.js:21446`）→
+  `mainWindow.setTitleBarOverlay`（`lib/main.js:21450`）。**按钮带背景 = `--dsw-specific-sidebar-fill`**。
+- 宿主自己的 caption 条也画这个 token：`AppFrame.module.css:27-31`（`.frame` 的
+  `background: var(--dsw-specific-sidebar-fill)`）与 `:40-47`（`.frame::before` 同色）。
+- 我们的 0.1.4 M2 材质把顶栏底色换成 `bg-base 62%`：叠在 frame 的 sidebar-fill 上后
+  浅 `#F8F8FA`、深 `#11131A`，而原生按钮带是 `#F4F4F7` / `#15171F` →
+  **浅 3.72/255 偏亮、暗 4.96/255 偏暗**，浅色下读成一块灰。灰色来自**我们**，不是按钮。
+- 改法（不动按钮、不改几何）：顶栏材质底色改为
+  `color-mix(in srgb, var(--dsw-specific-sidebar-fill) 62%, transparent)`。它叠在 frame 的同一
+  token 上，结果**逐通道等于** sidebar-fill：两套方案与原生按钮带 **0/255 差**；
+  `backdrop-filter` 与近白高光仍和另两面逐字相同（唯一有意的底色偏差，测试把这条偏差与旧漂移都钉住）。
+- 已知边界：按钮的 **hover / 按下**态由 Windows 自己画，仍是系统色；这是 OS 行为，本表改不到。
+
+**R3：编辑卡标题行悬停发灰 —— 宿主另一个 hover token，已改。**
+- 宿主的 hover 不是 `interactive-bg-hover`：`ChangedFiles.module.css:2` 在 `.card` 上声明
+  `--changes-hover: var(--dsw-alias-card-fill-hover)`，`:9`
+  `button.header:hover:not(:disabled) { background: var(--changes-hover) }`（`:6` 的
+  focus-visible 同源）；列表行用的是另一个 token：`:37`
+  `.row:hover { background: var(--dsw-alias-interactive-bg-hover) }`。所以「标题行灰、内容行紫」
+  是宿主两条 token 造成的——灰的是 `card-fill-hover`（浅 `#E3E4E9` / 暗 `#3A3D48`，中性）。
+- 改法：在同一条卡片规则里把 `--changes-hover` 重指到 **`--dsw-alias-interactive-bg-hover`**
+  （内容行悬停用的就是它：accent 10% 叠画布）。现在标题行与内容行**同一片靛族悬停**：
+  浅 `#E8E7F7`（b−r 15 vs 中性 6）、暗 `#1A1D2E`（20 vs 14）；13px 标题在悬停底上
+  **15.15:1 / 13.94:1**（AA+）。`--changes-hover` 仍只在这张卡上重指（D3：不写全局
+  `card-fill-hover` 覆盖）。
+
+**撞上的宿主事实**（供后人）：桌面壳的 caption 配色完全由 `--dsw-specific-sidebar-fill` /
+`--dsw-alias-label-primary` 两个 token 决定，且只在 `[data-ds-dark-theme]` / lang / head 变动时
+重发（preload 的 MutationObserver）。所以**改这两个 token 的主题会连带改窗控配色**——本插件不改
+它们，只让顶栏去匹配。
