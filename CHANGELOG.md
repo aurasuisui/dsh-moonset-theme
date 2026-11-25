@@ -4,6 +4,30 @@
 完整契约（里程碑、出口条件、已决、已知债）见
 [docs/plans/v0.1.0.md](docs/plans/v0.1.0.md)；文档索引见 [docs/README.md](docs/README.md)。
 
+## 0.1.6 — 2026-11-25
+
+按文档站的**确切色值**对齐代码框与两类卡片；修窗口按钮带与卡片悬停。
+
+### 新增
+
+- **surface 双变量**（皮肤自有，四个精确 hex）：浅 `#FDFDFE` / `#F7F8FC`，深 `#121420` / `#0D0F17`。
+  这是白名单第 10 类「surface 锚点」——228 键表里没有这么精确的近白/近黑，按用户要求与文档站逐字一致。
+- **代码框**：头部 `[data-code-block-banner]` = surface-head，代码体（框根，经 `:has(> [data-code-block-content])`）= surface-body；
+  用宿主自己的 `--dsl-code-block-background` 通道，两种头部变体共用同一钩子。
+- **交付文件卡** `[data-presented-file]`：底 = surface-body，hover = `interactive-bg-hover`（与编辑卡同一片靛族）。
+
+### 修复
+
+- **浅色窗控按钮旁的发灰**：顶栏材质底原为 `bg-base 62%`，与按钮带 `--dsw-specific-sidebar-fill` 差 3.72/255；
+  改为 `sidebar-fill 62%` 后与原生按钮带**逐通道 0/255**。按钮 hover 由 Windows 自绘，仍为系统色。
+- **编辑卡标题悬停发灰**：宿主的 `--changes-hover` 指向中性的 `card-fill-hover`，而内容行用的是 `interactive-bg-hover`——
+  现在两者统一为同一 accent 面（浅 `#E8E7F7` / 暗 `#1A1D2E`）。
+
+### 已知边界
+
+- **「应用 / 编辑」下拉菜单无法主题化**：它是 Electron 原生菜单（`main.js` 的 `Menu.buildFromTemplate().popup()`），不吃 CSS，
+  也不随第三方主题的 `data-ds-theme-source` 变化。按钮本身是 HTML、已随调色板。记为 backlog **B28**。
+- 窗口按钮的 hover/按下由 Windows 自绘，改不到。
 ## 0.1.5 — 2026-11-24
 
 五处观感修正：banner 间距、编辑卡配色、上下文注入上色、浅色失败色、回合导航轨染色。
