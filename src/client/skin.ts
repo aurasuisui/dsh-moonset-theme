@@ -259,6 +259,40 @@ export const NIGHT_BLUE_LIGHT = '#2563EB'
 export const NIGHT_BLUE_DARK = '#60A5FA'
 
 /**
+ * The skin-owned surface pair — the documentation site's two layers (0.1.6 M1).
+ *
+ * Declared twice like the night anchor: the light pair on
+ * `html[data-moonset-skin]`, the dark pair on the host's own scheme marker
+ * (`body[data-ds-dark-theme]`), and read by exactly two entries (M2): the
+ * turn-changes card and the code box (title/header layer vs content layer).
+ *
+ * Four LITERAL colours, on purpose: the user gave the docs site's pair verbatim
+ * (2026-11-25, contract §一) and the 228-key table has no near-white /
+ * near-black rung at this precision — the host's card fill IS the canvas in
+ * light (`bg-layer-1` = `bluish-00` = `#FAFAFC`) and its code block pair is
+ * `#F9FAFB` / `#1B1B1C` (this palette renders it `#F4F4F7` / `#15171F`), i.e.
+ * the OLD surfaces. They are §11.3's TENTH
+ * whitelist class; `tests/skin.spec.ts` pins the whole literal set of the sheet
+ * to the six declarations these four values and the night anchor produce.
+ */
+export const SURFACE_HEAD_TOKEN = '--dsh-moonset-surface-head'
+
+/** The content-layer token (the docs site's card body). */
+export const SURFACE_BODY_TOKEN = '--dsh-moonset-surface-body'
+
+/** The title/header layer in the light scheme. */
+export const SURFACE_HEAD_LIGHT = '#FDFDFE'
+
+/** The content layer in the light scheme. */
+export const SURFACE_BODY_LIGHT = '#F7F8FC'
+
+/** The title/header layer in the dark scheme. */
+export const SURFACE_HEAD_DARK = '#121420'
+
+/** The content layer in the dark scheme. */
+export const SURFACE_BODY_DARK = '#0D0F17'
+
+/**
  * One hue option: the token each scheme mixes from, and the alpha multiplier.
  *
  * `accent` is the palette's own anchor rung; `soft` is the SAME tokens at 0.56
@@ -801,13 +835,17 @@ function visibilityRules(scope: GlowScope): readonly string[] {
  * The caption strip is the one face that is ALREADY a `::before`: it is a leaf
  * paint surface with no content of its own, so the material goes on it directly
  * (geometry stays the host's: `inset`, `height` and the drag region are not
- * touched here).
+ * touched here). Its base colour follows the HOST's caption fill rather than the
+ * canvas — R2's fix, because the OS caption buttons are painted over that fill.
  *
- * ONE material, shared verbatim by the planes and the strip (`material` below is
- * emitted twice): the canvas at 62% plus a 10% near-white top highlight
+ * ONE material: the canvas at 62% plus a 10% near-white top highlight
  * (`--dsw-static-neutral-bluish-00`) — a token, not the plan's
  * `rgba(255,255,255,0.10)`, so P5's "every colour from a token" rule holds (the
- * sheet's only literals stay the two night anchors). The HEADER is the one face
+ * sheet's only literals stay the two night anchors). The strip's BASE is the
+ * one deliberate deviation (0.1.6 R2): it must match the OS caption overlay the
+ * desktop shell paints from `--dsw-specific-sidebar-fill`, or the native
+ * min/max/close band reads grey against our strip (see {@link stripMaterial} in
+ * the builder). The HEADER is the one face
  * that adds anything: it keeps the host's 0.5px `border-bottom` (nothing here
  * writes `border`) and paints the material's own bottom edge on the plane,
  * because a 1px line under a 62%-opaque plane would be muted to invisibility.
@@ -828,11 +866,32 @@ function glassRules(): readonly string[] {
   const header = `${SKIN_GATE} #root ${HEADER_HOOK}`
   /** The Windows caption strip (M2): the frame's existing ::before. */
   const strip = `${WINDOWS_GATE} ${STRIP_HOOK}`
-  /** The material itself — the SAME three declarations on every face. */
+  /** The material itself — the SAME three declarations on every plane. */
   const material = [
     '  background: color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);',
     '  backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15);',
     '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent);',
+  ]
+  /**
+   * The caption strip's OWN base — the host caption fill, not the canvas (R2).
+   *
+   * 0.1.6 real-machine report: the Windows min/max/close controls looked grey.
+   * They are the OS caption overlay, and the desktop shell feeds
+   * `setTitleBarOverlay` the colour of a probe styled
+   * `background-color: var(--dsw-specific-sidebar-fill)`
+   * (`lib/preload-app.cjs:1796` → `:1823` → `lib/main.js:21450`); the host's own
+   * strip paints that same token (`AppFrame.module.css:40-47`). Feeding the
+   * material the CANVAS base therefore made our strip 3.72/255 lighter than the
+   * native control band in light (4.96/255 darker in dark), and the band read as
+   * a grey block. Painted as 62% of the SAME token over the frame's own
+   * sidebar-fill, the compositing result is exactly that token: strip and OS band
+   * agree to 0/255 in BOTH schemes. The blur and the top highlight stay the
+   * shared recipe, byte for byte.
+   */
+  const stripMaterial = [
+    '  background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 62%, transparent);',
+    material[1],
+    material[2],
   ]
   return [
     '/* 0.1.4 glass (M1 card, M2 top bar, M3 header; the sidebar left in M6): ONE',
@@ -852,7 +911,7 @@ function glassRules(): readonly string[] {
     '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-static-neutral-bluish-00) 10%, transparent), inset 0 -1px 0 var(--dsw-alias-border-l3);',
     '}',
     `${strip} {`,
-    ...material,
+    ...stripMaterial,
     '}',
     `${card},`,
     `${header} {`,
@@ -912,6 +971,22 @@ function glassRules(): readonly string[] {
  *    It is NOT a global surface/layer override (D3): the selector is the card's
  *    own attribute and the property is declared on that card, so nothing else
  *    moves.
+ *
+ *    0.1.6 M2 replaces that accent tint with the user's exact pair (see
+ *    {@link surfaceRules}): the body becomes
+ *    `--dsh-moonset-surface-body` and the 60px header keeps its
+ *    `--changes-fill` seat, now pointed at `--dsh-moonset-surface-head`.
+ *    The edge stays `border-l2` + the same-token inset ring, so the card is a
+ *    two-layer docs-site box drawn by its border, not by an accent fill.
+ *
+ *    0.1.6 R3 (real-machine): the 60px header's HOVER was still grey. The host
+ *    paints `button.header:hover { background: var(--changes-hover) }` and the
+ *    card declares `--changes-hover: var(--dsw-alias-card-fill-hover)` — a
+ *    NEUTRAL rung (light `#E3E4E9` / dark `#3A3D48`), not the accent wash the file
+ *    rows hover with (`ChangedFiles.module.css:2`, `:9`, `:37`). The card now
+ *    re-points `--changes-hover` at the SAME `--dsw-alias-interactive-bg-hover`
+ *    the rows read, so header and rows share one indigo hover (light `#E8E7F7`,
+ *    dark `#1A1D2E`) and the 13px title keeps AA (15.15:1 / 13.94:1).
  *  - **G3, the `上下文注入` row.** It is a `DisclosureRow` whose row root carries
  *    no `data-variant`, so the 0.1.3 step-row rules never reach it
  *    (`ContextInjectionRow.tsx:51`). Its collapsed content publishes the only
@@ -943,13 +1018,117 @@ function colourRules(): readonly string[] {
     '/* 0.1.5 G2/G3/G4: three colour-only entries — the turn-changes card, the',
     '   context-injection row and the LIGHT failure red. No layout property. */',
     'html[data-moonset-skin] body [data-changed-files] {',
-    '  background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform);',
+    `  background-color: var(${SURFACE_BODY_TOKEN}); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(${SURFACE_HEAD_TOKEN}); --changes-hover: var(--dsw-alias-interactive-bg-hover);`,
     '}',
     "html[data-moonset-skin] body [data-disclosure-row]:has([data-context-source], [data-context-summary]) {",
     '  color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500));',
     '}',
     'html[data-moonset-skin] body:not([data-ds-dark-theme]) {',
     '  --dsh-moonset-error: color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, var(--dsw-alias-label-primary));',
+    '}',
+  ]
+}
+
+/**
+ * The 0.1.6 surface segment — the four hexes (M1) and the two faces they paint
+ * (M2): the turn-changes card and the code box.
+ *
+ * WHY THE LITERALS ARE ALLOWED (§11.3's tenth class). The whitelist's rule is
+ * "if a token can say it, CSS is rework"; these four cannot be said. The user
+ * supplied the documentation site's pair verbatim (contract §一, hard metric):
+ * `#FDFDFE` / `#F7F8FC` light, `#121420` / `#0D0F17` dark. The 228-key table
+ * carries no near-white / near-black rung that resolves to them — the host's
+ * card fill is the CANVAS in light (`--dsw-alias-bg-layer-1` =
+ * `--dsw-static-neutral-bluish-00` = `#FAFAFC`) and its code block pair is
+ * `#F9FAFB` / `#1B1B1C` in the stock table (`#F4F4F7` / `#15171F` in this one),
+ * i.e. the surfaces 0.1.5 shipped. So the skin owns
+ * four more literal colours next to the night anchor, and `tests/skin.spec.ts`
+ * pins the whole literal set to these six declarations.
+ *
+ * THE CODE BOX, read out of the installed bundles (D2). The block component is
+ * `@deepseek-ai/dsh-client-ui-primitives`'s `CodeBlock`, compiled into
+ * `dsh-web-frontend/dist/assets/index-Ciz7DZxv.js` (the source is not shipped
+ * as its own package; the bundle is 200 minified lines, so the refs are
+ * file:line:column): its root renders at L168:135
+ * `<div class="_block_kjs70_4 md-code-block">` with a banner wrapper
+ * (L168:440) and `<div class="_content_kjs70_74" data-code-block-content>`
+ * (L168:919, display: contents); the plain banner is L168:622 and the toolbar
+ * header L140:1709, both with `data-code-block-banner`. The stylesheet is
+ * `index-CSAdOBx6.css` (2 minified lines — the class rules are cited by byte
+ * offset):
+ *
+ *   ._block_kjs70_4      --dsl-code-block-background: var(--dsw-alias-markdown-code-block);
+ *                        background: var(--dsl-code-block-background)
+ *   ._block_kjs70_4 pre  background: var(--dsl-code-block-background)
+ *   ._banner_kjs70_24    background: var(--dsl-code-block-banner-background-color)
+ *   ._header_1mqf1_10    background: var(--dsl-code-block-background, …)   ← toolbar header
+ *
+ * The class names are build-hashed, but two STABLE attributes survive the
+ * compile: `data-code-block-banner` on BOTH header variants (the plain banner
+ * div and the toolbar header component) and `data-code-block-content` on the
+ * content div. The head is therefore painted directly on
+ * `[data-code-block-banner]` — `background-color`, not the shorthand, so the
+ * host keeps every other layer — which covers both variants with one rule (the
+ * toolbar header would otherwise read the BODY variable, having no banner
+ * variable of its own). The body has no attribute on the block root, but the
+ * root IS the parent of `[data-code-block-content]`, so it is addressed with
+ * `:has(> …)` (the same idiom the 0.1.5 G1 banner-offset rule already uses) and
+ * the paint goes through the HOST'S OWN `--dsl-code-block-background`: the
+ * root's `background` and the `<pre>`'s `background` both read it, so one
+ * declaration moves both layers — including the host's `!important` shiki
+ * `pre` rule. NO host class name and NO `[class*=]` anywhere.
+ *
+ * D3 (the surfaces must not cost legibility). The Moonset palette's own ink is
+ * far darker than the stock table's, so BOTH faces clear AA on the new fills
+ * with NO text change: card title `label-primary` 18.25:1 on `#FDFDFE`, card
+ * rows `label-tertiary` 6.01:1 on `#F7F8FC`; dark 15.35:1 and 6.92:1; code
+ * banner 18.25:1 / 15.35:1 and code body 17.48:1 / 16.03:1. (Measured against
+ * `src/client/palettes.ts` — the stock table would have failed at 3.49:1, which
+ * is exactly why the numbers are re-derived in the test from the SHIPPED tables
+ * and not from the official dump.) Nothing here re-points an ink token.
+ *
+ * THE PRESENTED-FILE CARD (R4). The delivery card (icon + name + description +
+ * the "用…打开" action cluster) is `PresentedFileCard`'s root and carries
+ * `data-presented-file` (`PresentedFileCard.tsx:39`). It has NO separate header
+ * row — it is one flat 60px card — so only its BODY is painted, exactly like the
+ * edit card's content layer. The host paints fill and hover from two custom
+ * properties declared on the section root (`Deliverables.module.css:2`:
+ * `--deliverable-fill: var(--dsw-alias-card-fill)` /
+ * `--deliverable-hover: var(--dsw-alias-card-fill-hover)`, read by `.file` and
+ * `.file:hover` at `:9` / `:11`), so re-pointing those two seats ON THE CARD
+ * gives the body fill AND the accent hover in one rule — and the hover stays
+ * inside the host's own `@media (hover: hover)` gate and its 120ms transition.
+ * The edge is the edit card's recipe: `border-l2` + the same-token 1px inset
+ * ring. Scope: `[data-presented-file]` is rendered by that ONE component — the
+ * row wrapper is a DIFFERENT attribute (`data-presented-files-row`,
+ * `Deliverables.tsx:108`) — so no other card type is touched.
+ * @returns the rule lines (five rules: the light pair, the dark pair, the code
+ *   banner, the code body, the presented-file card).
+ */
+function surfaceRules(): readonly string[] {
+  return [
+    '/* 0.1.6 surface (M1): the doc-site pair, verbatim. The 228-key table has no',
+    '   near-white/near-black this exact, so four literals join the night anchor. */',
+    'html[data-moonset-skin] {',
+    `  ${SURFACE_HEAD_TOKEN}: ${SURFACE_HEAD_LIGHT}; ${SURFACE_BODY_TOKEN}: ${SURFACE_BODY_LIGHT};`,
+    '}',
+    'html[data-moonset-skin] body[data-ds-dark-theme] {',
+    `  ${SURFACE_HEAD_TOKEN}: ${SURFACE_HEAD_DARK}; ${SURFACE_BODY_TOKEN}: ${SURFACE_BODY_DARK};`,
+    '}',
+    '/* 0.1.6 M2: the code box. Both header variants carry [data-code-block-banner],',
+    '   so the head is painted on it directly; the body is the parent of',
+    '   [data-code-block-content], moved through the host --dsl-code-block-background. */',
+    'html[data-moonset-skin] body [data-code-block-banner] {',
+    `  background-color: var(${SURFACE_HEAD_TOKEN});`,
+    '}',
+    'html[data-moonset-skin] body :has(> [data-code-block-content]) {',
+    `  --dsl-code-block-background: var(${SURFACE_BODY_TOKEN});`,
+    '}',
+    '/* 0.1.6 R4: the presented-file card — PresentedFileCard.tsx:39 renders',
+    '   [data-presented-file]; the host reads --deliverable-fill / -hover',
+    '   (Deliverables.module.css:2/:9/:11), so ONE rule re-points both seats. */',
+    'html[data-moonset-skin] body [data-presented-file] {',
+    `  --deliverable-fill: var(${SURFACE_BODY_TOKEN}); --deliverable-hover: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);`,
     '}',
   ]
 }
@@ -1209,7 +1388,10 @@ function railRules(): readonly string[] {
  *   material faces  (0.1.4 M1) `::before` planes, also whitelisted;
  *   colour entries  (0.1.5) the turn-changes card's surface, the context-row
  *                   hue and the light-scheme failure red — see
- *                   {@link colourRules}.
+ *                   {@link colourRules};
+ *   surface         (0.1.6) the doc-site's two layers, spent on the card and the
+ *                   code box (four literal hexes, the tenth whitelist class) —
+ *                   see {@link surfaceRules}.
  *
  * The selector is `html body ::selection` (0,0,2) so it outranks a plain
  * `::selection` (0,0,1) from any third-party sheet that happens to set one; the
@@ -1294,6 +1476,9 @@ export function skinCss(options: SkinOptions = {}): string {
   // 0.1.5: three colour-only entries. Always emitted — they belong to no switch
   // (the failure-red property rides the same base half as the rule that reads it).
   rules.push(...colourRules())
+  // 0.1.6: the surface pair + the two faces it paints. Always emitted, for the
+  // same reason — a card/code-box colour must not vanish with a glow switch.
+  rules.push(...surfaceRules())
   // 0.1.5 M2: the turn rail, painted on the host's ladder (its own segment, also
   // switch-free — the rail is chrome, not ground or material).
   rules.push(...railRules())
