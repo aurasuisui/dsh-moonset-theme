@@ -1086,8 +1086,24 @@ function colourRules(): readonly string[] {
  * `src/client/palettes.ts` — the stock table would have failed at 3.49:1, which
  * is exactly why the numbers are re-derived in the test from the SHIPPED tables
  * and not from the official dump.) Nothing here re-points an ink token.
- * @returns the rule lines (four rules: the light pair, the dark pair, the code
- *   banner, the code body).
+ *
+ * THE PRESENTED-FILE CARD (R4). The delivery card (icon + name + description +
+ * the "用…打开" action cluster) is `PresentedFileCard`'s root and carries
+ * `data-presented-file` (`PresentedFileCard.tsx:39`). It has NO separate header
+ * row — it is one flat 60px card — so only its BODY is painted, exactly like the
+ * edit card's content layer. The host paints fill and hover from two custom
+ * properties declared on the section root (`Deliverables.module.css:2`:
+ * `--deliverable-fill: var(--dsw-alias-card-fill)` /
+ * `--deliverable-hover: var(--dsw-alias-card-fill-hover)`, read by `.file` and
+ * `.file:hover` at `:9` / `:11`), so re-pointing those two seats ON THE CARD
+ * gives the body fill AND the accent hover in one rule — and the hover stays
+ * inside the host's own `@media (hover: hover)` gate and its 120ms transition.
+ * The edge is the edit card's recipe: `border-l2` + the same-token 1px inset
+ * ring. Scope: `[data-presented-file]` is rendered by that ONE component — the
+ * row wrapper is a DIFFERENT attribute (`data-presented-files-row`,
+ * `Deliverables.tsx:108`) — so no other card type is touched.
+ * @returns the rule lines (five rules: the light pair, the dark pair, the code
+ *   banner, the code body, the presented-file card).
  */
 function surfaceRules(): readonly string[] {
   return [
@@ -1107,6 +1123,12 @@ function surfaceRules(): readonly string[] {
     '}',
     'html[data-moonset-skin] body :has(> [data-code-block-content]) {',
     `  --dsl-code-block-background: var(${SURFACE_BODY_TOKEN});`,
+    '}',
+    '/* 0.1.6 R4: the presented-file card — PresentedFileCard.tsx:39 renders',
+    '   [data-presented-file]; the host reads --deliverable-fill / -hover',
+    '   (Deliverables.module.css:2/:9/:11), so ONE rule re-points both seats. */',
+    'html[data-moonset-skin] body [data-presented-file] {',
+    `  --deliverable-fill: var(${SURFACE_BODY_TOKEN}); --deliverable-hover: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);`,
     '}',
   ]
 }

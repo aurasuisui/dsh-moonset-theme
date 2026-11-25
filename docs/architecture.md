@@ -421,9 +421,9 @@ node scripts/coexist-check.mjs           # 与 catppuccin 假宿主共存，6/6 
 | **材质面**（0.1.4 M1 输入卡 / M2 顶栏 / M3 header / M4 header 悬浮；**侧栏 M6 起不做**） | 三面**共用一份材质**（`backdrop-filter: blur(var(--dsh-moonset-glass-blur)) saturate(1.15)` + `inset 0 1px 0` 近白高光逐字相同；底色是画布 62%，**只有顶栏自 0.1.6 R2 起换成 `--dsw-specific-sidebar-fill` 62%**——那是宿主 caption 与原生 `setTitleBarOverlay` 用的同一个 token，见 §11.11），只换选择器：① `[data-composer-card]`（输入卡，宿主稳定属性，`InputBar.tsx:462`）；② `#root [data-slot='conversation.header'] > header`（会话 header：header 槽锚点 `display:contents`，其子元素就是 `ConversationHeader` 的 `<header>`，`ConversationHeader.tsx:18` / `ConversationMainPanel.tsx:39`；用槽键锚点而不是 `[data-window-drag]`，因为侧栏也有两行带这个拖动标记）；③ `html[data-windows-titlebar] … #root [data-slot='root'] > div::before`（Windows 标题条）。①② 用 `position: relative` / `isolation: isolate` / `background: transparent` 清底并托管 `::before` 平面（`content` / `position: absolute` / `inset: 0` / `z-index: -1` / `border-radius: inherit` / `pointer-events: none`）；③ 是**叶子平面**（本就无内容），材质直接画在它身上，几何全留宿主。header 额外在**平面上**画一条 `inset 0 -1px 0 var(--dsw-alias-border-l3)` 底边（宿主那条 0.5px `border-bottom` 一条字都不写、原样保留）。**侧栏自 2026-11-24 起不做材质**（用户决定「侧栏先不做玻璃材质了」）：材质段不再出现 `data-slot='sidebar'`，侧栏恢复宿主原样、由 `--dsw-specific-sidebar-fill` 自己画；M4 那档 tinted 底色随之一并删除。整表唯一的侧栏提及是 0.1.2 起的 **C 档地面规则**（`all` 这个「全透明」比较模式，非材质，默认 `main` 不碰侧栏）。 | P6：材质必须画在**背靠内容**的平面上——容器本体若也画，`backdrop-filter` 只会糊到自己；而「该有内容的平面却压在内容之下」则只透不糊。**面背后是什么**：输入卡与 header 背后都是正文（header 自 M4 起**悬浮**），顶栏背后是地面。**M5 的教训**：悬浮那条规则一度写成 `[data-phase='active'] #root …`，而 `#root` 是相位元素的**祖先**，真机上一字未匹配——header 没有 `z-index`、正文盖住它（点击失效、只透不糊、滑块无效），现由结构守卫测试锁住（任何选择器里 `#root` 必须在相位门之前）。**实测**：少了 `z-index:-1` 时平面按定位层绘制、盖在 in-flow 正文之上（M1，Chromium）；header 带右半段玻璃开时出现低至 19/255 的糊字像素、关玻璃最暗 223/255（M5）；侧栏两种配方的开/关均值差 浅 Δ5.4 / 暗 Δ7.6（共享材质）与 暗 Δ11.7（M4 tinted，已随 M6 移除）。 | 0.1.4 M1…M6 |
 | **0.1.5 三处色彩条目**（回合改动卡 / `上下文注入` 行 / 浅色失败红） | ① 卡片（0.1.6 起两个填充值改读表面锚点，见下表第十类）：`html[data-moonset-skin] body [data-changed-files] { background-color: var(--dsw-alias-bg-module-platform); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); --changes-fill: var(--dsw-alias-bg-module-platform) }`；② 上下文行：`… body [data-disclosure-row]:has([data-context-source], [data-context-summary]) { color: var(--dsh-moonset-step-name, var(--dsw-static-deepseek-500)) }`；③ 浅色失败红：`… body:not([data-ds-dark-theme]) { --dsh-moonset-error: color-mix(… error-primary 70%, label-primary) }` | ① 卡片的底与 header 的底是**两条**宿主规则里的字面 token（`ChangedFiles.module.css:2`：`background: var(--dsw-alias-bg-layer-1)` + `--changes-fill: var(--dsw-alias-card-fill)`），而浅色表里那个 layer 就是画布 token——第一版照它改（`bg-layer-2`）结果卡片/页面 1.000:1 整张消失；现在用 `bg-module-platform`（12% accent 叠画布）+ 1px inset 环，实测 浅 1.214 / 暗 1.169、标题 14.65 / 13.52、文件行 5.04 / 5.84（§11.8）。**曾误判为「皮肤把卡片弄没了」而整体回退，用户澄清后恢复：这张卡是宿主内存里本轮回合的投影，重启后消失是宿主正常行为**；② `上下文注入` 行走的是 `DisclosureRow`（行根无 `[data-variant][data-state]`），唯一稳定钩子是 `data-context-source` / `data-context-summary`，title 是 TextShimmer 的 `color: inherit`；③ 失败色浅色下过艳，`red-400` 与「向画布混」都过不了 D2（胶囊底 3.94:1），只有向墨色混既降彩度又保 AA（9.43 / 7.77），且只在浅色生效 | 0.1.5（G2 曾误回退、已恢复） |
 | **0.1.5 M2 回合导航轨**（宿主形态 + 染色 + 悬停预览） | 九条规则，**只上色不上几何**：`… nav[aria-label] { --dsh-moonset-rail-accent: deepseek-500 }` + 暗色覆盖 `deepseek-400`；刻度 `[data-index]::before { background: accent; transition: transform 140ms ease, background-color 140ms ease, box-shadow 140ms ease }`；当前项 `[aria-current='true']::before { background: color-mix(amber 86%, label-primary); box-shadow: 0 0 4px color-mix(amber 55%, transparent) }`；当前项前后各 1 / 2 项 = `color-mix(amber 55% / 28%, accent)`（`+` 与 `:has(+ …)` 成对定位）；**悬停预览**用 `[aria-describedby]` 走同一套（琥珀 + 前后各两项混色） | 宿主那根轨道是**每回合一根 20×2px 横刻度**（`.mark::before`，右对齐、10px 一档），状态完全由 `scaleX` 决定：静止 `.6`、未加载 `.4 + opacity .6`、预览 `.9`、当前 `1`（`TurnNavigator.module.css:106 / :113 / :118 / :127`）；配色全在按构建哈希的类规则里，稳定属性只有 `aria-current` / `aria-busy` / `aria-describedby`，行根是 `<nav aria-label>`（`TurnNavigator.tsx:233-235`）。三次真机反馈：圆点形态被否 → 竖线渐变被否（「亮暗非常割裂」）→ 定稿**只染色**，并针对宿主固定的宽度阶梯（`.4/.6/.9/1`，几何不许动）做两处**纯外观补偿**：当前 / 悬停项加一圈 4px 琥珀光晕（读作「高亮」而不是「变宽」），以及把宿主自己的 140ms 过渡 **扩写**（保留 transform + background-color，只加 box-shadow）。**悬停钩子**：`TurnNavigator.tsx:256` 只给被预览的那根刻度传 `previewId`，:72 把它写进 `aria-describedby`，所以该属性就是悬停态（`.markPreview` 是哈希类，且刻度只有 20×2px，`:hover` 一离开就没了）；宿主的 tooltip 卡（`role=tooltip`）不动。**真·逐 index 沿轨道渐变不行**（`[data-index]` 取值开集） | 0.1.5 M2 |
-| **0.1.6 表面锚点**（文档站两层色：编辑卡 + 代码框） | 两个皮肤自有变量 `--dsh-moonset-surface-head` / `-body`：浅 `#FDFDFE` / `#F7F8FC`（`html[data-moonset-skin]` 一条），暗 `#121420` / `#0D0F17`（`html[data-moonset-skin] body[data-ds-dark-theme]` 一条）。消费端三条：① 编辑卡 `… body [data-changed-files] { background-color: var(--…-body); --changes-fill: var(--…-head); --changes-hover: var(--dsw-alias-interactive-bg-hover) }`（边仍是 `border-l2` + 同 token 1px inset 环；R3 的悬停色见 §11.11）；② 代码框头 `… body [data-code-block-banner] { background-color: var(--…-head) }`；③ 代码框体 `… body :has(> [data-code-block-content]) { --dsl-code-block-background: var(--…-body) }` | 用户按文档站**逐字**给了四个 hex（契约 §一 硬指标），228 键表没有这个精度：宿主卡片底 `--dsw-alias-bg-layer-1` 在浅色表里就是画布（`bluish-00` = `#FAFAFC`），代码框是 `--dsw-alias-markdown-code-block` / `-banner` = `#F9FAFB` / `#1B1B1C`（即 0.1.5 的旧面）。代码框的 banner 与内容体在编译后仍有**稳定属性**（`data-code-block-banner` 两种头共用、`data-code-block-content` 在内容 div 上，见 §11.10），头的两种实现各读不同变量、体只能借宿主的 `--dsl-code-block-background`；卡片的 `--changes-fill` 是宿主自己的座位。D3 实测四对照 ≥4.5:1（浅 18.25 / 6.01，暗 15.35 / 6.92；代码框 18.25 / 17.48 与 15.35 / 16.03），**不需要改任何文字色** | 0.1.6 M1/M2 |
+| **0.1.6 表面锚点**（文档站两层色：编辑卡 + 代码框 + 交付文件卡） | 两个皮肤自有变量 `--dsh-moonset-surface-head` / `-body`：浅 `#FDFDFE` / `#F7F8FC`（`html[data-moonset-skin]` 一条），暗 `#121420` / `#0D0F17`（`html[data-moonset-skin] body[data-ds-dark-theme]` 一条）。消费端三条：① 编辑卡 `… body [data-changed-files] { background-color: var(--…-body); --changes-fill: var(--…-head); --changes-hover: var(--dsw-alias-interactive-bg-hover) }`（边仍是 `border-l2` + 同 token 1px inset 环；R3 的悬停色见 §11.11）；② 代码框头 `… body [data-code-block-banner] { background-color: var(--…-head) }`；③ 代码框体 `… body :has(> [data-code-block-content]) { --dsl-code-block-background: var(--…-body) }`；④ 交付文件卡 `… body [data-presented-file] { --deliverable-fill: var(--…-body); --deliverable-hover: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2) }`（R4，见 §11.12） | 用户按文档站**逐字**给了四个 hex（契约 §一 硬指标），228 键表没有这个精度：宿主卡片底 `--dsw-alias-bg-layer-1` 在浅色表里就是画布（`bluish-00` = `#FAFAFC`），代码框是 `--dsw-alias-markdown-code-block` / `-banner` = `#F9FAFB` / `#1B1B1C`（即 0.1.5 的旧面）。代码框的 banner 与内容体在编译后仍有**稳定属性**（`data-code-block-banner` 两种头共用、`data-code-block-content` 在内容 div 上，见 §11.10），头的两种实现各读不同变量、体只能借宿主的 `--dsl-code-block-background`；卡片的 `--changes-fill` 是宿主自己的座位；交付文件卡的 fill/hover 是宿主在 section 根上声明的两个自定义属性（`--deliverable-fill` / `-hover`），一条规则同时重指。D3 实测四对照 ≥4.5:1（浅 18.25 / 6.01，暗 15.35 / 6.92；代码框 18.25 / 17.48 与 15.35 / 16.03），**不需要改任何文字色** | 0.1.6 M1/M2 + R2–R4 |
 
-当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1…M6 + 0.1.5 G1…G4 + M2 导航轨 + 0.1.6 表面锚点，全表三十九条规则，198 行 / C 档 200 行）：
+当前登记（0.1.2 + M1.5…M6 + 0.1.3 M2b + 0.1.4 M1…M6 + 0.1.5 G1…G4 + M2 导航轨 + 0.1.6 表面锚点，全表四十条规则，204 行 / C 档 206 行）：
 
 ```css
 /* dsh-moonset[0.1.4]: skin — P5 whitelist (selection, item text, ground, step
@@ -594,6 +594,12 @@ html[data-moonset-skin] body [data-code-block-banner] {
 }
 html[data-moonset-skin] body :has(> [data-code-block-content]) {
   --dsl-code-block-background: var(--dsh-moonset-surface-body);
+}
+/* 0.1.6 R4: the presented-file card — PresentedFileCard.tsx:39 renders
+   [data-presented-file]; the host reads --deliverable-fill / -hover
+   (Deliverables.module.css:2/:9/:11), so ONE rule re-points both seats. */
+html[data-moonset-skin] body [data-presented-file] {
+  --deliverable-fill: var(--dsh-moonset-surface-body); --deliverable-hover: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);
 }
 /* 0.1.5 M2: the rail keeps the HOST ladder (20x2px ticks, scaleX states) and
    only re-paints it: accent ticks, amber for the current, ±2 steps mixed. */
@@ -922,10 +928,12 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
   `::before` 上写 `background` / `box-shadow`，位置关系全靠相邻兄弟（`+`）与前向（`:has(+ …)`）
   选择器，禁止 `~`。悬停态只认 `[aria-describedby]`（宿主只在被预览的那根刻度上写它；
   `.markPreview` 是哈希类），tooltip 卡（`role=tooltip`）不动。这条不改任何宿主面的位置、尺寸或状态（0.1.6 的表面锚点同理）；
-  ⑤ §11.3 第十类「0.1.6 表面锚点」：只允许 `background-color` 与**一个**自定义属性
-  （`--changes-fill` 或 `--dsl-code-block-background`）——**零布局、零文字色**；
-  代码框的两条选择器只认 `[data-code-block-banner]` 与 `:has(> [data-code-block-content])`
-  （后者与 0.1.5 G1 的 banner 偏移规则同一写法：稳定属性 + 直接子节点，不数层级），
+  ⑤ §11.3 第十类「0.1.6 表面锚点」：只允许 `background-color` / `border-color` /
+  `box-shadow` 与**宿主座位上的自定义属性**（`--changes-fill`、`--changes-hover`、
+  `--dsl-code-block-background`、`--deliverable-fill`、`--deliverable-hover`）——
+  **零布局、零文字色**；代码框的两条选择器只认 `[data-code-block-banner]` 与
+  `:has(> [data-code-block-content])`（后者与 0.1.5 G1 的 banner 偏移规则同一写法：
+  稳定属性 + 直接子节点，不数层级）；交付文件卡只认 `[data-presented-file]`（§11.12）；
   不写类名、不碰 `<pre>` / `<code>`（体的底色靠重指宿主的变量，宿主那条 `!important`
   的 `pre` 规则照样生效）；四个字面色只出现在那两条声明块里，由白名单断言钉住；
 - **加常驻 JS**：不装 scroll / resize / rAF / observer 做视觉（P1）；
@@ -938,7 +946,7 @@ token 座位，才落在本白名单的第二条。两者不重叠：token 负�
 ### 11.5 新增一条白名单项的门槛
 
 1. 先证明 token 做不到（贴出「为什么没有对应 `--dsw-*`」的证据，例如那 9 张表的检索结果）；
-2. 全表 ≤ **202** 行（0.1.6 起；实测 **198 / C 档 200**。历史：0.1.5 时 185、实测 181 / C 档 183；M2 第一版曾抬到 175、实测 171；回退到 172 后又因恢复卡片与悬停渐变回到 185；0.1.5 前 155、实测 152 / C 档 154；0.1.4 M6 时 141、M5 时 151、M4 时 143、M3 时 127、M2 时 114、M1 时 115、0.1.3 M2b 时 95、M2 首版 75、0.1.2 时 60、0.1.1 时 40；**单条新增 ≤ 30 行**——导航轨 29 行（当前/悬停两套渐变 + 光晕 + 过渡））、无
+2. 全表 ≤ **208** 行（0.1.6 起；实测 **204 / C 档 206**。历史：0.1.6 M2 时 202 / 实测 198 / C 档 200；0.1.5 时 185、实测 181 / C 档 183；M2 第一版曾抬到 175、实测 171；回退到 172 后又因恢复卡片与悬停渐变回到 185；0.1.5 前 155、实测 152 / C 档 154；0.1.4 M6 时 141、M5 时 151、M4 时 143、M3 时 127、M2 时 114、M1 时 115、0.1.3 M2b 时 95、M2 首版 75、0.1.2 时 60、0.1.1 时 40；**单条新增 ≤ 30 行**——导航轨 29 行（当前/悬停两套渐变 + 光晕 + 过渡））、无
    `!important`、无 `@media`、无 `@supports`；
 3. 颜色只从 token 混出（字体例外：字体不是颜色，允许读主题层的 `--ds-*`，见第六类）；
 4. 在 §11.3 的表里登记「类 + 形状 + 版本」；
@@ -968,8 +976,8 @@ padding 公式里解析出来**再断言 `top` = −空气，公式一改就红�
 且两套方案都过 3:1 非文本对比、四种开关组合字节相同且不吃 `[data-moonset-glass]`；
 **0.1.6 改 2 条**：G2 的卡片断言换成 0.1.6 的表面（`--dsh-moonset-surface-body` / `-head`，边仍是
 `border-l2` 双线），原来的可见性守卫（卡/页 ≥1.15）随 accent 底退役——新面刻意贴近页面，改由 D3
-的四对照复算 + 头/体层差 + 双线边来守；**增 5 条**：M1 四个 hex 逐字 + 两条声明块、M2 代码框
-两条属性钩子（无类名、无层级、不碰 `--shiki-`、开关无关）、D3 的代码框两对照与 ≤6/255 的 shiki 位移、**R2** 的顶栏底色与原生 caption 逐通道 0 差（旧底色 ≥3/255 的漂移也钉住）、**R3** 的卡片 hover 换档与标题 AA；
+的四对照复算 + 头/体层差 + 双线边来守；**增 7 条**：M1 四个 hex 逐字 + 两条声明块、M2 代码框
+两条属性钩子（无类名、无层级、不碰 `--shiki-`、开关无关）、D3 的代码框两对照与 ≤6/255 的 shiki 位移、**R2** 的顶栏底色与原生 caption 逐通道 0 差（旧底色 ≥3/255 的漂移也钉住）、**R3** 的卡片 hover 换档与标题 AA、**R4** 的交付文件卡钩子/作用域与卡底实测（#F7F8FC / #0D0F17）；
 0.1.4 M4 增 5 条：悬浮两条只剩两项声明且 padding = |margin| + 12（公式自洽）、header 只写
 `z-index` 一条、实测高度写/重写/零高度的拒绝、四次有界重试读到即停且卸载取消、
 关玻璃与卸载把 `--dsh-moonset-header-h` 一起清掉；
@@ -1269,7 +1277,7 @@ bundle 自己的 `文件:行:列`（JS 压缩后 200 行、CSS 压缩后 2 行�
 宿主自己的代码底 `#F4F4F7` 只差 ≤6/255，六个 token 的对比度位移 < 0.2（它们在宿主自己的底上
 也多数低于 4.5，是宿主的既有设计，不是本次回归）。
 
-**行数**：181 → 198（C 档 200），规则 35 → 39；预算 185 → 202（§11.5）。
+**行数**：181 → 204（C 档 206），规则 35 → 40；预算 185 → 208（§11.5；单条新增 ≤ 30 行仍守）。
 
 ### 11.11 0.1.6 真机反馈 R1–R3：证据、改法与结论
 
@@ -1328,3 +1336,58 @@ bundle 自己的 `文件:行:列`（JS 压缩后 200 行、CSS 压缩后 2 行�
 `--dsw-alias-label-primary` 两个 token 决定，且只在 `[data-ds-dark-theme]` / lang / head 变动时
 重发（preload 的 MutationObserver）。所以**改这两个 token 的主题会连带改窗控配色**——本插件不改
 它们，只让顶栏去匹配。
+
+### 11.12 0.1.6 R4 交付文件卡：钩子、作用域与实测
+
+**它是什么**：回合末尾的「交付文件」卡（截图里的 `index.html`：图标 + 文件名 + 副标题 +
+右侧「用…打开」按钮）。组件 `PresentedFileCard` 在 `dsh-client-ui-deliverables/src/client/`
+（`PresentedFileCard.tsx`），根节点在 **`:39` 渲染 `data-presented-file`**：
+
+```text
+<div className={css.file} data-presented-file>              ← :39
+  <button className={css.cardPreview} … />                  ← 整卡透明预览按钮（:40-42）
+  <span className={css.fileIcon}>…</span>                   ← 40px 图标板（:43）
+  <div className={css.fileBody}>
+    <div className={css.details}>
+      <span className={css.fileName}>{name}</span>          ← 标题（:46）
+      <span className={css.description} data-presented-description … />  ← 副标题（:47）
+    </div>
+    <div className={css.actions}>{actions}</div>            ← 「用…打开」（:55）
+  </div>
+</div>
+```
+
+**没有独立头部**：整卡就是一行 60px 的 flex（`Deliverables.module.css:9`：`height: 60px;
+padding: 8px 10px; border: 0.5px solid border-l1`），标题/副标题与按钮同排——所以**只上底**，
+不写 head。
+
+**底色与 hover 都在宿主的两个自定义属性上**：`Deliverables.module.css:2` 在 section 根
+`.root` 上声明 `--deliverable-fill: var(--dsw-alias-card-fill)` 与
+`--deliverable-hover: var(--dsw-alias-card-fill-hover)`；`:9` `.file { background:
+var(--deliverable-fill) }`、`:11` `.file:hover { background: var(--deliverable-hover) }`。
+所以在卡片自身上重指这两个座位，**一条规则**同时改掉底与 hover：
+
+```css
+html[data-moonset-skin] body [data-presented-file] {
+  --deliverable-fill: var(--dsh-moonset-surface-body); --deliverable-hover: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);
+}
+```
+
+- 底 = `--dsh-moonset-surface-body` → 浅 **`#F7F8FC`** / 暗 **`#0D0F17`**（与编辑卡内容层同一个字面色）；
+- 边 = `border-l2`（覆盖宿主 `border-l1` 的颜色，0.5px 宽度原样）+ 同 token 1px inset 环（编辑卡同配方）；
+- hover = `--dsw-alias-interactive-bg-hover`（与编辑卡 R3 同一个 accent 面）；hover 仍留在宿主的
+  `@media (hover: hover)` 与 120ms `background-color` 过渡里——只换座位，不碰宿主规则本身；
+- 不写 `background` 简写、不写几何：宿主的圆角/尺寸/图标板/按钮全部原样。
+
+**作用域（为什么只命中这类卡）**：`data-presented-file` 只由 `PresentedFileCard.tsx:39`
+渲染——安装态全量检索里 `src` 只有这一个组件，编译产物 `lib/client.js` 也只有一个发射点。
+同一 section 的**行容器**是另一个属性 `data-presented-files-row`（`Deliverables.tsx:108`），
+编辑卡是 `data-changed-files`——本规则都不命中；图标板（`card-tile-fill`）与「用…打开」按钮
+走宿主自己的 token，未动。
+
+**实测（`palettes.ts` 两套表，测试重算）**：卡底 浅 `#F7F8FC` / 暗 `#0D0F17`（逐字）；
+文件名 `label-primary` 在卡底 **17.48:1 / 16.03:1**、副标题 `label-tertiary`
+**6.01:1 / 6.92:1**（均 ≥4.5，与编辑卡同一对数字）；hover 面与编辑卡同 token
+（浅 `#E8E7F7` / 暗 `#1A1D2E`，见 §11.11 R3）。
+
+**行数**：198 → 204（C 档 206），规则 39 → 40；预算 202 → 208（§11.5）。

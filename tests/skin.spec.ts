@@ -115,8 +115,8 @@ const CANVAS = '--dsw-alias-bg-base'
  * **155 for 0.1.5's colour entries** (141 → 152 default, 143 → 154 at scope C, the
  * widest sheet), **185 for the final 0.1.5 sheet** — G2 (the card) is back and the
  * rail grew its hover ramp + glow: measured 181 default / 183 at scope C,
- * **202 for 0.1.6's surface segment** (M1's light/dark pair + M2's two code-box
- * rules): measured 198 default / 200 at scope C.
+ * **208 for 0.1.6's surface segment** (M1's light/dark pair + M2's two code-box
+ * rules + R4's presented-file card): measured 204 default / 206 at scope C.
  *
  * The step-row entry is the first whitelist class that addresses TWO cells of a
  * host row, a per-kind hue for each of them, and their failed state: four class
@@ -125,7 +125,7 @@ const CANVAS = '--dsw-alias-bg-base'
  * material declarations (measured 104 → 114, i.e. +10 lines for the sidebar and
  * the Windows caption strip). The architecture doc §11.5 carries the same number.
  */
-const SHEET_BUDGET = 202
+const SHEET_BUDGET = 208
 
 /**
  * Rule blocks in the default sheet: nine through 0.1.2, sixteen since 0.1.3 M2b
@@ -139,9 +139,10 @@ const SHEET_BUDGET = 202
  * carries nine rules (scheme accent pair + accent ticks + amber current + its two
  * 55%/28% neighbours + the same three states for the hovered/previewed tick).
  * Thirty-nine since 0.1.6: the surface segment adds four (the light pair, the
- * dark pair, the code banner, the code body).
+ * dark pair, the code banner, the code body). Forty with R4: the presented-file
+ * card re-points the host's own fill/hover seats.
  */
-const SHEET_RULES = 39
+const SHEET_RULES = 40
 
 /**
  * The 0.1.1 + 0.1.3 half of the sheet, restated verbatim.
@@ -424,6 +425,12 @@ const EXPECTED_SURFACE_CSS = [
   '}',
   'html[data-moonset-skin] body :has(> [data-code-block-content]) {',
   '  --dsl-code-block-background: var(--dsh-moonset-surface-body);',
+  '}',
+  '/* 0.1.6 R4: the presented-file card — PresentedFileCard.tsx:39 renders',
+  '   [data-presented-file]; the host reads --deliverable-fill / -hover',
+  '   (Deliverables.module.css:2/:9/:11), so ONE rule re-points both seats. */',
+  'html[data-moonset-skin] body [data-presented-file] {',
+  '  --deliverable-fill: var(--dsh-moonset-surface-body); --deliverable-hover: var(--dsw-alias-interactive-bg-hover); border-color: var(--dsw-alias-border-l2); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);',
   '}',
 ].join('\n')
 
@@ -765,9 +772,10 @@ describe('skinCss — the whitelisted rules', () => {
     // 14-line ceiling for this three-entry block. 0.1.6 only re-points the card's
     // two values, so the count is unchanged.
     expect(css.slice(colourStart, surfaceStart).split('\n').length).toBeLessThanOrEqual(14)
-    // 0.1.6's surface segment: four rules (light pair, dark pair, code banner,
-    // code body) + the two "why" comments = 17 lines measured.
-    expect(css.slice(surfaceStart, railStart).split('\n').length).toBeLessThanOrEqual(18)
+    // 0.1.6's surface segment: five rules (light pair, dark pair, code banner,
+    // code body, presented-file card) + the three "why" comments = 23 content
+    // lines; the slice counts the trailing newline too (24).
+    expect(css.slice(surfaceStart, railStart).split('\n').length).toBeLessThanOrEqual(24)
     // ...and the M2 rail entry: nine rules, 29 lines measured — the largest single
     // entry in the sheet, because it carries the current-turn ramp AND the same
     // ramp for the hovered tick. The ceiling moved 20 -> 30 with it (§11.5).
@@ -875,9 +883,10 @@ describe('skinCss — the whitelisted rules', () => {
     // `--dsh-moonset-surface-*` pair) and adds none back (the code box moves
     // through the host's own `--dsl-` variable): 51 total. 0.1.6 R3 adds the
     // card's hover wash and R2 swaps the strip's canvas base for the host caption
-    // fill (one `--dsw-alias-bg-base` out, two tokens in): 52 total. The night
-    // anchor / surface refs are counted separately.
-    expect(tokens).toHaveLength(52)
+    // fill (one `--dsw-alias-bg-base` out, two tokens in): 52 total. R4's presented
+    // card reads the same hover wash plus two `border-l2` declarations: 55. The
+    // night anchor / surface refs are counted separately.
+    expect(tokens).toHaveLength(55)
     // The mono face is the theme layer's code stack — the ONE non-`--dsw-`
     // token the sheet reads (a font, not a colour, so P5's colour rule is moot).
     expect(new Set(css.match(/var\(--ds-[a-z0-9-]+\)/g) ?? [])).toEqual(new Set(['var(--ds-font-family-code)']))
@@ -3143,11 +3152,11 @@ describe('skinCss — 0.1.5 色彩条目', () => {
     // rung (`ChangedFiles.module.css:2` / `:9`). The re-point makes the header
     // hover with the SAME accent wash as the file rows (`:37`).
     expect(card.declarations).toContain('--changes-hover: var(--dsw-alias-interactive-bg-hover)')
-    // D3: the pair is spent CARD-SCOPED — the two variables are read here and in
-    // the code-box rules (2 + 2), never re-declared for a whole surface, and no
-    // bg-layer rung is re-pointed anywhere.
+    // D3: the pair is spent CARD-SCOPED — the two variables are read here, in the
+    // code-box rules and on R4's presented card (2 head / 3 body), never
+    // re-declared for a whole surface, and no bg-layer rung is re-pointed anywhere.
     const reads = (token: string): number => (css.match(new RegExp('var\\(' + token + '\\)', 'g')) ?? []).length
-    expect(reads(SURFACE_BODY_TOKEN)).toBe(2)
+    expect(reads(SURFACE_BODY_TOKEN)).toBe(3)
     expect(reads(SURFACE_HEAD_TOKEN)).toBe(2)
     expect(css).not.toContain('--dsw-alias-bg-layer-')
     // 0.1.5's accent tint left the sheet with this change: the card is no longer
@@ -3371,17 +3380,19 @@ describe('skinCss — 0.1.6 surface (M1 pair + M2 wiring)', () => {
     // Declared on the root attribute (light) and on the host's dark marker only.
     expect(css).toContain('html[data-moonset-skin] {\n  --dsh-moonset-surface-head: #FDFDFE; --dsh-moonset-surface-body: #F7F8FC;\n}')
     expect(css).toContain('html[data-moonset-skin] body[data-ds-dark-theme] {\n  --dsh-moonset-surface-head: #121420; --dsh-moonset-surface-body: #0D0F17;\n}')
-    // The pair is a propagation root, not a per-rule literal: both variables are
-    // REFERENCED twice (card + code box) and never re-declared to another value.
+    // The pair is a propagation root, not a per-rule literal: the head is
+    // REFERENCED twice (edit card + code banner) and the body three times (edit
+    // card + code body + R4's presented-file card), never re-declared to another
+    // value.
     expect(css.match(/var\(--dsh-moonset-surface-head\)/g)).toHaveLength(2)
-    expect(css.match(/var\(--dsh-moonset-surface-body\)/g)).toHaveLength(2)
+    expect(css.match(/var\(--dsh-moonset-surface-body\)/g)).toHaveLength(3)
   })
 
   it('0.1.6 M2: the code box is TWO attribute hooks — banner + content parent', () => {
     const css = skinCss()
     const rules = surfaceRulesOf(css)
-    // Four rules: light pair, dark pair, code banner, code body.
-    expect(rules).toHaveLength(4)
+    // Five rules: light pair, dark pair, code banner, code body, presented card.
+    expect(rules).toHaveLength(5)
     const banner = rules.find((rule) => rule.selectors.some((selector) => selector.includes('[data-code-block-banner]')))
     const body = rules.find((rule) => rule.selectors.some((selector) => selector.includes('[data-code-block-content]')))
     // The banner: BOTH header variants render this attribute (the plain banner and
@@ -3438,6 +3449,67 @@ describe('skinCss — 0.1.6 surface (M1 pair + M2 wiring)', () => {
     expect(Math.abs(host.r - ours.r)).toBeLessThanOrEqual(6)
     expect(Math.abs(host.g - ours.g)).toBeLessThanOrEqual(6)
     expect(Math.abs(host.b - ours.b)).toBeLessThanOrEqual(6)
+  })
+
+  it('0.1.6 R4: the delivered-file card is ONE attribute hook, scoped to that card', () => {
+    const css = skinCss()
+    const rules = surfaceRulesOf(css)
+    const card = rules.find((rule) => rule.selectors.some((selector) => selector.includes('[data-presented-file]')))
+    if (card === undefined) throw new Error('no [data-presented-file] rule')
+    // PresentedFileCard.tsx:39 renders `data-presented-file` on the card root, and
+    // it is the ONLY component in the installed bundles that does: the row wrapper
+    // is a DIFFERENT attribute (`data-presented-files-row`, Deliverables.tsx:108),
+    // so this selector cannot reach another card type.
+    expect(card.selectors).toEqual(['html[data-moonset-skin] body [data-presented-file]'])
+    // ONE selector (comments stripped first — the block comment names the hook too).
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/\[data-presented-file\]/g) ?? []).toHaveLength(1)
+    expect(css).not.toContain('[data-presented-files-row]')
+    expect(card.selectors.join(' ')).not.toMatch(/\[class|\*=|class=/)
+    // Four declarations, no geometry: the host keeps its 60px box, its radius, the
+    // icon tile and its own `@media (hover: hover)` + 120ms transition.
+    expect(card.declarations).toEqual([
+      '--deliverable-fill: var(--dsh-moonset-surface-body)',
+      '--deliverable-hover: var(--dsw-alias-interactive-bg-hover)',
+      'border-color: var(--dsw-alias-border-l2)',
+      'box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2)',
+    ])
+    // The host paints fill and hover from those two custom properties
+    // (Deliverables.module.css:2 declares them on the section root; `.file` /
+    // `.file:hover` read them at `:9` / `:11`), so re-pointing them ON THE CARD is
+    // what moves BOTH seats. The hover is the edit card's token — one family.
+    expect(css).toContain('--changes-hover: var(--dsw-alias-interactive-bg-hover)')
+    // No second rule for the card: it is one flat 60px row, so it has no separate
+    // header to paint with the surface HEAD.
+    expect(rules.filter((rule) => rule.selectors.some((selector) => selector.includes('[data-presented-file]')))).toHaveLength(1)
+  })
+
+  it('0.1.6 R4: the delivered-file card bottoms at #F7F8FC / #0D0F17 and stays AA', () => {
+    const css = skinCss()
+    // The host's `.file { background: var(--deliverable-fill) }` (Deliverables.
+    // module.css:9) resolves through our re-point to the SAME literal the edit
+    // card's content layer uses, so the painted card bottom is exact.
+    expect(css).toContain('--deliverable-fill: var(--dsh-moonset-surface-body)')
+    const asHex = (colour: { r: number; g: number; b: number }): string => '#' + [colour.r, colour.g, colour.b]
+      .map((channel) => channel.toString(16).padStart(2, '0')).join('').toUpperCase()
+    const pairs = [
+      ['light', SURFACE_BODY_LIGHT, '#F7F8FC', MOONSET_LIGHT, 17.48, 6.01],
+      ['dark', SURFACE_BODY_DARK, '#0D0F17', MOONSET_DARK, 16.03, 6.92],
+    ] as const
+    for (const [scheme, surface, expectedHex, table, expectedTitle, expectedSubtitle] of pairs) {
+      const bottom = rgbOf(surface)
+      expect(asHex(bottom), scheme + ' card bottom').toBe(expectedHex)
+      // Title (`.fileName`, label-primary) and subtitle (`.description`,
+      // label-tertiary) clear AA on that fill — the edit card's own pair.
+      const title = contrastRatio(colourOf(table, table['--dsw-alias-label-primary']), bottom)
+      const subtitle = contrastRatio(colourOf(table, table['--dsw-alias-label-tertiary']), bottom)
+      expect(title, scheme + ' file name on card = ' + title.toFixed(2) + ':1').toBeGreaterThanOrEqual(4.5)
+      expect(subtitle, scheme + ' description on card = ' + subtitle.toFixed(2) + ':1').toBeGreaterThanOrEqual(4.5)
+      expect(title).toBeCloseTo(expectedTitle, 2)
+      expect(subtitle).toBeCloseTo(expectedSubtitle, 2)
+    }
+    // The icon tile (`card-tile-fill`) and the action buttons are host-token
+    // surfaces and are deliberately untouched.
+    expect(css).not.toContain('--dsw-alias-card-tile-fill')
   })
 })
 
