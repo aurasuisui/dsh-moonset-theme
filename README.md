@@ -84,21 +84,17 @@ Moonset 向官方主题系统注册 `moonset-light` 与 `moonset-dark` 两个主
 
 ## 预览
 
-截图从 [`assets/previews/`](assets/previews/) 引用。**当前该目录里只有三张早期版本的截图**
-（`01-light.png` / `02-follow.png` / `03-dark.png`），
-不含光晕、玻璃与轨迹配色，只能当历史存档，不代表现在的观感；
-下表是待补的五张，文件名规范 `0X-*.png`，补图后逐张替换。
+以下截图来自真机（Windows 桌面壳），按功能分组；尺寸与主题不同属正常，图注写明各自展示的是什么。
 
-| 图（待补） | 图注 | 状态 |
-|---|---|---|
-| `01-light.png` | 浅色主题：地面光晕（默认档「主区」）+ 选中行淡紫底紫字 | 待补（0.1.6 真机） |
-| `02-dark.png` | 深色主题：同一支夜空蓝的三层光晕 + 深色表面色 | 待补（0.1.6 真机） |
-| `03-glass.png` | 玻璃材质：输入卡与会话 header 的半透明 + 背景模糊（12 px） | 待补（0.1.6 真机） |
-| `04-glow.png` | 光晕三种色相（强调 / 柔和 / 夜空蓝）在浅色地面上的差别 | 待补（0.1.6 真机） |
-| `05-steps.png` | 工作步骤行配色：运行命令 / 读取 / 搜索 / 思考 四类色相，以及一条失败行 | 待补（0.1.6 真机） |
+| 图 | 展示什么 |
+|---|---|
+| ![浅色主题](assets/previews/01-light.png) | **浅色主题**：地面光晕（默认档「主区」）+ 会话 header 玻璃 + 选中行淡紫底紫字。 |
+| ![深色主题](assets/previews/02-dark.png) | **深色主题**：同一支夜空蓝的三层地面光晕（月核 / 月晕 / 底部反光）+ 深色表面色。 |
+| ![玻璃材质](assets/previews/03-glass.png) | **Windows 标题条与会话 header 的玻璃**：半透明 + 背景模糊（此处 12 px），标题条跟随地面光晕。 |
+| ![工作步骤行](assets/previews/04-steps.png) | **工作步骤行按类型分色**：运行命令=绿、读取=蓝紫、搜索=琥珀、思考=紫，末尾有一条失败行（错误色、不加粗）。 |
+| ![表面锚点](assets/previews/05-surfaces.png) | **编辑卡 / 代码框 / 交付文件卡的表面色**：标题层与内容层按文档站色值分两层（浅 `#FDFDFE` / `#F7F8FC`）。 |
 
-> 为什么现在不贴图：预览图过时会被当成现状，比没有图更糟。
-
+> 截图不是像素级 A/B 的产物：它们证明「特性存在」，不证明「与其它主题插件同时生效时谁赢」。
 ## 安装
 
 ### 从 npm 安装（主路径）
@@ -317,7 +313,7 @@ scripts/                   取证、校验、生成、共存检查
 themes/                    228 键表 + 16 个源色锚点 + 冻结名单 + 退役名单
 tests/                     258 条 / 9 个文件
 docs/                      架构、调色板、兼容性、backlog、各版计划
-assets/previews/           真机截图（待补 0.1.6 的五张）
+assets/previews/           真机截图（浅/深/玻璃/步骤行/表面色 五张）
 ```
 
 ### 文档索引
@@ -331,6 +327,7 @@ assets/previews/           真机截图（待补 0.1.6 的五张）
 | [docs/backlog-v0.2.md](docs/backlog-v0.2.md) | 已知债条目（B1–B28） |
 | [docs/plans/v0.1.6.md](docs/plans/v0.1.6.md) | 0.1.6 契约：表面锚点 |
 | [docs/plans/v0.1.7.md](docs/plans/v0.1.7.md) | 0.1.7 契约：README 重写与上架准备 |
+| [docs/market-submission.md](docs/market-submission.md) | 上架插件市场的提报材料（简介 / 特性 / 截图 / 权限 / 兼容矩阵 / 版本） |
 | [CHANGELOG.md](CHANGELOG.md) | 每个版本交付了什么 |
 
 改代码之前请先读 [docs/architecture.md](docs/architecture.md)；改配色看
