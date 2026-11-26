@@ -84,17 +84,53 @@ Moonset 向官方主题系统注册 `moonset-light` 与 `moonset-dark` 两个主
 
 ## 预览
 
-以下截图来自真机（Windows 桌面壳），按功能分组；尺寸与主题不同属正常，图注写明各自展示的是什么。
+截图来自真机（Windows 桌面壳，Moonset 浅色 / 深色）。成对的图都是同一处界面在两种方案下的样子。
 
-| 图 | 展示什么 |
+| 浅色 | 深色 |
 |---|---|
-| ![浅色主题](assets/previews/01-light.png) | **浅色主题**：地面光晕（默认档「主区」）+ 会话 header 玻璃 + 选中行淡紫底紫字。 |
-| ![深色主题](assets/previews/02-dark.png) | **深色主题**：同一支夜空蓝的三层地面光晕（月核 / 月晕 / 底部反光）+ 深色表面色。 |
-| ![玻璃材质](assets/previews/03-glass.png) | **Windows 标题条与会话 header 的玻璃**：半透明 + 背景模糊（此处 12 px），标题条跟随地面光晕。 |
-| ![工作步骤行](assets/previews/04-steps.png) | **工作步骤行按类型分色**：运行命令=绿、读取=蓝紫、搜索=琥珀、思考=紫，末尾有一条失败行（错误色、不加粗）。 |
-| ![表面锚点](assets/previews/05-surfaces.png) | **编辑卡 / 代码框 / 交付文件卡的表面色**：标题层与内容层按文档站色值分两层（浅 `#FDFDFE` / `#F7F8FC`）。 |
+| ![浅色主题](assets/previews/01-light.png) | ![深色主题](assets/previews/02-dark.png) |
 
-> 截图不是像素级 A/B 的产物：它们证明「特性存在」，不证明「与其它主题插件同时生效时谁赢」。
+浅色是靛蓝月晕加右下角一点琥珀；深色是同一支夜空蓝的三层地面——月核、月晕、底部反光。
+
+### 玻璃材质
+
+![输入卡玻璃](assets/previews/03-glass.png)
+
+输入卡的半透明与背景模糊（左浅右深）。会话 header 与 Windows 标题条共用同一份配方；
+header 悬浮在正文之上，滚动消息从它背后经过并被糊住。
+
+### 工作步骤行配色
+
+![步骤行配色](assets/previews/04-steps.png)
+
+运行命令=绿、读取 / 写入 / 编辑=蓝紫、搜索=琥珀、思考=紫、代码与未知工具=强调色；
+最后一条是失败行（错误色、不加粗）。工具名与参数各取同族混色，等宽字体只用于这两格。
+
+### 表面色
+
+![编辑卡表面色](assets/previews/05-surfaces.png)
+
+编辑卡、代码框、交付文件卡共用一套表面锚点，标题层与内容层分两层：
+浅 `#FDFDFE` / `#F7F8FC`，深 `#121420` / `#0D0F17`。
+
+### 代码框
+
+![代码框](assets/previews/07-code.png)
+
+代码框的头部与代码体同样走表面锚点；语法高亮沿用既有 token，没有为高亮另造色。
+
+### 回合导航轨
+
+![导航轨](assets/previews/06-rail.png)
+
+保留宿主刻度的形状与宽度阶梯（未加载更短更淡、悬停略长），只换颜色：
+当前项琥珀加光晕，前后各两项按 55% / 28% 过渡，悬停预览用同一套。
+
+### 选中态
+
+![会话选中态](assets/previews/08-session.png)
+
+选中的会话行是淡紫底加紫字（左浅右深）；文本选区用同一组色。
 ## 安装
 
 ### 从 npm 安装（主路径）
@@ -335,6 +371,17 @@ assets/previews/           真机截图（浅/深/玻璃/步骤行/表面色 五
 [docs/architecture.md](docs/architecture.md) §11 的白名单门槛。
 
 ## 致谢 / 许可
+
+### 配色来源
+
+这套配色的**原始出处**是 MoonBit 社区作者 [Wyatex](https://github.com/Wyatex) 的文档站
+[unmbt/moonset-document](https://github.com/unmbt/moonset-document)。作者在 MoonBit 交流群里分享了那个站点，
+我问「配色很好看，能拿来做 DSH 主题插件吗」，作者很爽快地说「拿去抄」——这个插件就是这么来的。
+16 个源色锚点、A / B1 / B2 / B3 的分类规则都照那个站点的取色与对比度口径来做，详见
+[docs/palette.md](docs/palette.md)。**配色归功于原作者，插件只负责把它搬到 DSH 上。**
+
+### 其它
+
 
 - 228 个 `--dsw-*` token 与「两半区 + bundle patch」的插件形态来自 DeepSeek Harness
   官方的主题层与插件加载器；本仓库只提供配色、皮肤表与装配代码。

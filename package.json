@@ -1,7 +1,7 @@
 {
   "name": "@aurasuisui/dsh-moonset-theme",
-  "description": "Moonset (月落) light/dark themes for the DeepSeek Harness web GUI — two palettes registered into the official theme system.",
-  "version": "0.1.7",
+  "description": "Moonset (月落) — light/dark themes plus a thin skin layer (glow, glass, step colours) for the DeepSeek Harness web GUI. Palette by Wyatex.",
+  "version": "0.1.8",
   "type": "module",
   "engines": {
     "node": ">=20",
@@ -34,7 +34,8 @@
     "LICENSE",
     "CHANGELOG.md",
     "assets",
-    "*.map"
+    "*.map",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsdown",
@@ -43,6 +44,13 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.vitest.json",
     "test": "vitest run"
   },
+  "contributors": [
+    {
+      "name": "Wyatex",
+      "url": "https://github.com/Wyatex",
+      "comment": "Original colour palette from unmbt/moonset-document"
+    }
+  ],
   "keywords": [
     "dsh",
     "deepseek-harness",

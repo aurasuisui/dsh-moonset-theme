@@ -1,0 +1,13 @@
+Moonset DSH theme
+=================
+
+The colour palette used by this plugin originates from the Moonset document site
+
+    https://github.com/unmbt/moonset-document
+
+by Wyatex (https://github.com/Wyatex), who generously allowed it to be reused
+for this project ("拿去抄" — take it and copy it) in the MoonBit community chat.
+
+This repository contains no source code from that site: the plugin re-derives the
+palette as 228 --dsw-* tokens for the DeepSeek Harness theme system and adds its
+own skin layer. Colour design credit belongs to the original author.
