@@ -4,6 +4,19 @@
 完整契约（里程碑、出口条件、已决、已知债）见
 [docs/plans/v0.1.0.md](docs/plans/v0.1.0.md)；文档索引见 [docs/README.md](docs/README.md)。
 
+## 0.1.8 — 2026-11-26
+
+预览图全部重拍，并补上配色来源的署名。运行时行为零改动。
+
+### 变更
+
+- **预览图重拍为 8 张成对截图**（左浅右深）：整窗、输入卡玻璃、工作步骤行配色、表面色、
+  代码框、回合导航轨、选中会话行。整窗图裁掉了侧栏（工作区名不进入公开仓库），宽度压到 1600 px 并做 256 色调色板量化。
+- **补上配色出处**：配色来自 MoonBit 社区作者 [Wyatex](https://github.com/Wyatex) 的文档站
+  [unmbt/moonset-document](https://github.com/unmbt/moonset-document)，作者授权「拿去抄」。
+  README 新增「致谢 · 配色来源」小节，`docs/palette.md`、`docs/market-submission.md` 同步，
+  `package.json` 增加 `contributors`，新增 `NOTICE` 文件说明衍生关系（仓库不含该站源码）。
+- `package.json` 的 `description` 更新为当前定位（主题 + 轻皮肤），并注明配色作者。
 ## 0.1.7 — 2026-11-26
 
 纯文档与元数据：README 重写 + 插件市场上架材料。**运行时行为零改动。**

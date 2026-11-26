@@ -32,11 +32,13 @@ Moonset 向官方主题系统注册 `moonset-light` 与 `moonset-dark` 两个主
 
 | 文件 | 内容 |
 |---|---|
-| `01-light.png` | 浅色主题 + 地面光晕 + 会话 header 玻璃 |
-| `02-dark.png` | 深色主题 + 三层地面光晕 |
-| `03-glass.png` | Windows 标题条 / 会话 header 半透明 + 模糊 |
-| `04-steps.png` | 工作步骤行按类型分色 + 一条失败行 |
-| `05-surfaces.png` | 编辑卡表面色（标题层 / 内容层两层） |
+| `01-light.png` / `02-dark.png` | 浅色 / 深色整窗（地面光晕、选中态、玻璃） |
+| `03-glass.png` | 输入卡玻璃：左浅右深 |
+| `04-steps.png` | 工作步骤行按类型分色 + 一条失败行：左浅右深 |
+| `05-surfaces.png` | 编辑卡表面色（标题层 / 内容层两层）：左浅右深 |
+| `06-rail.png` | 回合导航轨染色（当前项琥珀 + 前后渐变）：左浅右深 |
+| `07-code.png` | 代码框表面色与语法高亮：左浅右深 |
+| `08-session.png` | 选中会话行淡紫底紫字：左浅右深 |
 
 ## 5. 权限与外部访问
 
@@ -80,7 +82,14 @@ Moonset 向官方主题系统注册 `moonset-light` 与 `moonset-dark` 两个主
 - **没有真正的「文件蓝」**：228 键表无 `sky`/`cyan` 家族，文件类用与强调色同族差一档的 `deepseek-400`。
 - 完整清单（含 macOS 未验证、多窗口不同步、1500 ms 窗口、`:root{color-scheme}` 未发等）见 [README「已知边界」](../README.md#已知边界)。
 
-## 9. 提交前检查表
+## 9. 配色来源与致谢
+
+配色来自 MoonBit 社区作者 [Wyatex](https://github.com/Wyatex) 的文档站
+[unmbt/moonset-document](https://github.com/unmbt/moonset-document)，作者授权「拿去抄」。
+本插件只做搬运与适配（228 个 token 的映射、皮肤层、DSH 插件形态），**配色设计归原作者**。
+提交上架时请保留这条署名。
+
+## 10. 提交前检查表
 
 - [x] `pnpm test` 258 条全绿、`typecheck` ×2、`build` 均为 0
 - [x] 截图来自装了当前版本的真机

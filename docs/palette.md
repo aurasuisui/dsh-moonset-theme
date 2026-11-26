@@ -1,4 +1,9 @@
-# 调色板与 token 契约
+# 调色板
+
+> **出处**：配色来自 [Wyatex](https://github.com/Wyatex) 的文档站
+> [unmbt/moonset-document](https://github.com/unmbt/moonset-document)（作者授权「拿去抄」）。
+> 本文记录的是**搬运时的取色与校验**，不是原始设计。
+与 token 契约
 
 这份文档说明：16 个源色锚点是什么、228 个 `--dsw-*` 键怎么从官方表变成月落色、
 22 条对比度契约的**实测值**是多少、以及怎么重新生成并为结果复核。
