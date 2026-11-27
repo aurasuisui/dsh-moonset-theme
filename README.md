@@ -1,5 +1,7 @@
 # dsh-moonset-theme
 
+<img src="assets/icon-512.png" width="96" height="96" alt="Moonset icon">
+
 Moonset（月落）是 DeepSeek Harness（下称 DSH）Web GUI 的浅色 / 深色主题插件。
 当前版本 **0.1.6**，许可证 MIT。
 
