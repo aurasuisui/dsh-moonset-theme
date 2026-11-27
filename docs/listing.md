@@ -38,6 +38,18 @@ description:
 填充色 `#4F46E5`（靛蓝，与本主题的强调色同族），底是主题自己的浅色表面渐变。
 **不是截图，是矢量重绘**，所以任何尺寸都清晰。
 
+## 3.5 提交状态
+
+| 项 | 值 |
+|---|---|
+| PR | [awesome-dsh-plugin#19196](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/19196) |
+| 分支 | `aurasuisui:add-moonset-theme`（fork） |
+| 改动 | 3 个文件：新增 1 个 YAML + 两个 README 各多 1 行（生成物） |
+| 本地自查 | `npm ci && node scripts/generate-readme.mjs` → exit 0 |
+
+> 踩到过的坑：PR 正文先写进了工作树里的 `PR.md`，`git add -A` 把正文也提交进去了；
+> 已用 `git rm --cached` + 删除本地文件撤掉，现在 PR 里只有该有的三个文件。
+
 ## 4. 提交步骤（复现用）
 
 ```powershell
